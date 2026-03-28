@@ -5,3 +5,4 @@
 - [Feedback: Language Policy](feedback_language.md) — ALL repo content (commits, comments, docs) must be English; Hungarian only in conversation
 - [Architecture Decisions](architecture_decisions.md) — meghozott tervezési döntések és indokaik
 - [User Preferences](user_preferences.md) — a felhasználó munkastílusa és preferenciái
+- [Telegram Bot API Reference](../../docs/dev/telegram-bot-api.md) — HTTPS endpoint-ök, objektumok, limitációk
