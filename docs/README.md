@@ -9,6 +9,10 @@ See the project [README](../README.md) for installation, configuration, interact
 - [Testing](dev/testing.md) — unit, functional, integration tests; coverage requirements
 - [Logging](dev/logging.md) — log levels, rotation, API traffic capture
 
+## Legal Research
+
+- [Licensing, Open Source, and ToS Analysis](legal-research.md) — API ToS compliance, AI/ML clause, server public key, api_id requirements
+
 ## Architecture Decision Records
 
 - [ADR-0001: CLEAN Layered Architecture](adr/0001-clean-architecture.md)
