@@ -31,6 +31,7 @@ set(TEST_SOURCES
     test_ige_aes.c
     test_mtproto_crypto.c
     test_phase2.c
+    test_rpc.c
     ../../src/core/fs_util.c
     ../../src/core/logger.c
     ../../src/core/config.c
@@ -41,6 +42,8 @@ set(TEST_SOURCES
     ../../src/infrastructure/config_store.c
     ../../src/infrastructure/cache_store.c
     ../../src/infrastructure/transport.c
+    ../../src/infrastructure/mtproto_rpc.c
+    ../../src/infrastructure/mtproto_rpc.c
     ../../tests/mocks/crypto.c
     ../../tests/mocks/socket.c
     ${TEST_PLATFORM_SOURCES}

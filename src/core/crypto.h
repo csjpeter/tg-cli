@@ -13,64 +13,87 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* ---- AES ---- */
+
 /** AES key schedule storage (opaque — do not access fields directly). */
 typedef struct {
     unsigned char key[32]; /**< Raw key bytes. */
     int bits;              /**< Key size in bits (128, 192, or 256). */
 } CryptoAesKey;
 
-/**
- * @brief Compute SHA-256 hash.
- * @param data Input data.
- * @param len  Length of input.
- * @param out  Output buffer (32 bytes).
- */
-void crypto_sha256(const unsigned char *data, size_t len, unsigned char *out);
-
-/**
- * @brief Set up AES encryption key schedule.
- * @param key      AES key (16, 24, or 32 bytes).
- * @param bits     Key size in bits (128, 192, or 256).
- * @param schedule Output key schedule.
- * @return 0 on success, non-zero on error.
- */
-int crypto_aes_set_encrypt_key(const unsigned char *key, int bits,
-                               CryptoAesKey *schedule);
-
-/**
- * @brief Set up AES decryption key schedule.
- * @param key      AES key.
- * @param bits     Key size in bits.
- * @param schedule Output key schedule.
- * @return 0 on success, non-zero on error.
- */
-int crypto_aes_set_decrypt_key(const unsigned char *key, int bits,
-                               CryptoAesKey *schedule);
-
-/**
- * @brief Encrypt a single 16-byte AES block (ECB mode).
- * @param in       Input block (16 bytes).
- * @param out      Output block (16 bytes).
- * @param schedule Key schedule from crypto_aes_set_encrypt_key().
- */
+int  crypto_aes_set_encrypt_key(const unsigned char *key, int bits,
+                                CryptoAesKey *schedule);
+int  crypto_aes_set_decrypt_key(const unsigned char *key, int bits,
+                                CryptoAesKey *schedule);
 void crypto_aes_encrypt_block(const unsigned char *in, unsigned char *out,
                               const CryptoAesKey *schedule);
-
-/**
- * @brief Decrypt a single 16-byte AES block (ECB mode).
- * @param in       Input block (16 bytes).
- * @param out      Output block (16 bytes).
- * @param schedule Key schedule from crypto_aes_set_decrypt_key().
- */
 void crypto_aes_decrypt_block(const unsigned char *in, unsigned char *out,
                               const CryptoAesKey *schedule);
 
-/**
- * @brief Fill buffer with cryptographically secure random bytes.
- * @param buf Output buffer.
- * @param len Number of bytes to generate.
- * @return 0 on success, non-zero on error.
- */
+/* ---- Hash ---- */
+
+/** Compute SHA-256 hash (32 bytes output). */
+void crypto_sha256(const unsigned char *data, size_t len, unsigned char *out);
+
+/** Compute SHA-1 hash (20 bytes output). */
+void crypto_sha1(const unsigned char *data, size_t len, unsigned char *out);
+
+/* ---- Random ---- */
+
+/** Fill buffer with cryptographically secure random bytes. */
 int crypto_rand_bytes(unsigned char *buf, size_t len);
+
+/* ---- RSA ---- */
+
+/** RSA public key object (opaque). */
+typedef struct CryptoRsaKey CryptoRsaKey;
+
+/** Load RSA public key from PEM string. Returns NULL on error. */
+CryptoRsaKey *crypto_rsa_load_public(const char *pem);
+
+/** Free RSA key. */
+void crypto_rsa_free(CryptoRsaKey *key);
+
+/**
+ * RSA-encrypt with OAEP-like padding (Telegram's RSA_PAD).
+ * @param key        RSA public key.
+ * @param data       Data to encrypt.
+ * @param data_len   Data length.
+ * @param out        Output buffer (must hold key size bytes, e.g. 256).
+ * @param out_len    Receives output length.
+ * @return 0 on success, -1 on error.
+ */
+int crypto_rsa_public_encrypt(CryptoRsaKey *key, const unsigned char *data,
+                              size_t data_len, unsigned char *out, size_t *out_len);
+
+/* ---- Big Number Arithmetic (for DH) ---- */
+
+/** Big number context (opaque). */
+typedef struct CryptoBnCtx CryptoBnCtx;
+
+/** Create BN context. */
+CryptoBnCtx *crypto_bn_ctx_new(void);
+
+/** Free BN context. */
+void crypto_bn_ctx_free(CryptoBnCtx *ctx);
+
+/**
+ * Modular exponentiation: result = (base ^ exp) mod modulus.
+ * @param result  Output big number (bytes, big-endian).
+ * @param res_len Output buffer size / actual length.
+ * @param base    Base (big-endian bytes).
+ * @param base_len Base length.
+ * @param exp     Exponent (big-endian bytes).
+ * @param exp_len Exponent length.
+ * @param mod     Modulus (big-endian bytes).
+ * @param mod_len Modulus length.
+ * @param ctx     BN context.
+ * @return 0 on success, -1 on error.
+ */
+int crypto_bn_mod_exp(unsigned char *result, size_t *res_len,
+                       const unsigned char *base, size_t base_len,
+                       const unsigned char *exp, size_t exp_len,
+                       const unsigned char *mod, size_t mod_len,
+                       CryptoBnCtx *ctx);
 
 #endif /* CRYPTO_H */

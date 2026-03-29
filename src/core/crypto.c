@@ -10,6 +10,9 @@
 
 #include <openssl/evp.h>
 #include <openssl/rand.h>
+#include <openssl/rsa.h>
+#include <openssl/bn.h>
+#include <openssl/pem.h>
 #include <string.h>
 
 void crypto_sha256(const unsigned char *data, size_t len, unsigned char *out) {
@@ -66,4 +69,117 @@ void crypto_aes_decrypt_block(const unsigned char *in, unsigned char *out,
 
 int crypto_rand_bytes(unsigned char *buf, size_t len) {
     return RAND_bytes(buf, (int)len) == 1 ? 0 : -1;
+}
+
+/* ---- SHA-1 ---- */
+
+void crypto_sha1(const unsigned char *data, size_t len, unsigned char *out) {
+    EVP_Digest(data, len, out, NULL, EVP_sha1(), NULL);
+}
+
+/* ---- RSA ---- */
+
+struct CryptoRsaKey {
+    RSA *rsa;
+};
+
+CryptoRsaKey *crypto_rsa_load_public(const char *pem) {
+    if (!pem) return NULL;
+
+    BIO *bio = BIO_new_mem_buf(pem, (int)strlen(pem));
+    if (!bio) return NULL;
+
+    RSA *rsa = PEM_read_bio_RSA_PUBKEY(bio, NULL, NULL, NULL);
+    BIO_free(bio);
+
+    if (!rsa) return NULL;
+
+    CryptoRsaKey *key = (CryptoRsaKey *)calloc(1, sizeof(CryptoRsaKey));
+    if (!key) { RSA_free(rsa); return NULL; }
+    key->rsa = rsa;
+    return key;
+}
+
+void crypto_rsa_free(CryptoRsaKey *key) {
+    if (key) {
+        RSA_free(key->rsa);
+        free(key);
+    }
+}
+
+int crypto_rsa_public_encrypt(CryptoRsaKey *key, const unsigned char *data,
+                              size_t data_len, unsigned char *out, size_t *out_len) {
+    if (!key || !data || !out || !out_len) return -1;
+
+    int rsa_size = RSA_size(key->rsa);
+    if ((int)data_len > rsa_size) return -1;
+
+    int result = RSA_public_encrypt((int)data_len, data, out, key->rsa,
+                                    RSA_NO_PADDING);
+    if (result < 0) return -1;
+
+    *out_len = (size_t)result;
+    return 0;
+}
+
+/* ---- Big Number Arithmetic ---- */
+
+struct CryptoBnCtx {
+    BN_CTX *ctx;
+};
+
+CryptoBnCtx *crypto_bn_ctx_new(void) {
+    CryptoBnCtx *c = (CryptoBnCtx *)calloc(1, sizeof(CryptoBnCtx));
+    if (!c) return NULL;
+    c->ctx = BN_CTX_new();
+    if (!c->ctx) { free(c); return NULL; }
+    return c;
+}
+
+void crypto_bn_ctx_free(CryptoBnCtx *ctx) {
+    if (ctx) {
+        BN_CTX_free(ctx->ctx);
+        free(ctx);
+    }
+}
+
+int crypto_bn_mod_exp(unsigned char *result, size_t *res_len,
+                      const unsigned char *base, size_t base_len,
+                      const unsigned char *exp, size_t exp_len,
+                      const unsigned char *mod, size_t mod_len,
+                      CryptoBnCtx *ctx) {
+    if (!result || !res_len || !base || !exp || !mod || !ctx) return -1;
+
+    BIGNUM *bn_base = BN_bin2bn(base, (int)base_len, NULL);
+    BIGNUM *bn_exp  = BN_bin2bn(exp, (int)exp_len, NULL);
+    BIGNUM *bn_mod  = BN_bin2bn(mod, (int)mod_len, NULL);
+    BIGNUM *bn_res  = BN_new();
+
+    if (!bn_base || !bn_exp || !bn_mod || !bn_res) {
+        BN_free(bn_base); BN_free(bn_exp); BN_free(bn_mod); BN_free(bn_res);
+        return -1;
+    }
+
+    int rc = BN_mod_exp(bn_res, bn_base, bn_exp, bn_mod, ctx->ctx);
+    if (rc != 1) {
+        BN_free(bn_base); BN_free(bn_exp); BN_free(bn_mod); BN_free(bn_res);
+        return -1;
+    }
+
+    int bytes = BN_num_bytes(bn_res);
+    if ((size_t)bytes > *res_len) {
+        BN_free(bn_base); BN_free(bn_exp); BN_free(bn_mod); BN_free(bn_res);
+        return -1;
+    }
+
+    /* Left-pad with zeros to fill mod_len */
+    size_t actual = (size_t)bytes;
+    if (actual < mod_len) {
+        memset(result, 0, mod_len - actual);
+    }
+    BN_bn2bin(bn_res, result + (mod_len - actual));
+    *res_len = mod_len;
+
+    BN_free(bn_base); BN_free(bn_exp); BN_free(bn_mod); BN_free(bn_res);
+    return 0;
 }
