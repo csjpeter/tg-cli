@@ -18,6 +18,7 @@ void test_ige(void);
 void test_mtproto_crypto(void);
 void test_phase2(void);
 void test_rpc(void);
+void test_auth(void);
 
 int main() {
     printf("--- tg-cli Unit Test Suite ---\n\n");

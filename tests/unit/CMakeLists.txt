@@ -32,6 +32,7 @@ set(TEST_SOURCES
     test_mtproto_crypto.c
     test_phase2.c
     test_rpc.c
+    test_auth.c
     ../../src/core/fs_util.c
     ../../src/core/logger.c
     ../../src/core/config.c
@@ -39,6 +40,7 @@ set(TEST_SOURCES
     ../../src/core/ige_aes.c
     ../../src/core/mtproto_crypto.c
     ../../src/core/mtproto_session.c
+    ../../src/core/mtproto_auth.c
     ../../src/infrastructure/config_store.c
     ../../src/infrastructure/cache_store.c
     ../../src/infrastructure/transport.c
