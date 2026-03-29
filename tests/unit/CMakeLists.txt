@@ -30,15 +30,19 @@ set(TEST_SOURCES
     test_tl_serial.c
     test_ige_aes.c
     test_mtproto_crypto.c
+    test_phase2.c
     ../../src/core/fs_util.c
     ../../src/core/logger.c
     ../../src/core/config.c
     ../../src/core/tl_serial.c
     ../../src/core/ige_aes.c
     ../../src/core/mtproto_crypto.c
+    ../../src/core/mtproto_session.c
     ../../src/infrastructure/config_store.c
     ../../src/infrastructure/cache_store.c
+    ../../src/infrastructure/transport.c
     ../../tests/mocks/crypto.c
+    ../../tests/mocks/socket.c
     ${TEST_PLATFORM_SOURCES}
 )
 
