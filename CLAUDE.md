@@ -35,16 +35,17 @@ alongside `core/` and is depended upon by `domain/` and `infrastructure/`.
 No layer may contain `#ifdef` guards for platform selection — that is the
 build system's (CMake's) responsibility.
 
-**Data flow:** `main.c` initializes logger and paths → loads config (or runs setup on first run) → calls Telegram Bot API via HTTPS (libcurl) → results go to stdout, diagnostics to `~/.cache/tg-cli/logs/`.
+**Data flow:** `main.c` initializes logger and paths → MTProto handshake (auth key DH exchange) → encrypted channel → Telegram API calls (TL serialized) → results to stdout, diagnostics to `~/.cache/tg-cli/logs/`.
 
-**Config** is stored at `~/.config/tg-cli/config.ini` with mode 0600 (API base URL, bot token).
+**Config** is stored at `~/.config/tg-cli/config.ini` with mode 0600 (api_id, api_hash, DC info).
 
 ## Communication
 
-- **Protocol:** HTTPS via libcurl — direct Telegram Bot API REST calls
-- **No pre-built API libraries** — all API interaction is implemented in-house
-- **JSON:** own minimal JSON parser (planned in `src/core/json_util.h/c`)
-- **Real-time:** long polling via `getUpdates` endpoint
+- **Protocol:** MTProto 2.0 over raw TCP (POSIX sockets) — no HTTP, no libcurl
+- **No pre-built API libraries** — entire MTProto stack implemented from scratch
+- **TL serialization:** binary object encoding (see `src/core/tl_serial.h/c`)
+- **Crypto:** AES-256-IGE + SHA-256 via libssl (see `src/core/crypto.h/c`)
+- **Real-time:** `updates.getDifference` over encrypted channel
 
 ## RAII Memory Safety
 
@@ -56,11 +57,11 @@ No external test libraries are used. Tests use `ASSERT(condition, message)` and 
 
 ## Language & Standard
 
-C11 (`-std=c11`). Linked against libcurl + libssl. All public functions should have Doxygen-style comments.
+C11 (`-std=c11`). Linked against libssl (OpenSSL). All public functions should have Doxygen-style comments.
 
 ## Dependency Policy
 
-**Keep external dependencies minimal.**  The project intentionally uses only the C standard library, POSIX, libcurl, and libssl.  Before reaching for a new library, exhaust stdlib/POSIX options first.  New runtime dependencies require explicit justification and user approval.
+**Keep external dependencies minimal.**  The project intentionally uses only the C standard library, POSIX, and libssl (OpenSSL).  Before reaching for a new library, exhaust stdlib/POSIX options first.  New runtime dependencies require explicit justification and user approval.
 
 ## Portability
 
@@ -122,13 +123,36 @@ src/platform/
 (e.g. to distinguish Linux vs macOS within the POSIX backend), never in
 `core/`, `domain/`, `infrastructure/`, or `main.c`.
 
+## Dependency Inversion for Testability
+
+All system and library IO calls are wrapped in thin functions declared in shared
+headers.  **No Dependency Injection** (no vtables, no runtime function pointers).
+CMake selects which implementation to link at build time.
+
+**Production** links real implementations. **Tests** link mock implementations
+from `tests/mocks/`. See [ADR-0004](docs/adr/0004-dependency-inversion.md).
+
+```
+src/core/crypto.h        ← crypto_sha256(), crypto_aes_encrypt_block(), ...
+src/core/crypto.c        ← OpenSSL implementation
+tests/mocks/crypto.c     ← mock with call counters and controlled outputs
+
+src/platform/socket.h    ← sys_socket(), sys_connect(), sys_send(), ...
+src/platform/posix/      ← POSIX implementation
+tests/mocks/socket.c     ← fake server for integration tests
+```
+
+**Rule:** Never call OpenSSL (`SHA256()`, `AES_encrypt()`) or POSIX socket
+functions directly from module code. Always go through the `crypto.h` /
+`socket.h` wrappers.
+
 ## Documentation
 
 ```
 docs/
   README.md               ← index
-  dev/                    ← developer guides (testing, logging)
-  adr/                    ← Architecture Decision Records (CLEAN arch, RAII, test framework)
+  dev/                    ← developer guides (testing, logging, MTProto reference)
+  adr/                    ← Architecture Decision Records (CLEAN arch, RAII, test framework, DIP)
 ```
 
 ## Project Memory

@@ -13,6 +13,9 @@ void test_config_store(void);
 void test_logger(void);
 void test_cache_store(void);
 void test_platform(void);
+void test_tl_serial(void);
+void test_ige(void);
+void test_mtproto_crypto(void);
 
 int main() {
     printf("--- tg-cli Unit Test Suite ---\n\n");
@@ -25,6 +28,9 @@ int main() {
     RUN_TEST(test_logger);
     RUN_TEST(test_cache_store);
     RUN_TEST(test_platform);
+    RUN_TEST(test_tl_serial);
+    RUN_TEST(test_ige);
+    RUN_TEST(test_mtproto_crypto);
 
     printf("\n--- Test Results ---\n");
     printf("Tests Run:    %d\n", g_tests_run);

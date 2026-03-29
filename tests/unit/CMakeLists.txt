@@ -2,7 +2,9 @@ include_directories(
     ../../src
     ../../src/core
     ../../src/infrastructure
+    ../../src/platform
     ../common
+    ../mocks
 )
 
 # Platform-specific sources for tests
@@ -25,15 +27,22 @@ set(TEST_SOURCES
     test_config.c
     test_logger.c
     test_cache.c
+    test_tl_serial.c
+    test_ige_aes.c
+    test_mtproto_crypto.c
     ../../src/core/fs_util.c
     ../../src/core/logger.c
     ../../src/core/config.c
+    ../../src/core/tl_serial.c
+    ../../src/core/ige_aes.c
+    ../../src/core/mtproto_crypto.c
     ../../src/infrastructure/config_store.c
     ../../src/infrastructure/cache_store.c
+    ../../tests/mocks/crypto.c
     ${TEST_PLATFORM_SOURCES}
 )
 
 add_executable(test-runner ${TEST_SOURCES})
-target_link_libraries(test-runner ${CURL_LIBRARIES})
+target_link_libraries(test-runner OpenSSL::SSL OpenSSL::Crypto)
 
 add_test(NAME UnitTests COMMAND test-runner)
