@@ -7,8 +7,10 @@ On OOM or resource exhaustion this causes a NULL pointer dereference and crash.
 
 ## Steps
 1. Add NULL check after `EVP_CIPHER_CTX_new()` in both functions
-2. Return early (or propagate error) if allocation fails
-3. Add unit test triggering this path (if feasible with mock)
+2. Log to stderr and abort (OOM policy: minimal handling, immediate exit)
+
+## OOM Policy
+No graceful recovery needed. `fprintf(stderr, "OOM\n"); abort();` is sufficient.
 
 ## Estimate
 ~10 lines

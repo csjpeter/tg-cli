@@ -7,12 +7,13 @@ returns `void`. On malloc failure it silently returns, leaving the caller's
 and will proceed with garbage data.
 
 ## Steps
-1. Change return type to `int` (0 = success, -1 = failure)
-2. Update all callers to check return value
-3. Add test for error propagation
+1. Add `fprintf(stderr, "OOM\n"); abort();` on malloc failure instead of silent return
+
+## OOM Policy
+No graceful recovery needed. Abort with message is sufficient.
 
 ## Estimate
-~15 lines
+~2 lines
 
 ## Dependencies
 P1-mtproto-crypto (will be fixed together with that issue)
