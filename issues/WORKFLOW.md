@@ -6,30 +6,47 @@ Issues move between directories that represent their current status:
 
 ```
 incoming/ → pending/ → inprogress/ → ready/ → inqa/ → verified/
-             ↑                                   │
-             └──────────── (QA reject) ──────────┘
+    │          ↑                                  │
+    ↓          └──────────── (QA reject) ──────────┘
+ blocked/
 ```
 
-| Directory     | Meaning                                              |
-|---------------|------------------------------------------------------|
-| `incoming/`   | Newly created issue, awaiting manager approval       |
-| `pending/`    | Approved for development, waiting to be picked up    |
-| `inprogress/` | Actively being worked on by a developer              |
-| `ready/`      | Development complete, waiting for QA                 |
-| `inqa/`       | QA review in progress                                |
-| `verified/`   | QA passed, issue closed                              |
+| Directory     | Meaning                                                        |
+|---------------|----------------------------------------------------------------|
+| `incoming/`   | Newly created issue, awaiting Engineer feasibility analysis    |
+| `pending/`    | Feasible, approved for development, waiting to be picked up    |
+| `blocked/`    | Not yet feasible — missing dependencies or prerequisites       |
+| `inprogress/` | Actively being worked on by a Developer                        |
+| `ready/`      | Development complete, waiting for QA                           |
+| `inqa/`       | QA review in progress                                          |
+| `verified/`   | QA passed, issue closed                                        |
 
 ## Roles
 
-- **Manager** (human user): Approves issues, prioritizes work
+- **Manager** (Claude): Ensures progress, coordinates team, finds gaps and conflicts
+- **Engineer** (Claude): Analyzes issues and code together, decides feasibility
 - **Developer** (Claude): Implements features, fixes bugs
 - **QA** (Claude): Reviews code quality, runs checks, verifies acceptance
 
 ## Transitions
 
-### incoming/ → pending/ (manager approval)
-**Trigger:** Manager reviews and approves the issue for development.
-Only the manager (human user) can authorize this move.
+### incoming/ → pending/ (Engineer approves)
+**Trigger:** Engineer analyzes the issue against the current codebase and determines
+it is feasible — all dependencies are met.
+
+### incoming/ → blocked/ (Engineer rejects)
+**Trigger:** Engineer determines the issue is not yet feasible — dependencies are
+missing or prerequisites are unmet.
+**Requirements:**
+- Add a `## Blocked` section to the issue file documenting:
+  - Date
+  - What is missing or blocking progress
+
+Example:
+```markdown
+## Blocked — 2026-03-31
+- Depends on P2-auth-key-exchange which is not yet in verified/
+```
 
 ### pending/ → inprogress/ (developer picks up)
 **Trigger:** Developer picks up the issue.
@@ -112,6 +129,9 @@ Approximate scope in lines of code.
 
 ## Dependencies
 List of prerequisite issues (e.g., P3-01).
+
+## Blocked — <date> (if applicable)
+- Blocking reasons
 
 ## QA Reject — <date> (if applicable)
 - Rejection reasons
