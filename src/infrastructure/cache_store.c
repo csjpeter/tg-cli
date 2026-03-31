@@ -80,8 +80,16 @@ static char *load_file(const char *path) {
 
 char *cache_load(const char *category, const char *key) {
     RAII_STRING char *path = cache_path(category, key);
-    if (!path) return NULL;
-    return load_file(path);
+    if (!path) {
+        logger_log(LOG_ERROR, "cache_load: failed to determine cache path for %s/%s",
+                   category ? category : "(null)", key ? key : "(null)");
+        return NULL;
+    }
+    char *data = load_file(path);
+    if (!data) {
+        logger_log(LOG_DEBUG, "cache_load: no data at %s", path);
+    }
+    return data;
 }
 
 /* ── Stale entry eviction ────────────────────────────────────────────── */

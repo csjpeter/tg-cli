@@ -107,7 +107,9 @@ void logger_log(LogLevel level, const char *format, ...) {
 
 void logger_close(void) {
     if (g_log_fp) {
-        fclose(g_log_fp);
+        if (fclose(g_log_fp) != 0) {
+            fprintf(stderr, "logger: fclose failed\n");
+        }
         g_log_fp = NULL;
     }
     if (g_log_path) {

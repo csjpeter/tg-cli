@@ -13,6 +13,8 @@
 #include <openssl/rsa.h>
 #include <openssl/bn.h>
 #include <openssl/pem.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 void crypto_sha256(const unsigned char *data, size_t len, unsigned char *out) {
@@ -44,6 +46,7 @@ static const EVP_CIPHER *aes_ecb_cipher(int bits) {
 void crypto_aes_encrypt_block(const unsigned char *in, unsigned char *out,
                               const CryptoAesKey *schedule) {
     EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+    if (!ctx) { fprintf(stderr, "OOM: EVP_CIPHER_CTX_new\n"); abort(); }
     EVP_EncryptInit_ex(ctx, aes_ecb_cipher(schedule->bits),
                        NULL, schedule->key, NULL);
     EVP_CIPHER_CTX_set_padding(ctx, 0);
@@ -57,6 +60,7 @@ void crypto_aes_encrypt_block(const unsigned char *in, unsigned char *out,
 void crypto_aes_decrypt_block(const unsigned char *in, unsigned char *out,
                               const CryptoAesKey *schedule) {
     EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+    if (!ctx) { fprintf(stderr, "OOM: EVP_CIPHER_CTX_new\n"); abort(); }
     EVP_DecryptInit_ex(ctx, aes_ecb_cipher(schedule->bits),
                        NULL, schedule->key, NULL);
     EVP_CIPHER_CTX_set_padding(ctx, 0);

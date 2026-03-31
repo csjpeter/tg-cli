@@ -153,6 +153,58 @@ void test_session_save_load(void) {
     remove(tmppath);
 }
 
+void test_session_load_nonexistent(void) {
+    MtProtoSession s;
+    memset(&s, 0, sizeof(s));
+    int rc = mtproto_session_load_auth_key(&s, "/tmp/tg-cli-nonexistent-file-12345");
+    ASSERT(rc == -1, "load from nonexistent file should fail");
+    ASSERT(s.has_auth_key == 0, "should not have auth_key after failed load");
+}
+
+void test_session_load_truncated(void) {
+    /* Write only 100 bytes (less than 256) */
+    char tmppath[64];
+    snprintf(tmppath, sizeof(tmppath), "/tmp/tg-cli-test-trunc-%d", getpid());
+    FILE *f = fopen(tmppath, "wb");
+    ASSERT(f != NULL, "should create temp file");
+    uint8_t short_data[100];
+    memset(short_data, 0x42, 100);
+    fwrite(short_data, 1, 100, f);
+    fclose(f);
+
+    MtProtoSession s;
+    memset(&s, 0, sizeof(s));
+    int rc = mtproto_session_load_auth_key(&s, tmppath);
+    ASSERT(rc == -1, "load from truncated file should fail");
+    ASSERT(s.has_auth_key == 0, "should not have auth_key after truncated load");
+
+    remove(tmppath);
+}
+
+void test_session_save_invalid_path(void) {
+    MtProtoSession s;
+    memset(&s, 0, sizeof(s));
+    uint8_t key[256];
+    memset(key, 0x42, 256);
+    mtproto_session_set_auth_key(&s, key);
+
+    int rc = mtproto_session_save_auth_key(&s, "/nonexistent/dir/auth.key");
+    ASSERT(rc == -1, "save to invalid path should fail");
+}
+
+void test_session_save_null_args(void) {
+    MtProtoSession s;
+    memset(&s, 0, sizeof(s));
+
+    ASSERT(mtproto_session_save_auth_key(NULL, "/tmp/x") == -1, "NULL session");
+    ASSERT(mtproto_session_save_auth_key(&s, NULL) == -1, "NULL path");
+    /* No auth_key set */
+    ASSERT(mtproto_session_save_auth_key(&s, "/tmp/x") == -1, "no auth_key");
+
+    ASSERT(mtproto_session_load_auth_key(NULL, "/tmp/x") == -1, "load NULL session");
+    ASSERT(mtproto_session_load_auth_key(&s, NULL) == -1, "load NULL path");
+}
+
 /* ---- Test suite entry point ---- */
 
 void test_phase2(void) {
@@ -166,4 +218,8 @@ void test_phase2(void) {
     RUN_TEST(test_session_auth_key);
     RUN_TEST(test_session_salt);
     RUN_TEST(test_session_save_load);
+    RUN_TEST(test_session_load_nonexistent);
+    RUN_TEST(test_session_load_truncated);
+    RUN_TEST(test_session_save_invalid_path);
+    RUN_TEST(test_session_save_null_args);
 }

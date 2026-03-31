@@ -8,6 +8,7 @@
 #include "tl_serial.h"
 #include "logger.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 void api_config_init(ApiConfig *cfg) {
@@ -67,25 +68,31 @@ int api_call(const ApiConfig *cfg,
              uint8_t *resp, size_t max_len, size_t *resp_len) {
     if (!cfg || !s || !t || !query || !resp || !resp_len) return -1;
 
-    /* Wrap the query */
-    uint8_t wrapped[65536];
+    /* Wrap the query (heap-allocated) */
+    uint8_t *wrapped = (uint8_t *)malloc(65536);
+    if (!wrapped) return -1;
     size_t wrapped_len = 0;
-    if (api_wrap_query(cfg, query, qlen, wrapped, sizeof(wrapped),
+    if (api_wrap_query(cfg, query, qlen, wrapped, 65536,
                        &wrapped_len) != 0) {
+        free(wrapped);
         logger_log(LOG_ERROR, "api_call: failed to wrap query");
         return -1;
     }
 
     /* Send encrypted */
-    if (rpc_send_encrypted(s, t, wrapped, wrapped_len, 1) != 0) {
+    int send_rc = rpc_send_encrypted(s, t, wrapped, wrapped_len, 1);
+    free(wrapped);
+    if (send_rc != 0) {
         logger_log(LOG_ERROR, "api_call: failed to send");
         return -1;
     }
 
-    /* Receive encrypted */
-    uint8_t raw_resp[65536];
+    /* Receive encrypted (heap-allocated) */
+    uint8_t *raw_resp = (uint8_t *)malloc(65536);
+    if (!raw_resp) return -1;
     size_t raw_len = 0;
-    if (rpc_recv_encrypted(s, t, raw_resp, sizeof(raw_resp), &raw_len) != 0) {
+    if (rpc_recv_encrypted(s, t, raw_resp, 65536, &raw_len) != 0) {
+        free(raw_resp);
         logger_log(LOG_ERROR, "api_call: failed to receive");
         return -1;
     }
@@ -106,9 +113,11 @@ int api_call(const ApiConfig *cfg,
     /* Unwrap gzip_packed if present */
     if (rpc_unwrap_gzip(payload, payload_len,
                         resp, max_len, resp_len) != 0) {
+        free(raw_resp);
         logger_log(LOG_ERROR, "api_call: failed to unwrap response");
         return -1;
     }
 
+    free(raw_resp);
     return 0;
 }

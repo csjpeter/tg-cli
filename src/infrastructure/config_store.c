@@ -83,6 +83,10 @@ int config_save_to_store(const Config *cfg) {
     }
 
     RAII_STRING char *path = get_config_path();
+    if (!path) {
+        logger_log(LOG_ERROR, "Failed to determine config directory");
+        return -1;
+    }
     RAII_FILE FILE *fp = fopen(path, "w");
     if (!fp) {
         logger_log(LOG_ERROR, "Failed to open config file for writing: %s", path);

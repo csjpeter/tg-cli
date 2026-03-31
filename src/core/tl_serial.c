@@ -5,6 +5,7 @@
 
 #include "tl_serial.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -20,7 +21,10 @@ static void writer_ensure(TlWriter *w, size_t needed) {
     size_t new_cap = w->cap ? w->cap : 64;
     while (new_cap < w->len + needed) new_cap *= 2;
     unsigned char *new_data = (unsigned char *)realloc(w->data, new_cap);
-    if (!new_data) abort(); /* OOM — acceptable for a CLI tool */
+    if (!new_data) {
+        fprintf(stderr, "OOM: tl_writer realloc failed (%zu bytes)\n", new_cap);
+        abort();
+    }
     w->data = new_data;
     w->cap  = new_cap;
 }

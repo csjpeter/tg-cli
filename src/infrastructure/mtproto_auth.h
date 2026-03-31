@@ -74,16 +74,49 @@ int pq_factorize(uint64_t pq, uint32_t *p, uint32_t *q);
 
 /* ---- Step functions (exported for testing) ---- */
 
-/** Step 1: Send req_pq_multi, receive and parse ResPQ. */
+/**
+ * @brief Step 1: Send req_pq_multi, receive and parse ResPQ.
+ *
+ * Generates random nonce, sends req_pq_multi via unencrypted RPC,
+ * receives ResPQ and extracts server_nonce, pq, and verifies fingerprint.
+ *
+ * @param ctx DH context (nonce, server_nonce, pq will be set).
+ * @return 0 on success, -1 on error.
+ */
 int auth_step_req_pq(AuthKeyCtx *ctx);
 
-/** Step 2: Factorize PQ, build inner data, RSA_PAD encrypt, send req_DH_params. */
+/**
+ * @brief Step 2: Factorize PQ, RSA_PAD encrypt, send req_DH_params.
+ *
+ * Factorizes pq into p*q, builds p_q_inner_data_dc, encrypts with RSA_PAD,
+ * and sends req_DH_params via unencrypted RPC.
+ *
+ * @param ctx DH context (p, q, new_nonce will be set).
+ * @return 0 on success, -1 on error.
+ */
 int auth_step_req_dh(AuthKeyCtx *ctx);
 
-/** Step 3: Receive server_DH_params_ok, decrypt, parse DH parameters. */
+/**
+ * @brief Step 3: Receive server_DH_params_ok, decrypt, parse.
+ *
+ * Receives server_DH_params_ok, derives temp AES key/IV, decrypts the
+ * encrypted answer, and extracts g, dh_prime, g_a, server_time.
+ *
+ * @param ctx DH context (g, dh_prime, g_a, server_time, tmp_aes_key/iv set).
+ * @return 0 on success, -1 on error.
+ */
 int auth_step_parse_dh(AuthKeyCtx *ctx);
 
-/** Step 4: Compute g_b, send set_client_DH_params, receive dh_gen_ok, compute auth_key. */
+/**
+ * @brief Step 4: Compute g_b, send client DH, receive dh_gen_ok.
+ *
+ * Generates random b, computes g_b = pow(g, b) mod dh_prime, sends
+ * set_client_DH_params, receives dh_gen_ok, computes auth_key and salt,
+ * and sets them on the session.
+ *
+ * @param ctx DH context (session auth_key and salt will be set on success).
+ * @return 0 on success, -1 on error.
+ */
 int auth_step_set_client_dh(AuthKeyCtx *ctx);
 
 #endif /* MTPROTO_AUTH_H */

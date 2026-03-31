@@ -44,7 +44,7 @@ set(TEST_SOURCES
     ../../src/core/ige_aes.c
     ../../src/core/mtproto_crypto.c
     ../../src/core/mtproto_session.c
-    ../../src/core/mtproto_auth.c
+    ../../src/infrastructure/mtproto_auth.c
     ../../src/core/tl_registry.c
     ../../src/infrastructure/config_store.c
     ../../src/infrastructure/cache_store.c

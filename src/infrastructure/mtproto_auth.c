@@ -13,6 +13,7 @@
 #include "tl_serial.h"
 #include "telegram_server_key.h"
 #include "logger.h"
+#include "raii.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -431,7 +432,7 @@ int auth_step_parse_dh(AuthKeyCtx *ctx) {
                        ctx->tmp_aes_key, ctx->tmp_aes_iv);
 
     /* Decrypt answer */
-    uint8_t *decrypted = (uint8_t *)malloc(enc_answer_len);
+    RAII_STRING uint8_t *decrypted = (uint8_t *)malloc(enc_answer_len);
     if (!decrypted) {
         free(enc_answer);
         return -1;
@@ -442,7 +443,6 @@ int auth_step_parse_dh(AuthKeyCtx *ctx) {
 
     /* Parse decrypted: skip 20-byte SHA1 hash, then server_DH_inner_data */
     if (enc_answer_len < 20 + 4) {
-        free(decrypted);
         return -1;
     }
 
@@ -451,7 +451,6 @@ int auth_step_parse_dh(AuthKeyCtx *ctx) {
     uint32_t inner_crc = tl_read_uint32(&inner);
     if (inner_crc != CRC_server_DH_inner_data) {
         logger_log(LOG_ERROR, "auth: wrong inner constructor 0x%08x", inner_crc);
-        free(decrypted);
         return -1;
     }
 
@@ -459,14 +458,12 @@ int auth_step_parse_dh(AuthKeyCtx *ctx) {
     uint8_t inner_nonce[16];
     tl_read_int128(&inner, inner_nonce);
     if (memcmp(inner_nonce, ctx->nonce, 16) != 0) {
-        free(decrypted);
         return -1;
     }
 
     uint8_t inner_sn[16];
     tl_read_int128(&inner, inner_sn);
     if (memcmp(inner_sn, ctx->server_nonce, 16) != 0) {
-        free(decrypted);
         return -1;
     }
 
@@ -477,7 +474,6 @@ int auth_step_parse_dh(AuthKeyCtx *ctx) {
     uint8_t *prime_bytes = tl_read_bytes(&inner, &prime_len);
     if (!prime_bytes || prime_len > sizeof(ctx->dh_prime)) {
         free(prime_bytes);
-        free(decrypted);
         return -1;
     }
     memcpy(ctx->dh_prime, prime_bytes, prime_len);
@@ -489,7 +485,6 @@ int auth_step_parse_dh(AuthKeyCtx *ctx) {
     uint8_t *ga_bytes = tl_read_bytes(&inner, &ga_len);
     if (!ga_bytes || ga_len > sizeof(ctx->g_a)) {
         free(ga_bytes);
-        free(decrypted);
         return -1;
     }
     memcpy(ctx->g_a, ga_bytes, ga_len);
@@ -498,7 +493,7 @@ int auth_step_parse_dh(AuthKeyCtx *ctx) {
 
     ctx->server_time = tl_read_int32(&inner);
 
-    free(decrypted);
+    /* decrypted is freed automatically by RAII_STRING */
     logger_log(LOG_INFO, "auth: DH params parsed, g=%d, prime_len=%zu",
                ctx->g, ctx->dh_prime_len);
     return 0;
@@ -550,7 +545,7 @@ int auth_step_set_client_dh(AuthKeyCtx *ctx) {
         padded_len += 16 - (padded_len % 16);
     }
 
-    uint8_t *padded = (uint8_t *)calloc(1, padded_len);
+    RAII_STRING uint8_t *padded = (uint8_t *)calloc(1, padded_len);
     if (!padded) {
         tl_writer_free(&inner);
         crypto_bn_ctx_free(bn_ctx);
@@ -566,15 +561,13 @@ int auth_step_set_client_dh(AuthKeyCtx *ctx) {
     tl_writer_free(&inner);
 
     /* Encrypt with temp AES key/IV */
-    uint8_t *encrypted = (uint8_t *)malloc(padded_len);
+    RAII_STRING uint8_t *encrypted = (uint8_t *)malloc(padded_len);
     if (!encrypted) {
-        free(padded);
         crypto_bn_ctx_free(bn_ctx);
         return -1;
     }
     aes_ige_encrypt(padded, padded_len, ctx->tmp_aes_key, ctx->tmp_aes_iv,
                     encrypted);
-    free(padded);
 
     /* Build set_client_DH_params */
     TlWriter w;
@@ -583,7 +576,7 @@ int auth_step_set_client_dh(AuthKeyCtx *ctx) {
     tl_write_int128(&w, ctx->nonce);
     tl_write_int128(&w, ctx->server_nonce);
     tl_write_bytes(&w, encrypted, padded_len);
-    free(encrypted);
+    /* encrypted and padded freed automatically by RAII_STRING */
 
     rc = rpc_send_unencrypted(ctx->session, ctx->transport, w.data, w.len);
     tl_writer_free(&w);

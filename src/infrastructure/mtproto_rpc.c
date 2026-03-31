@@ -12,6 +12,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define RPC_BUF_SIZE 65536
+
 #define CRC_gzip_packed    0x3072cfa1
 #define CRC_msg_container  0x73f1f8dc
 #define CRC_rpc_result     0xf35c6d01
@@ -42,13 +44,14 @@ int rpc_recv_unencrypted(MtProtoSession *s, Transport *t,
                          uint8_t *out, size_t max_len, size_t *out_len) {
     if (!s || !t || !out || !out_len) return -1;
 
-    /* Read one transport packet */
-    uint8_t buf[65536];
+    /* Read one transport packet (heap-allocated to avoid stack overflow) */
+    uint8_t *buf = (uint8_t *)malloc(RPC_BUF_SIZE);
+    if (!buf) return -1;
     size_t buf_len = 0;
-    if (transport_recv(t, buf, sizeof(buf), &buf_len) != 0) return -1;
+    if (transport_recv(t, buf, RPC_BUF_SIZE, &buf_len) != 0) { free(buf); return -1; }
 
     /* Parse: auth_key_id(8) + msg_id(8) + len(4) + data */
-    if (buf_len < 20) return -1;
+    if (buf_len < 20) { free(buf); return -1; }
 
     TlReader r = tl_reader_init(buf, buf_len);
     uint64_t auth_key_id = tl_read_uint64(&r);
@@ -57,11 +60,12 @@ int rpc_recv_unencrypted(MtProtoSession *s, Transport *t,
     (void)msg_id;
     uint32_t data_len = tl_read_uint32(&r);
 
-    if (data_len > max_len) return -1;
+    if (data_len > max_len) { free(buf); return -1; }
     if (data_len > 0) {
         tl_read_raw(&r, out, data_len);
     }
     *out_len = data_len;
+    free(buf);
     return 0;
 }
 
@@ -85,37 +89,29 @@ int rpc_send_encrypted(MtProtoSession *s, Transport *t,
     tl_write_uint32(&plain, (uint32_t)len);
     tl_write_raw(&plain, data, len);
 
+    /* Compute msg_key from the same plaintext buffer */
+    uint8_t msg_key[16];
+    mtproto_compute_msg_key(s->auth_key, plain.data, plain.len, 0, msg_key);
+
     /* Encrypt with MTProto crypto */
-    uint8_t encrypted[65536];
+    uint8_t *encrypted = (uint8_t *)malloc(RPC_BUF_SIZE);
+    if (!encrypted) { tl_writer_free(&plain); return -1; }
     size_t enc_len = 0;
     mtproto_encrypt(plain.data, plain.len, s->auth_key, 0, encrypted, &enc_len);
     tl_writer_free(&plain);
-
-    /* Compute msg_key from plaintext */
-    TlWriter plain2;
-    tl_writer_init(&plain2);
-    tl_write_uint64(&plain2, s->server_salt);
-    tl_write_uint64(&plain2, s->session_id);
-    tl_write_uint64(&plain2, msg_id);
-    tl_write_uint32(&plain2, seq_no);
-    tl_write_uint32(&plain2, (uint32_t)len);
-    tl_write_raw(&plain2, data, len);
-
-    uint8_t msg_key[16];
-    mtproto_compute_msg_key(s->auth_key, plain2.data, plain2.len, 0, msg_key);
-    tl_writer_free(&plain2);
 
     /* Wire format: auth_key_id(8) + msg_key(16) + encrypted_data */
     TlWriter wire;
     tl_writer_init(&wire);
 
-    /* auth_key_id = lower 8 bytes of SHA1(auth_key) */
+    /* auth_key_id = lower 8 bytes of SHA256(auth_key) */
     uint8_t key_hash[32];
     crypto_sha256(s->auth_key, 256, key_hash);
     tl_write_uint64(&wire, *(uint64_t *)(key_hash + 24)); /* last 8 bytes */
 
     tl_write_raw(&wire, msg_key, 16);
     tl_write_raw(&wire, encrypted, enc_len);
+    free(encrypted);
 
     int rc = transport_send(t, wire.data, wire.len);
     tl_writer_free(&wire);
@@ -126,13 +122,14 @@ int rpc_recv_encrypted(MtProtoSession *s, Transport *t,
                        uint8_t *out, size_t max_len, size_t *out_len) {
     if (!s || !t || !out || !out_len || !s->has_auth_key) return -1;
 
-    /* Read one transport packet */
-    uint8_t buf[65536];
+    /* Read one transport packet (heap-allocated) */
+    uint8_t *buf = (uint8_t *)malloc(RPC_BUF_SIZE);
+    if (!buf) return -1;
     size_t buf_len = 0;
-    if (transport_recv(t, buf, sizeof(buf), &buf_len) != 0) return -1;
+    if (transport_recv(t, buf, RPC_BUF_SIZE, &buf_len) != 0) { free(buf); return -1; }
 
     /* Parse: auth_key_id(8) + msg_key(16) + encrypted_data */
-    if (buf_len < 24) return -1;
+    if (buf_len < 24) { free(buf); return -1; }
 
     TlReader r = tl_reader_init(buf, buf_len);
     tl_read_uint64(&r); /* auth_key_id — skip */
@@ -143,15 +140,17 @@ int rpc_recv_encrypted(MtProtoSession *s, Transport *t,
     size_t cipher_len = buf_len - 24;
     const uint8_t *cipher = buf + 24;
 
-    /* Decrypt */
-    uint8_t decrypted[65536];
+    /* Decrypt (heap-allocated) */
+    uint8_t *decrypted = (uint8_t *)malloc(RPC_BUF_SIZE);
+    if (!decrypted) { free(buf); return -1; }
     size_t dec_len = 0;
     int rc = mtproto_decrypt(cipher, cipher_len, s->auth_key, msg_key, 8,
                              decrypted, &dec_len);
-    if (rc != 0) return -1;
+    free(buf);
+    if (rc != 0) { free(decrypted); return -1; }
 
     /* Parse plaintext: salt(8) + session_id(8) + msg_id(8) + seq_no(4) + len(4) + data */
-    if (dec_len < 32) return -1;
+    if (dec_len < 32) { free(decrypted); return -1; }
 
     TlReader pr = tl_reader_init(decrypted, dec_len);
     tl_read_uint64(&pr); /* salt */
@@ -160,11 +159,12 @@ int rpc_recv_encrypted(MtProtoSession *s, Transport *t,
     tl_read_uint32(&pr); /* seq_no */
     uint32_t data_len = tl_read_uint32(&pr);
 
-    if (data_len > max_len) return -1;
+    if (data_len > max_len) { free(decrypted); return -1; }
     if (data_len > 0) {
         tl_read_raw(&pr, out, data_len);
     }
     *out_len = data_len;
+    free(decrypted);
     return 0;
 }
 
