@@ -23,11 +23,13 @@ if(WIN32)
     set(PLATFORM_SOURCES
         src/platform/windows/terminal.c
         src/platform/windows/path.c
+        src/platform/windows/socket.c
     )
 else()
     set(PLATFORM_SOURCES
         src/platform/posix/terminal.c
         src/platform/posix/path.c
+        src/platform/posix/socket.c
     )
 endif()
 
@@ -40,19 +42,27 @@ set(VENDOR_TINF_SOURCES
     src/vendor/tinf/crc32.c
 )
 
-# Main executable
-add_executable(${PROJECT_NAME}
-    src/main.c
+# Protocol static library (core + infrastructure + platform + vendor)
+add_library(tg-proto STATIC
     src/core/config.c
     src/core/logger.c
     src/core/fs_util.c
+    src/core/tl_serial.c
+    src/core/ige_aes.c
+    src/core/mtproto_crypto.c
+    src/core/mtproto_session.c
+    src/core/tl_registry.c
     src/infrastructure/config_store.c
     src/infrastructure/cache_store.c
+    src/infrastructure/transport.c
+    src/infrastructure/mtproto_auth.c
+    src/infrastructure/mtproto_rpc.c
+    src/infrastructure/api_call.c
     ${PLATFORM_SOURCES}
     ${VENDOR_TINF_SOURCES}
 )
 
-target_include_directories(${PROJECT_NAME} PRIVATE
+target_include_directories(tg-proto PUBLIC
     src
     src/core
     src/infrastructure
@@ -60,7 +70,14 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     src/vendor/tinf
 )
 
-target_link_libraries(${PROJECT_NAME} PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+target_link_libraries(tg-proto PUBLIC OpenSSL::SSL OpenSSL::Crypto)
+
+# Main executable
+add_executable(${PROJECT_NAME}
+    src/main.c
+)
+
+target_link_libraries(${PROJECT_NAME} PRIVATE tg-proto)
 
 # Unit tests
 enable_testing()
