@@ -1,0 +1,18 @@
+# DH Auth Key Exchange
+src/core/mtproto_auth.h/c — full 8-step DH exchange with tests
+
+## QA Reject — 2026-03-31
+
+### Architecture violation: core depends on infrastructure
+- `src/core/mtproto_auth.h:19` includes `"transport.h"` (infrastructure layer)
+- `src/core/mtproto_auth.c:12` includes `"mtproto_rpc.h"` (infrastructure layer)
+- `AuthKeyCtx` holds `Transport *` and calls `rpc_send_unencrypted`/`rpc_recv_unencrypted`
+- Fix: move module to `src/infrastructure/`, or invert the dependency
+
+### No RAII for heap allocations
+- `auth_step_parse_dh` uses raw `malloc`/`calloc` + manual `free` for `decrypted`,
+  `padded`, `encrypted` across 6 exit paths — fragile, should use RAII macros
+
+### Incomplete Doxygen on public functions
+- `auth_step_req_pq`, `auth_step_req_dh`, `auth_step_parse_dh`,
+  `auth_step_set_client_dh` (lines 78-87) lack `@param` and `@return` tags
