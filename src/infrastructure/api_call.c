@@ -7,6 +7,7 @@
 #include "mtproto_rpc.h"
 #include "tl_serial.h"
 #include "logger.h"
+#include "raii.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -69,30 +70,27 @@ int api_call(const ApiConfig *cfg,
     if (!cfg || !s || !t || !query || !resp || !resp_len) return -1;
 
     /* Wrap the query (heap-allocated) */
-    uint8_t *wrapped = (uint8_t *)malloc(65536);
+    RAII_STRING uint8_t *wrapped = (uint8_t *)malloc(65536);
     if (!wrapped) return -1;
     size_t wrapped_len = 0;
-    if (api_wrap_query(cfg, query, qlen, wrapped, 65536,
-                       &wrapped_len) != 0) {
-        free(wrapped);
+    if (api_wrap_query(cfg, query, qlen, wrapped, 65536, &wrapped_len) != 0) {
         logger_log(LOG_ERROR, "api_call: failed to wrap query");
         return -1;
     }
 
     /* Send encrypted */
     int send_rc = rpc_send_encrypted(s, t, wrapped, wrapped_len, 1);
-    free(wrapped);
+    /* wrapped freed automatically by RAII_STRING */
     if (send_rc != 0) {
         logger_log(LOG_ERROR, "api_call: failed to send");
         return -1;
     }
 
     /* Receive encrypted (heap-allocated) */
-    uint8_t *raw_resp = (uint8_t *)malloc(65536);
+    RAII_STRING uint8_t *raw_resp = (uint8_t *)malloc(65536);
     if (!raw_resp) return -1;
     size_t raw_len = 0;
     if (rpc_recv_encrypted(s, t, raw_resp, 65536, &raw_len) != 0) {
-        free(raw_resp);
         logger_log(LOG_ERROR, "api_call: failed to receive");
         return -1;
     }
@@ -113,11 +111,10 @@ int api_call(const ApiConfig *cfg,
     /* Unwrap gzip_packed if present */
     if (rpc_unwrap_gzip(payload, payload_len,
                         resp, max_len, resp_len) != 0) {
-        free(raw_resp);
         logger_log(LOG_ERROR, "api_call: failed to unwrap response");
         return -1;
     }
 
-    free(raw_resp);
+    /* raw_resp freed automatically by RAII_STRING */
     return 0;
 }

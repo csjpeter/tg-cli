@@ -273,13 +273,13 @@ int auth_step_req_pq(AuthKeyCtx *ctx) {
 
     /* PQ as bytes (big-endian) */
     size_t pq_len = 0;
-    uint8_t *pq_bytes = tl_read_bytes(&r, &pq_len);
+    RAII_STRING uint8_t *pq_bytes = tl_read_bytes(&r, &pq_len);
     if (!pq_bytes) {
         logger_log(LOG_ERROR, "auth: failed to read pq bytes");
         return -1;
     }
     ctx->pq = be_to_uint64(pq_bytes, pq_len);
-    free(pq_bytes);
+    /* pq_bytes freed automatically by RAII_STRING */
 
     /* Vector of fingerprints */
     uint32_t vec_crc = tl_read_uint32(&r); /* vector constructor */
@@ -420,10 +420,9 @@ int auth_step_parse_dh(AuthKeyCtx *ctx) {
 
     /* Read encrypted_answer */
     size_t enc_answer_len = 0;
-    uint8_t *enc_answer = tl_read_bytes(&r, &enc_answer_len);
+    RAII_STRING uint8_t *enc_answer = tl_read_bytes(&r, &enc_answer_len);
     if (!enc_answer || enc_answer_len == 0) {
         logger_log(LOG_ERROR, "auth: failed to read encrypted_answer");
-        free(enc_answer);
         return -1;
     }
 
@@ -433,13 +432,10 @@ int auth_step_parse_dh(AuthKeyCtx *ctx) {
 
     /* Decrypt answer */
     RAII_STRING uint8_t *decrypted = (uint8_t *)malloc(enc_answer_len);
-    if (!decrypted) {
-        free(enc_answer);
-        return -1;
-    }
+    if (!decrypted) return -1;
     aes_ige_decrypt(enc_answer, enc_answer_len,
                     ctx->tmp_aes_key, ctx->tmp_aes_iv, decrypted);
-    free(enc_answer);
+    /* enc_answer freed automatically by RAII_STRING */
 
     /* Parse decrypted: skip 20-byte SHA1 hash, then server_DH_inner_data */
     if (enc_answer_len < 20 + 4) {
@@ -471,25 +467,19 @@ int auth_step_parse_dh(AuthKeyCtx *ctx) {
 
     /* dh_prime as bytes */
     size_t prime_len = 0;
-    uint8_t *prime_bytes = tl_read_bytes(&inner, &prime_len);
-    if (!prime_bytes || prime_len > sizeof(ctx->dh_prime)) {
-        free(prime_bytes);
-        return -1;
-    }
+    RAII_STRING uint8_t *prime_bytes = tl_read_bytes(&inner, &prime_len);
+    if (!prime_bytes || prime_len > sizeof(ctx->dh_prime)) return -1;
     memcpy(ctx->dh_prime, prime_bytes, prime_len);
     ctx->dh_prime_len = prime_len;
-    free(prime_bytes);
+    /* prime_bytes freed automatically by RAII_STRING */
 
     /* g_a as bytes */
     size_t ga_len = 0;
-    uint8_t *ga_bytes = tl_read_bytes(&inner, &ga_len);
-    if (!ga_bytes || ga_len > sizeof(ctx->g_a)) {
-        free(ga_bytes);
-        return -1;
-    }
+    RAII_STRING uint8_t *ga_bytes = tl_read_bytes(&inner, &ga_len);
+    if (!ga_bytes || ga_len > sizeof(ctx->g_a)) return -1;
     memcpy(ctx->g_a, ga_bytes, ga_len);
     ctx->g_a_len = ga_len;
-    free(ga_bytes);
+    /* ga_bytes freed automatically by RAII_STRING */
 
     ctx->server_time = tl_read_int32(&inner);
 

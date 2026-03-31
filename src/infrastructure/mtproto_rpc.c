@@ -8,6 +8,7 @@
 #include "tl_serial.h"
 #include "crypto.h"
 #include "tinf.h"
+#include "raii.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -45,13 +46,13 @@ int rpc_recv_unencrypted(MtProtoSession *s, Transport *t,
     if (!s || !t || !out || !out_len) return -1;
 
     /* Read one transport packet (heap-allocated to avoid stack overflow) */
-    uint8_t *buf = (uint8_t *)malloc(RPC_BUF_SIZE);
+    RAII_STRING uint8_t *buf = (uint8_t *)malloc(RPC_BUF_SIZE);
     if (!buf) return -1;
     size_t buf_len = 0;
-    if (transport_recv(t, buf, RPC_BUF_SIZE, &buf_len) != 0) { free(buf); return -1; }
+    if (transport_recv(t, buf, RPC_BUF_SIZE, &buf_len) != 0) return -1;
 
     /* Parse: auth_key_id(8) + msg_id(8) + len(4) + data */
-    if (buf_len < 20) { free(buf); return -1; }
+    if (buf_len < 20) return -1;
 
     TlReader r = tl_reader_init(buf, buf_len);
     uint64_t auth_key_id = tl_read_uint64(&r);
@@ -60,12 +61,11 @@ int rpc_recv_unencrypted(MtProtoSession *s, Transport *t,
     (void)msg_id;
     uint32_t data_len = tl_read_uint32(&r);
 
-    if (data_len > max_len) { free(buf); return -1; }
+    if (data_len > max_len) return -1;
     if (data_len > 0) {
         tl_read_raw(&r, out, data_len);
     }
     *out_len = data_len;
-    free(buf);
     return 0;
 }
 
@@ -94,7 +94,7 @@ int rpc_send_encrypted(MtProtoSession *s, Transport *t,
     mtproto_compute_msg_key(s->auth_key, plain.data, plain.len, 0, msg_key);
 
     /* Encrypt with MTProto crypto */
-    uint8_t *encrypted = (uint8_t *)malloc(RPC_BUF_SIZE);
+    RAII_STRING uint8_t *encrypted = (uint8_t *)malloc(RPC_BUF_SIZE);
     if (!encrypted) { tl_writer_free(&plain); return -1; }
     size_t enc_len = 0;
     mtproto_encrypt(plain.data, plain.len, s->auth_key, 0, encrypted, &enc_len);
@@ -111,7 +111,7 @@ int rpc_send_encrypted(MtProtoSession *s, Transport *t,
 
     tl_write_raw(&wire, msg_key, 16);
     tl_write_raw(&wire, encrypted, enc_len);
-    free(encrypted);
+    /* encrypted freed automatically by RAII_STRING */
 
     int rc = transport_send(t, wire.data, wire.len);
     tl_writer_free(&wire);
@@ -123,13 +123,13 @@ int rpc_recv_encrypted(MtProtoSession *s, Transport *t,
     if (!s || !t || !out || !out_len || !s->has_auth_key) return -1;
 
     /* Read one transport packet (heap-allocated) */
-    uint8_t *buf = (uint8_t *)malloc(RPC_BUF_SIZE);
+    RAII_STRING uint8_t *buf = (uint8_t *)malloc(RPC_BUF_SIZE);
     if (!buf) return -1;
     size_t buf_len = 0;
-    if (transport_recv(t, buf, RPC_BUF_SIZE, &buf_len) != 0) { free(buf); return -1; }
+    if (transport_recv(t, buf, RPC_BUF_SIZE, &buf_len) != 0) return -1;
 
     /* Parse: auth_key_id(8) + msg_key(16) + encrypted_data */
-    if (buf_len < 24) { free(buf); return -1; }
+    if (buf_len < 24) return -1;
 
     TlReader r = tl_reader_init(buf, buf_len);
     tl_read_uint64(&r); /* auth_key_id — skip */
@@ -141,16 +141,15 @@ int rpc_recv_encrypted(MtProtoSession *s, Transport *t,
     const uint8_t *cipher = buf + 24;
 
     /* Decrypt (heap-allocated) */
-    uint8_t *decrypted = (uint8_t *)malloc(RPC_BUF_SIZE);
-    if (!decrypted) { free(buf); return -1; }
+    RAII_STRING uint8_t *decrypted = (uint8_t *)malloc(RPC_BUF_SIZE);
+    if (!decrypted) return -1;
     size_t dec_len = 0;
     int rc = mtproto_decrypt(cipher, cipher_len, s->auth_key, msg_key, 8,
                              decrypted, &dec_len);
-    free(buf);
-    if (rc != 0) { free(decrypted); return -1; }
+    if (rc != 0) return -1;
 
     /* Parse plaintext: salt(8) + session_id(8) + msg_id(8) + seq_no(4) + len(4) + data */
-    if (dec_len < 32) { free(decrypted); return -1; }
+    if (dec_len < 32) return -1;
 
     TlReader pr = tl_reader_init(decrypted, dec_len);
     tl_read_uint64(&pr); /* salt */
@@ -159,12 +158,12 @@ int rpc_recv_encrypted(MtProtoSession *s, Transport *t,
     tl_read_uint32(&pr); /* seq_no */
     uint32_t data_len = tl_read_uint32(&pr);
 
-    if (data_len > max_len) { free(decrypted); return -1; }
+    if (data_len > max_len) return -1;
     if (data_len > 0) {
         tl_read_raw(&pr, out, data_len);
     }
     *out_len = data_len;
-    free(decrypted);
+    /* buf and decrypted freed automatically by RAII_STRING */
     return 0;
 }
 
@@ -198,17 +197,14 @@ int rpc_unwrap_gzip(const uint8_t *data, size_t len,
     tl_read_uint32(&r); /* skip constructor */
 
     size_t gz_len = 0;
-    uint8_t *gz_data = tl_read_bytes(&r, &gz_len);
-    if (!gz_data || gz_len == 0) {
-        free(gz_data);
-        return -1;
-    }
+    RAII_STRING uint8_t *gz_data = tl_read_bytes(&r, &gz_len);
+    if (!gz_data || gz_len == 0) return -1;
 
     /* Decompress with tinf */
     unsigned int dest_len = (unsigned int)max_len;
     int rc = tinf_gzip_uncompress(out, &dest_len,
                                    gz_data, (unsigned int)gz_len);
-    free(gz_data);
+    /* gz_data freed automatically by RAII_STRING */
 
     if (rc != TINF_OK) return -1;
 
@@ -303,7 +299,7 @@ int rpc_parse_error(const uint8_t *data, size_t len, RpcError *err) {
 
     err->error_code = tl_read_int32(&r);
 
-    char *msg = tl_read_string(&r);
+    RAII_STRING char *msg = tl_read_string(&r);
     if (!msg) {
         memset(err->error_msg, 0, sizeof(err->error_msg));
         err->migrate_dc = -1;
@@ -331,6 +327,6 @@ int rpc_parse_error(const uint8_t *data, size_t len, RpcError *err) {
         err->flood_wait_secs = extract_trailing_int(msg);
     }
 
-    free(msg);
+    /* msg freed automatically by RAII_STRING */
     return 0;
 }
