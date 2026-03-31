@@ -106,10 +106,22 @@ TermKey terminal_read_key(void) {
             switch (c3) {
             case 'A': result = TERM_KEY_PREV_LINE; break;  /* ESC[A — Up arrow    */
             case 'B': result = TERM_KEY_NEXT_LINE; break;  /* ESC[B — Down arrow  */
-            case 'C': result = TERM_KEY_IGNORE;    break;  /* ESC[C — Right arrow */
-            case 'D': result = TERM_KEY_IGNORE;    break;  /* ESC[D — Left arrow  */
+            case 'C': result = TERM_KEY_RIGHT;     break;  /* ESC[C — Right arrow */
+            case 'D': result = TERM_KEY_LEFT;      break;  /* ESC[D — Left arrow  */
+            case 'H': result = TERM_KEY_HOME;      break;  /* ESC[H — Home        */
+            case 'F': result = TERM_KEY_END;       break;  /* ESC[F — End         */
+            case '1': { /* ESC[1~ Home or ESC[1;...  */
+                int c4 = read_byte();
+                if (c4 == '~') result = TERM_KEY_HOME;
+                else           result = TERM_KEY_IGNORE; /* ESC[1;... modifier */
+                break;
+            }
+            case '3': read_byte(); result = TERM_KEY_DELETE;    break; /* ESC[3~ Del  */
+            case '4': read_byte(); result = TERM_KEY_END;       break; /* ESC[4~ End  */
             case '5': read_byte(); result = TERM_KEY_PREV_PAGE; break; /* ESC[5~ PgUp */
             case '6': read_byte(); result = TERM_KEY_NEXT_PAGE; break; /* ESC[6~ PgDn */
+            case '7': read_byte(); result = TERM_KEY_HOME;      break; /* ESC[7~ Home */
+            case '8': read_byte(); result = TERM_KEY_END;       break; /* ESC[8~ End  */
             default:
                 if (c3 != -1) {
                     int ch;
@@ -120,6 +132,13 @@ TermKey terminal_read_key(void) {
                 }
                 result = TERM_KEY_IGNORE;
                 break;
+            }
+        } else if (c2 == 'O') {
+            int c3 = read_byte();
+            switch (c3) {
+            case 'H': result = TERM_KEY_HOME; break; /* ESC O H — Home */
+            case 'F': result = TERM_KEY_END;  break; /* ESC O F — End  */
+            default:  result = TERM_KEY_IGNORE; break;
             }
         } else {
             result = TERM_KEY_ESC;   /* bare ESC — go back */
@@ -133,6 +152,16 @@ TermKey terminal_read_key(void) {
         result = TERM_KEY_ENTER;
     } else if (c == 3 /* Ctrl-C */) {
         result = TERM_KEY_QUIT;
+    } else if (c == 4 /* Ctrl-D */) {
+        result = TERM_KEY_CTRL_D;
+    } else if (c == 1 /* Ctrl-A */) {
+        result = TERM_KEY_CTRL_A;
+    } else if (c == 5 /* Ctrl-E */) {
+        result = TERM_KEY_CTRL_E;
+    } else if (c == 11 /* Ctrl-K */) {
+        result = TERM_KEY_CTRL_K;
+    } else if (c == 23 /* Ctrl-W */) {
+        result = TERM_KEY_CTRL_W;
     } else if (c == 127 || c == 8 /* DEL / Backspace */) {
         result = TERM_KEY_BACK;
     } else if (c >= 32 && c <= 126) {

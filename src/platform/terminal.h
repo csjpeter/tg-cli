@@ -11,10 +11,20 @@ typedef enum {
     TERM_KEY_PREV_PAGE = 2,  /* PgUp                            */
     TERM_KEY_NEXT_LINE = 3,  /* Down-arrow                      */
     TERM_KEY_PREV_LINE = 4,  /* Up-arrow                        */
-    TERM_KEY_IGNORE    = 5,  /* unknown / left / right / Space  */
+    TERM_KEY_IGNORE    = 5,  /* unknown / Space                 */
     TERM_KEY_ENTER     = 6,  /* Enter (\n or \r)                */
     TERM_KEY_ESC       = 7,  /* bare ESC                        */
-    TERM_KEY_BACK      = 8   /* Backspace / DEL                 */
+    TERM_KEY_BACK      = 8,  /* Backspace / DEL                 */
+    TERM_KEY_LEFT      = 9,  /* Left arrow                      */
+    TERM_KEY_RIGHT     = 10, /* Right arrow                     */
+    TERM_KEY_HOME      = 11, /* Home key                        */
+    TERM_KEY_END       = 12, /* End key                         */
+    TERM_KEY_DELETE    = 13, /* Delete (forward delete)         */
+    TERM_KEY_CTRL_A    = 14, /* Ctrl-A (beginning of line)      */
+    TERM_KEY_CTRL_E    = 15, /* Ctrl-E (end of line)            */
+    TERM_KEY_CTRL_K    = 16, /* Ctrl-K (kill to end of line)    */
+    TERM_KEY_CTRL_W    = 17, /* Ctrl-W (delete previous word)   */
+    TERM_KEY_CTRL_D    = 18, /* Ctrl-D (EOF / delete forward)   */
 } TermKey;
 
 /** Opaque saved terminal state (used for raw-mode enter/exit). */

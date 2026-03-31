@@ -45,6 +45,7 @@ set(VENDOR_TINF_SOURCES
 # Protocol static library (core + infrastructure + platform + vendor)
 add_library(tg-proto STATIC
     src/core/arg_parse.c
+    src/core/readline.c
     src/core/config.c
     src/core/logger.c
     src/core/fs_util.c
