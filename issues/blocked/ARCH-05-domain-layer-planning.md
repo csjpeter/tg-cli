@@ -28,4 +28,4 @@ structures.
 ~200 lines (headers + structs only, implementation is P5-P9 scope)
 
 ## Dependencies
-ARCH-01 (CMake refactor)
+- ARCH-01 (pending) — domain/ hozzáadása a tg-proto static library-hoz

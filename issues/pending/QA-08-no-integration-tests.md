@@ -21,4 +21,5 @@ output, which masks real bugs (as demonstrated by the P1-mtproto-crypto rejectio
 ~500 lines
 
 ## Dependencies
-P1-mtproto-crypto fix (key derivation must be correct first)
+- P1-mtproto-crypto ✅ (ready) — key derivation korrektségének ellenőrzése szükséges
+- ARCH-01 (pending, soft) — CMake-ben külön test target könnyebb a static library-val

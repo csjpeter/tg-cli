@@ -15,4 +15,6 @@ Download attachments (photos, videos, documents). Must handle DC migration — f
 ~300 lines
 
 ## Dependencies
-P4-04 (DC migration), P5-02 (message parse)
+- P4-04 (pending) — FILE_MIGRATE_X kezelés, DC átváltás
+- P5-02 (pending) — üzenet parszolás (file location kinyerése a Message-ből)
+- P3-02 (pending) — bejelentkezés szükséges

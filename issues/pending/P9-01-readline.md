@@ -7,4 +7,6 @@ Custom line editor built on the existing terminal.h abstraction. Features: curso
 ~500 lines
 
 ## Dependencies
-Platform terminal abstraction (already implemented)
+- Platform terminal abstraction ✅ (implementálva) — terminal.h (raw mode, cursor)
+
+Nincs pending függőség — önállóan indítható.

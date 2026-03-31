@@ -13,4 +13,6 @@ peer_id | peer_type | name | unread_count | last_message_preview
 ~200 lines
 
 ## Dependencies
-P4-05 (constructor registry)
+- P4-05 ✅ (verified) — constructor registry
+- P3-02 (pending) — API hívásokhoz bejelentkezés szükséges
+- ARCH-05 (pending, soft) — domain layer struktúrák (Dialog, User)

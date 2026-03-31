@@ -13,4 +13,5 @@ msg_id | date | from | text | [attachment_type attachment_name]
 ~200 lines
 
 ## Dependencies
-P5-01 (peer identification)
+- P5-01 (pending) — peer azonosítás (dialog listából)
+- P3-02 (pending) — bejelentkezés szükséges

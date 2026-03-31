@@ -14,4 +14,4 @@ Recognize MessageMedia objects in messages.getHistory responses and display file
 ~100 lines
 
 ## Dependencies
-P5-02 (history parse)
+- P5-02 (pending) — messages.getHistory válasz parszolása (MessageMedia objektumok)

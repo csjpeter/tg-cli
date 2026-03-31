@@ -11,4 +11,5 @@ Real-time update handling. After first login, `updates.getState` returns the cur
 ~200 lines
 
 ## Dependencies
-P4-05 (constructor registry for response parsing)
+- P4-05 ✅ (verified) — constructor registry a válasz parszoláshoz
+- P3-02 (pending) — updates.getState bejelentkezést igényel

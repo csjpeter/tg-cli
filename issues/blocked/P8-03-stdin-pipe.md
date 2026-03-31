@@ -7,4 +7,5 @@
 ~50 lines
 
 ## Dependencies
-P8-01, P5-03
+- P8-01 (pending) — argument parser (send subcommand)
+- P5-03 (pending) — messages.sendMessage implementáció

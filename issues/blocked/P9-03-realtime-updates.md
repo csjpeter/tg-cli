@@ -12,4 +12,5 @@ Runs in the background, receiving server push messages. In interactive mode, new
 ~200 lines
 
 ## Dependencies
-P4-06 (updates), P9-02 (REPL)
+- P4-06 (pending) — updates.getDifference implementáció
+- P9-02 (pending) — REPL loop (interaktív megjelenítés)

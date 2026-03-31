@@ -27,4 +27,4 @@ with unresolved symbols.
 ~80 lines
 
 ## Dependencies
-ARCH-01 (CMake refactor makes this cleaner, but not strictly required)
+- ARCH-01 (pending, soft) — CMake refactor tisztábbá teszi a source hozzáadást, de nem blokkoló

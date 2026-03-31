@@ -8,4 +8,4 @@ Global flags: --batch, --json, --quiet, --config, --help, --version.
 ~400 lines
 
 ## Dependencies
-None
+Nincs — önállóan végrehajtható (pure CLI logika, nincs protokoll függőség).

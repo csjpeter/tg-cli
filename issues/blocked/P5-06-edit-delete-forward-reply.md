@@ -16,4 +16,6 @@
 ~200 lines
 
 ## Dependencies
-P5-01, P5-03
+- P5-01 (pending) — peer azonosítás
+- P5-03 (pending) — messages.sendMessage alap (reply_to_msg_id)
+- P3-02 (pending) — bejelentkezés szükséges

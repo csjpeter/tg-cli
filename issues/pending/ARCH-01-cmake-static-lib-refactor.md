@@ -25,4 +25,4 @@ for integration.
 ~50 lines (CMake changes only)
 
 ## Dependencies
-None
+Nincs — önállóan végrehajtható.

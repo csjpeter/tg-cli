@@ -17,4 +17,8 @@ Login flow: phone number → SMS code → session.
 ~300 lines
 
 ## Dependencies
-P3-01 (initConnection wrapper)
+- P3-01 ✅ (verified) — initConnection wrapper
+- P2-auth-key-exchange ✅ (ready) — titkosított csatorna szükséges
+- P2-session ✅ (ready) — msg_id/seq_no kezelés
+
+Nincs pending függőség — önállóan indítható.

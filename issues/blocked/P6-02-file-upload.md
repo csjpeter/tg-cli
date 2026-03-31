@@ -11,4 +11,6 @@
 ~300 lines
 
 ## Dependencies
-P5-01
+- P5-01 (pending) — peer azonosítás (messages.sendMedia célpont)
+- P3-02 (pending) — bejelentkezés szükséges
+- P4-04 (pending, soft) — nagy fájloknál DC migration szükséges lehet

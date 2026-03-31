@@ -7,4 +7,4 @@ With --json flag: JSON output. Otherwise: tab-delimited plain text. --quiet flag
 ~200 lines (custom JSON writer ~100 lines + output formatter ~100 lines)
 
 ## Dependencies
-P8-01 (arg parser)
+- P8-01 (pending) — argument parser (--json, --quiet flag-ek kezelése)

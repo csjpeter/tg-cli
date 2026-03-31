@@ -7,4 +7,5 @@
 ~100 lines
 
 ## Dependencies
-P5-01
+- P5-01 (pending) — peer azonosítás
+- P3-02 (pending) — bejelentkezés szükséges

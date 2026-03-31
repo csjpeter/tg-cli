@@ -20,4 +20,4 @@ since the caller only sees -1 with no diagnostic context.
 ~15 lines
 
 ## Dependencies
-None
+Nincs — önállóan végrehajtható.

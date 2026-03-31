@@ -7,4 +7,5 @@
 ~80 lines
 
 ## Dependencies
-None
+- P3-02 (pending) — API híváshoz bejelentkezés szükséges
+- P4-05 ✅ (verified) — constructor registry a válasz parszoláshoz

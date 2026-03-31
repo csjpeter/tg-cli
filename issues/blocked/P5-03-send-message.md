@@ -11,4 +11,5 @@ Send a text message.
 ~150 lines
 
 ## Dependencies
-P5-01 (peer identification)
+- P5-01 (pending) — peer azonosítás
+- P3-02 (pending) — bejelentkezés szükséges

@@ -10,4 +10,5 @@ user_id | first_name | last_name | username | phone
 ~100 lines
 
 ## Dependencies
-P4-05 (constructor registry)
+- P4-05 ✅ (verified) — constructor registry
+- P3-02 (pending) — API hívásokhoz bejelentkezés szükséges

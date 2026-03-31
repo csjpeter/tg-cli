@@ -22,4 +22,5 @@ If the user has two-step verification enabled, `auth.signIn` returns `SESSION_PA
 ~400 lines (SRP is complex)
 
 ## Dependencies
-P3-02, crypto.h (needs SHA-512, PBKDF2)
+- P3-02 (pending) — auth.signIn kell az SESSION_PASSWORD_NEEDED válaszhoz
+- crypto.h bővítés szükséges: SHA-512, PBKDF2-HMAC-SHA512 (jelenleg nincs implementálva)

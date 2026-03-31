@@ -28,4 +28,4 @@ use RAII correctly — this is about bringing older code up to the same standard
 ~40 lines changed (remove free calls, add RAII_STRING annotations)
 
 ## Dependencies
-None
+Nincs — önállóan végrehajtható.
