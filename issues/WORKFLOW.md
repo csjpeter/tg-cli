@@ -5,14 +5,14 @@
 Issues move between directories that represent their current status:
 
 ```
-new/ → pending/ → inprogress/ → ready/ → inqa/ → verified/
-        ↑                                   │
-        └──────────── (QA reject) ──────────┘
+incoming/ → pending/ → inprogress/ → ready/ → inqa/ → verified/
+             ↑                                   │
+             └──────────── (QA reject) ──────────┘
 ```
 
 | Directory     | Meaning                                              |
 |---------------|------------------------------------------------------|
-| `new/`        | Newly created issue, awaiting manager approval       |
+| `incoming/`   | Newly created issue, awaiting manager approval       |
 | `pending/`    | Approved for development, waiting to be picked up    |
 | `inprogress/` | Actively being worked on by a developer              |
 | `ready/`      | Development complete, waiting for QA                 |
@@ -27,7 +27,7 @@ new/ → pending/ → inprogress/ → ready/ → inqa/ → verified/
 
 ## Transitions
 
-### new/ → pending/ (manager approval)
+### incoming/ → pending/ (manager approval)
 **Trigger:** Manager reviews and approves the issue for development.
 Only the manager (human user) can authorize this move.
 
