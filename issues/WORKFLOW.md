@@ -5,110 +5,111 @@
 Issues move between directories that represent their current status:
 
 ```
-incoming/ → pending/ → inprogress/ → ready/ → inqa/ → verified/
-    │          ↑                                  │
-    ↓          └──────────── (QA reject) ──────────┘
- blocked/
+incoming/ → pending/ → inprogress/ → ready/ → inreview/ → reviewed/ → inqa/ → verified/
+               ↑                                   │                      │
+               └──────────── (review reject) ──────┘                      │
+               └──────────────────────────── (QA reject) ─────────────────┘
 ```
 
 | Directory     | Meaning                                                        |
 |---------------|----------------------------------------------------------------|
 | `incoming/`   | Newly created issue, awaiting Engineer feasibility analysis    |
-| `pending/`    | Feasible, approved for development, waiting to be picked up    |
-| `blocked/`    | Not yet feasible — missing dependencies or prerequisites       |
+| `pending/`    | Dependency-ordered queue, ready to be picked up by Developer   |
 | `inprogress/` | Actively being worked on by a Developer                        |
-| `ready/`      | Development complete, waiting for QA                           |
-| `inqa/`       | QA review in progress                                          |
+| `ready/`      | Development complete, waiting for Reviewer                     |
+| `inreview/`   | Code review in progress                                        |
+| `reviewed/`   | Review passed, waiting for QA                                  |
+| `inqa/`       | QA verification in progress                                    |
 | `verified/`   | QA passed, issue closed                                        |
 
 ## Roles
 
-- **Manager** (Claude): Ensures progress, coordinates team, finds gaps and conflicts
-- **Engineer** (Claude): Analyzes issues and code together, decides feasibility
-- **Developer** (Claude): Implements features, fixes bugs
-- **QA** (Claude): Reviews code quality, runs checks, verifies acceptance
+### Engineer
 
-## Transitions
+**Trigger:** There are issues in `incoming/`.
 
-### incoming/ → pending/ (Engineer approves)
-**Trigger:** Engineer analyzes the issue against the current codebase and determines
-it is feasible — all dependencies are met.
+**Responsibility:** Analyze each incoming issue against the current codebase.
+Build the dependency graph across all issues. Place issues into `pending/` in
+dependency order — guaranteeing that by the time any issue reaches the front
+of the queue, all its prerequisites are already in `verified/`. Issues whose
+time has not yet come remain in `incoming/`.
 
-### incoming/ → blocked/ (Engineer rejects)
-**Trigger:** Engineer determines the issue is not yet feasible — dependencies are
-missing or prerequisites are unmet.
-**Requirements:**
-- Add a `## Blocked` section to the issue file documenting:
-  - Date
-  - What is missing or blocking progress
+**Input:** `incoming/` issues + full codebase
+**Output:** Ordered issues moved to `pending/`
 
-Example:
-```markdown
-## Blocked — 2026-03-31
-- Depends on P2-auth-key-exchange which is not yet in verified/
-```
+### Developer
 
-### pending/ → inprogress/ (developer picks up)
-**Trigger:** Developer picks up the issue.
-**Rules:**
-- All dependencies listed in the issue must already be in `verified/`
-- Only one issue should be `inprogress/` at a time
-- No file content changes required — just move the file
+**Trigger:** `inprogress/` is empty and there are issues in `pending/`.
 
-### inprogress/ → ready/ (development complete)
-**Trigger:** Developer considers implementation complete.
-**Requirements before move:**
-- Code compiles: `./manage.sh build` (0 warnings)
-- Tests pass: `./manage.sh test` (0 ASAN errors)
-- Valgrind clean: `./manage.sh valgrind` (0 leaks)
-- Coverage maintained: `./manage.sh coverage` (core+infra >90%)
+**Responsibility:** Pick up the first issue from `pending/`. Implement the
+feature or fix. Move to `ready/` only when all quality gates pass.
+
+**Input:** First issue in `pending/`
+**Output:** Implemented code committed, issue moved to `ready/`
+
+**Quality gates before moving to `ready/`:**
+- `./manage.sh build` — 0 warnings
+- `./manage.sh test` — 0 ASAN errors
+- `./manage.sh valgrind` — 0 leaks
+- `./manage.sh coverage` — core+infra >90%
 - All new/changed files committed
 
-### ready/ → inqa/ (QA picks up)
-**Trigger:** QA picks up the issue for review.
-No file content changes required — just move the file.
+**Rules:**
+- Only one issue in `inprogress/` at a time
+- All dependencies must be in `verified/` before starting
 
-### inqa/ → verified/ (QA passed)
-**Trigger:** All QA checks passed.
-**QA checklist:**
-- [ ] Build & test suite green (`./manage.sh test`)
-- [ ] Valgrind clean (`./manage.sh valgrind`)
-- [ ] Coverage target met (`./manage.sh coverage`)
-- [ ] Code review: no security issues, follows architecture rules (CLAUDE.md)
-- [ ] Public functions have Doxygen comments
+### Reviewer
+
+**Trigger:** There are issues in `ready/`.
+
+**Responsibility:** Code review of the implementation. Verify correctness,
+architecture compliance, and code quality. Move to `reviewed/` if acceptable,
+or back to `pending/` with documented reasons if not.
+
+**Input:** Issue from `ready/` + changed code
+**Output:** Issue moved to `reviewed/` or back to `pending/`
+
+**Review checklist:**
+- [ ] Follows layered architecture — no circular dependencies (CLAUDE.md)
 - [ ] No `#ifdef` in non-platform code
-- [ ] System IO goes through DIP wrappers (crypto.h, socket.h)
-- [ ] RAII macros used for resource management (no manual free)
-- [ ] Edge cases and error paths tested
+- [ ] System IO goes through DIP wrappers (`crypto.h`, `socket.h`)
+- [ ] RAII macros used — no manual `free()`
+- [ ] Public functions have Doxygen comments
+- [ ] No obvious logic errors or security issues
+- [ ] Implementation matches the issue description
+
+**On reject:** Add a `## Review Reject` section to the issue file, then move to `pending/`.
+
+### QA
+
+**Trigger:** There are issues in `reviewed/`.
+
+**Responsibility:** Verify the implementation end-to-end: build, tests, coverage,
+and deeper security/correctness checks. Move to `verified/` if all checks pass,
+or back to `pending/` with documented reasons if not.
+
+**Input:** Issue from `reviewed/` + full test suite
+**Output:** Issue moved to `verified/` or back to `pending/`
+
+**QA checklist:**
+- [ ] `./manage.sh test` — build and test suite green (0 ASAN errors)
+- [ ] `./manage.sh valgrind` — 0 leaks, 0 errors
+- [ ] `./manage.sh coverage` — core+infra >90%
+- [ ] Edge cases and error paths have tests
 - [ ] No regressions in existing tests
+- [ ] Security review: no injection, no UB, no uninitialized data
 
-### inqa/ → pending/ (QA reject)
-**Trigger:** QA review failed.
-**Requirements:**
-- Add a `## QA Reject` section to the issue file documenting:
-  - Date
-  - What failed
-  - What needs to be fixed
+**On reject:** Add a `## QA Reject` section to the issue file, then move to `pending/`.
 
-Example:
-```markdown
-## QA Reject — 2026-03-31
-- Missing NULL check in `foo_init()` (crash on OOM)
-- No unit test for error path in `bar_send()`
-```
+### Manager
 
-The issue returns to `pending/` for the developer to fix.
+**Trigger:** Periodically, or when the pipeline appears stalled.
 
-## File Naming Convention
+**Responsibility:** Ensure overall progress. Identify stalled issues, gaps in
+coverage, and conflicts between team members. Escalate or reassign as needed.
+Does not evaluate technical content — coordinates flow only.
 
-```
-P<phase>-<sequence>-<short-name>.md
-```
-
-Examples: `P1-aes-ige.md`, `P3-02-auth-send-code.md`
-
-Phase number determines priority ordering. Sequence number is optional
-(used when a phase has multiple issues with dependencies).
+---
 
 ## Issue File Format
 
@@ -130,9 +131,20 @@ Approximate scope in lines of code.
 ## Dependencies
 List of prerequisite issues (e.g., P3-01).
 
-## Blocked — <date> (if applicable)
-- Blocking reasons
+## Review Reject — <date> (if applicable)
+- Rejection reasons
 
 ## QA Reject — <date> (if applicable)
 - Rejection reasons
 ```
+
+## File Naming Convention
+
+```
+P<phase>-<sequence>-<short-name>.md
+```
+
+Examples: `P1-aes-ige.md`, `P3-02-auth-send-code.md`
+
+Phase number determines priority ordering. Sequence number is optional
+(used when a phase has multiple issues with dependencies).
