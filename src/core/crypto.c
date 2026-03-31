@@ -10,7 +10,6 @@
 
 #include <openssl/evp.h>
 #include <openssl/rand.h>
-#include <openssl/rsa.h>
 #include <openssl/bn.h>
 #include <openssl/pem.h>
 #include <stdio.h>
@@ -81,10 +80,10 @@ void crypto_sha1(const unsigned char *data, size_t len, unsigned char *out) {
     EVP_Digest(data, len, out, NULL, EVP_sha1(), NULL);
 }
 
-/* ---- RSA ---- */
+/* ---- RSA (OpenSSL 3.0 EVP API) ---- */
 
 struct CryptoRsaKey {
-    RSA *rsa;
+    EVP_PKEY *pkey;
 };
 
 CryptoRsaKey *crypto_rsa_load_public(const char *pem) {
@@ -93,20 +92,20 @@ CryptoRsaKey *crypto_rsa_load_public(const char *pem) {
     BIO *bio = BIO_new_mem_buf(pem, (int)strlen(pem));
     if (!bio) return NULL;
 
-    RSA *rsa = PEM_read_bio_RSA_PUBKEY(bio, NULL, NULL, NULL);
+    EVP_PKEY *pkey = PEM_read_bio_PUBKEY(bio, NULL, NULL, NULL);
     BIO_free(bio);
 
-    if (!rsa) return NULL;
+    if (!pkey) return NULL;
 
     CryptoRsaKey *key = (CryptoRsaKey *)calloc(1, sizeof(CryptoRsaKey));
-    if (!key) { RSA_free(rsa); return NULL; }
-    key->rsa = rsa;
+    if (!key) { EVP_PKEY_free(pkey); return NULL; }
+    key->pkey = pkey;
     return key;
 }
 
 void crypto_rsa_free(CryptoRsaKey *key) {
     if (key) {
-        RSA_free(key->rsa);
+        EVP_PKEY_free(key->pkey);
         free(key);
     }
 }
@@ -115,14 +114,26 @@ int crypto_rsa_public_encrypt(CryptoRsaKey *key, const unsigned char *data,
                               size_t data_len, unsigned char *out, size_t *out_len) {
     if (!key || !data || !out || !out_len) return -1;
 
-    int rsa_size = RSA_size(key->rsa);
-    if ((int)data_len > rsa_size) return -1;
+    EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new(key->pkey, NULL);
+    if (!ctx) return -1;
 
-    int result = RSA_public_encrypt((int)data_len, data, out, key->rsa,
-                                    RSA_NO_PADDING);
-    if (result < 0) return -1;
+    if (EVP_PKEY_encrypt_init(ctx) <= 0) {
+        EVP_PKEY_CTX_free(ctx);
+        return -1;
+    }
 
-    *out_len = (size_t)result;
+    /* RSA_NO_PADDING — Telegram uses its own RSA_PAD scheme on top */
+    if (EVP_PKEY_CTX_set_rsa_padding(ctx, RSA_NO_PADDING) <= 0) {
+        EVP_PKEY_CTX_free(ctx);
+        return -1;
+    }
+
+    if (EVP_PKEY_encrypt(ctx, out, out_len, data, data_len) <= 0) {
+        EVP_PKEY_CTX_free(ctx);
+        return -1;
+    }
+
+    EVP_PKEY_CTX_free(ctx);
     return 0;
 }
 

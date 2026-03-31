@@ -82,3 +82,6 @@ target_link_libraries(${PROJECT_NAME} PRIVATE tg-proto)
 # Unit tests
 enable_testing()
 add_subdirectory(tests/unit)
+
+# Functional tests (real crypto, no mocks)
+add_subdirectory(tests/functional)

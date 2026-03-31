@@ -58,15 +58,16 @@ void mtproto_derive_keys(const uint8_t *auth_key, const uint8_t *msg_key,
         crypto_sha256(buf, sizeof(buf), sha256_b);
     }
 
-    /* aes_key = sha256_a[0:8] + sha256_b[8:16] + sha256_a[24:32] = 32 bytes */
-    memcpy(aes_key,      sha256_a,      8);
-    memcpy(aes_key + 8,  sha256_b + 8,  8);
-    memcpy(aes_key + 16, sha256_a + 24, 8);
+    /* aes_key = sha256_a[0:8] + sha256_b[8:24] + sha256_a[24:32] = 32 bytes
+     * Telegram substr(hash, start, length): substr(sha256_b, 8, 16) = 16 bytes */
+    memcpy(aes_key,      sha256_a,      8);   /* sha256_a[0..7]   */
+    memcpy(aes_key + 8,  sha256_b + 8,  16);  /* sha256_b[8..23]  */
+    memcpy(aes_key + 24, sha256_a + 24, 8);   /* sha256_a[24..31] */
 
-    /* aes_iv = sha256_b[0:8] + sha256_a[8:16] + sha256_b[24:32] = 32 bytes */
-    memcpy(aes_iv,      sha256_b,      8);
-    memcpy(aes_iv + 8,  sha256_a + 8,  8);
-    memcpy(aes_iv + 16, sha256_b + 24, 8);
+    /* aes_iv = sha256_b[0:8] + sha256_a[8:24] + sha256_b[24:32] = 32 bytes */
+    memcpy(aes_iv,       sha256_b,      8);   /* sha256_b[0..7]   */
+    memcpy(aes_iv + 8,   sha256_a + 8,  16);  /* sha256_a[8..23]  */
+    memcpy(aes_iv + 24,  sha256_b + 24, 8);   /* sha256_b[24..31] */
 }
 
 /**
