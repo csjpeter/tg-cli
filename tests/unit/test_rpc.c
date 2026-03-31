@@ -8,6 +8,7 @@
 #include "test_helpers.h"
 #include "mtproto_rpc.h"
 #include "mtproto_session.h"
+#include "tl_serial.h"
 #include "mock_socket.h"
 #include "mock_crypto.h"
 #include "transport.h"
@@ -127,9 +128,254 @@ void test_rpc_recv_unencrypted_short_packet(void) {
     transport_close(&t);
 }
 
+/* ---- msg_container tests ---- */
+
+void test_container_not_container(void) {
+    /* Non-container data → single message */
+    uint8_t data[] = { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08 };
+    RpcContainerMsg msgs[4];
+    size_t count = 0;
+
+    int rc = rpc_parse_container(data, sizeof(data), msgs, 4, &count);
+    ASSERT(rc == 0, "non-container should succeed");
+    ASSERT(count == 1, "count should be 1");
+    ASSERT(msgs[0].body_len == sizeof(data), "body_len should match");
+    ASSERT(msgs[0].body == data, "body should point to original data");
+}
+
+void test_container_single_msg(void) {
+    /* Container with 1 message */
+    TlWriter w;
+    tl_writer_init(&w);
+    tl_write_uint32(&w, 0x73f1f8dc); /* msg_container */
+    tl_write_uint32(&w, 1);          /* count = 1 */
+    /* msg: msg_id(8) + seqno(4) + body_len(4) + body */
+    tl_write_uint64(&w, 12345);      /* msg_id */
+    tl_write_uint32(&w, 1);          /* seqno */
+    tl_write_uint32(&w, 4);          /* body_len */
+    uint8_t body[] = { 0xAA, 0xBB, 0xCC, 0xDD };
+    tl_write_raw(&w, body, 4);
+
+    RpcContainerMsg msgs[4];
+    size_t count = 0;
+    int rc = rpc_parse_container(w.data, w.len, msgs, 4, &count);
+    ASSERT(rc == 0, "single-msg container should succeed");
+    ASSERT(count == 1, "count should be 1");
+    ASSERT(msgs[0].msg_id == 12345, "msg_id should be 12345");
+    ASSERT(msgs[0].seqno == 1, "seqno should be 1");
+    ASSERT(msgs[0].body_len == 4, "body_len should be 4");
+    ASSERT(memcmp(msgs[0].body, body, 4) == 0, "body should match");
+
+    tl_writer_free(&w);
+}
+
+void test_container_multiple_msgs(void) {
+    /* Container with 3 messages */
+    TlWriter w;
+    tl_writer_init(&w);
+    tl_write_uint32(&w, 0x73f1f8dc);
+    tl_write_uint32(&w, 3);
+
+    for (int i = 0; i < 3; i++) {
+        tl_write_uint64(&w, (uint64_t)(100 + i)); /* msg_id */
+        tl_write_uint32(&w, (uint32_t)(i * 2));    /* seqno */
+        tl_write_uint32(&w, 4);                    /* body_len */
+        uint8_t body[4] = { (uint8_t)i, 0, 0, 0 };
+        tl_write_raw(&w, body, 4);
+    }
+
+    RpcContainerMsg msgs[8];
+    size_t count = 0;
+    int rc = rpc_parse_container(w.data, w.len, msgs, 8, &count);
+    ASSERT(rc == 0, "multi-msg container should succeed");
+    ASSERT(count == 3, "count should be 3");
+    ASSERT(msgs[0].msg_id == 100, "msg 0 id");
+    ASSERT(msgs[1].msg_id == 101, "msg 1 id");
+    ASSERT(msgs[2].msg_id == 102, "msg 2 id");
+    ASSERT(msgs[0].body[0] == 0, "msg 0 body");
+    ASSERT(msgs[1].body[0] == 1, "msg 1 body");
+    ASSERT(msgs[2].body[0] == 2, "msg 2 body");
+
+    tl_writer_free(&w);
+}
+
+void test_container_too_many_msgs(void) {
+    /* Container with more messages than buffer can hold */
+    TlWriter w;
+    tl_writer_init(&w);
+    tl_write_uint32(&w, 0x73f1f8dc);
+    tl_write_uint32(&w, 5); /* 5 messages */
+    for (int i = 0; i < 5; i++) {
+        tl_write_uint64(&w, (uint64_t)i);
+        tl_write_uint32(&w, 0);
+        tl_write_uint32(&w, 4);
+        uint8_t body[4] = {0};
+        tl_write_raw(&w, body, 4);
+    }
+
+    RpcContainerMsg msgs[2]; /* only room for 2 */
+    size_t count = 0;
+    int rc = rpc_parse_container(w.data, w.len, msgs, 2, &count);
+    ASSERT(rc == -1, "should fail when too many messages for buffer");
+    tl_writer_free(&w);
+}
+
+void test_container_null_args(void) {
+    uint8_t data[8] = {0};
+    RpcContainerMsg msgs[2];
+    size_t count = 0;
+    ASSERT(rpc_parse_container(NULL, 8, msgs, 2, &count) == -1, "NULL data");
+    ASSERT(rpc_parse_container(data, 8, NULL, 2, &count) == -1, "NULL msgs");
+    ASSERT(rpc_parse_container(data, 8, msgs, 2, NULL) == -1, "NULL count");
+}
+
+/* ---- rpc_result / rpc_error tests ---- */
+
+void test_rpc_unwrap_result(void) {
+    TlWriter w;
+    tl_writer_init(&w);
+    tl_write_uint32(&w, 0xf35c6d01); /* rpc_result */
+    tl_write_uint64(&w, 99887766ULL); /* req_msg_id */
+    tl_write_uint32(&w, 0xDEADBEEF); /* inner data (some constructor) */
+    tl_write_int32(&w, 42);
+
+    uint64_t req_id = 0;
+    const uint8_t *inner = NULL;
+    size_t inner_len = 0;
+    int rc = rpc_unwrap_result(w.data, w.len, &req_id, &inner, &inner_len);
+    ASSERT(rc == 0, "unwrap rpc_result should succeed");
+    ASSERT(req_id == 99887766ULL, "req_msg_id should match");
+    ASSERT(inner_len == 8, "inner should be 8 bytes (constructor + int32)");
+
+    uint32_t inner_crc;
+    memcpy(&inner_crc, inner, 4);
+    ASSERT(inner_crc == 0xDEADBEEF, "inner constructor should match");
+
+    tl_writer_free(&w);
+}
+
+void test_rpc_unwrap_result_not_result(void) {
+    TlWriter w;
+    tl_writer_init(&w);
+    tl_write_uint32(&w, 0x12345678); /* not rpc_result */
+    tl_write_int32(&w, 42);
+
+    uint64_t req_id;
+    const uint8_t *inner;
+    size_t inner_len;
+    int rc = rpc_unwrap_result(w.data, w.len, &req_id, &inner, &inner_len);
+    ASSERT(rc == -1, "non-rpc_result should return -1");
+    tl_writer_free(&w);
+}
+
+void test_rpc_parse_error_flood_wait(void) {
+    TlWriter w;
+    tl_writer_init(&w);
+    tl_write_uint32(&w, 0x2144ca19); /* rpc_error */
+    tl_write_int32(&w, 420);         /* error_code */
+    tl_write_string(&w, "FLOOD_WAIT_30");
+
+    RpcError err;
+    int rc = rpc_parse_error(w.data, w.len, &err);
+    ASSERT(rc == 0, "parse flood_wait should succeed");
+    ASSERT(err.error_code == 420, "error_code should be 420");
+    ASSERT(strcmp(err.error_msg, "FLOOD_WAIT_30") == 0, "error_msg should match");
+    ASSERT(err.flood_wait_secs == 30, "flood_wait should be 30 seconds");
+    ASSERT(err.migrate_dc == -1, "no migration");
+
+    tl_writer_free(&w);
+}
+
+void test_rpc_parse_error_phone_migrate(void) {
+    TlWriter w;
+    tl_writer_init(&w);
+    tl_write_uint32(&w, 0x2144ca19);
+    tl_write_int32(&w, 303);
+    tl_write_string(&w, "PHONE_MIGRATE_4");
+
+    RpcError err;
+    int rc = rpc_parse_error(w.data, w.len, &err);
+    ASSERT(rc == 0, "parse phone_migrate should succeed");
+    ASSERT(err.error_code == 303, "error_code should be 303");
+    ASSERT(err.migrate_dc == 4, "should migrate to DC 4");
+    ASSERT(err.flood_wait_secs == 0, "no flood wait");
+
+    tl_writer_free(&w);
+}
+
+void test_rpc_parse_error_file_migrate(void) {
+    TlWriter w;
+    tl_writer_init(&w);
+    tl_write_uint32(&w, 0x2144ca19);
+    tl_write_int32(&w, 303);
+    tl_write_string(&w, "FILE_MIGRATE_2");
+
+    RpcError err;
+    int rc = rpc_parse_error(w.data, w.len, &err);
+    ASSERT(rc == 0, "parse file_migrate should succeed");
+    ASSERT(err.migrate_dc == 2, "should migrate to DC 2");
+
+    tl_writer_free(&w);
+}
+
+void test_rpc_parse_error_session_password(void) {
+    TlWriter w;
+    tl_writer_init(&w);
+    tl_write_uint32(&w, 0x2144ca19);
+    tl_write_int32(&w, 401);
+    tl_write_string(&w, "SESSION_PASSWORD_NEEDED");
+
+    RpcError err;
+    int rc = rpc_parse_error(w.data, w.len, &err);
+    ASSERT(rc == 0, "parse session_password should succeed");
+    ASSERT(err.error_code == 401, "error_code should be 401");
+    ASSERT(strcmp(err.error_msg, "SESSION_PASSWORD_NEEDED") == 0, "msg");
+    ASSERT(err.migrate_dc == -1, "no migration");
+    ASSERT(err.flood_wait_secs == 0, "no flood wait");
+
+    tl_writer_free(&w);
+}
+
+void test_rpc_parse_error_not_error(void) {
+    TlWriter w;
+    tl_writer_init(&w);
+    tl_write_uint32(&w, 0x12345678); /* not rpc_error */
+    tl_write_int32(&w, 200);
+
+    RpcError err;
+    int rc = rpc_parse_error(w.data, w.len, &err);
+    ASSERT(rc == -1, "non-rpc_error should return -1");
+
+    tl_writer_free(&w);
+}
+
+void test_rpc_parse_error_null_args(void) {
+    uint8_t data[16] = {0};
+    RpcError err;
+    ASSERT(rpc_parse_error(NULL, 16, &err) == -1, "NULL data");
+    ASSERT(rpc_parse_error(data, 16, NULL) == -1, "NULL err");
+}
+
 void test_rpc(void) {
     RUN_TEST(test_rpc_send_unencrypted_framing);
     RUN_TEST(test_rpc_recv_unencrypted);
     RUN_TEST(test_rpc_send_unencrypted_null_checks);
     RUN_TEST(test_rpc_recv_unencrypted_short_packet);
+
+    /* msg_container */
+    RUN_TEST(test_container_not_container);
+    RUN_TEST(test_container_single_msg);
+    RUN_TEST(test_container_multiple_msgs);
+    RUN_TEST(test_container_too_many_msgs);
+    RUN_TEST(test_container_null_args);
+
+    /* rpc_result / rpc_error */
+    RUN_TEST(test_rpc_unwrap_result);
+    RUN_TEST(test_rpc_unwrap_result_not_result);
+    RUN_TEST(test_rpc_parse_error_flood_wait);
+    RUN_TEST(test_rpc_parse_error_phone_migrate);
+    RUN_TEST(test_rpc_parse_error_file_migrate);
+    RUN_TEST(test_rpc_parse_error_session_password);
+    RUN_TEST(test_rpc_parse_error_not_error);
+    RUN_TEST(test_rpc_parse_error_null_args);
 }

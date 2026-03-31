@@ -7,9 +7,15 @@
 #include "mtproto_crypto.h"
 #include "tl_serial.h"
 #include "crypto.h"
+#include "tinf.h"
 
 #include <stdlib.h>
 #include <string.h>
+
+#define CRC_gzip_packed    0x3072cfa1
+#define CRC_msg_container  0x73f1f8dc
+#define CRC_rpc_result     0xf35c6d01
+#define CRC_rpc_error      0x2144ca19
 
 /* ---- Unencrypted messages ---- */
 
@@ -159,5 +165,172 @@ int rpc_recv_encrypted(MtProtoSession *s, Transport *t,
         tl_read_raw(&pr, out, data_len);
     }
     *out_len = data_len;
+    return 0;
+}
+
+/* ---- gzip_packed unwrap ---- */
+
+int rpc_unwrap_gzip(const uint8_t *data, size_t len,
+                    uint8_t *out, size_t max_len, size_t *out_len) {
+    if (!data || !out || !out_len) return -1;
+    if (len < 4) {
+        /* Too short to contain a constructor — copy as-is */
+        if (len > max_len) return -1;
+        memcpy(out, data, len);
+        *out_len = len;
+        return 0;
+    }
+
+    /* Check for gzip_packed constructor */
+    uint32_t constructor;
+    memcpy(&constructor, data, 4);
+
+    if (constructor != CRC_gzip_packed) {
+        /* Not gzip_packed — copy unchanged */
+        if (len > max_len) return -1;
+        memcpy(out, data, len);
+        *out_len = len;
+        return 0;
+    }
+
+    /* Parse: constructor(4) + bytes(TL-encoded compressed data) */
+    TlReader r = tl_reader_init(data, len);
+    tl_read_uint32(&r); /* skip constructor */
+
+    size_t gz_len = 0;
+    uint8_t *gz_data = tl_read_bytes(&r, &gz_len);
+    if (!gz_data || gz_len == 0) {
+        free(gz_data);
+        return -1;
+    }
+
+    /* Decompress with tinf */
+    unsigned int dest_len = (unsigned int)max_len;
+    int rc = tinf_gzip_uncompress(out, &dest_len,
+                                   gz_data, (unsigned int)gz_len);
+    free(gz_data);
+
+    if (rc != TINF_OK) return -1;
+
+    *out_len = dest_len;
+    return 0;
+}
+
+/* ---- msg_container parse ---- */
+
+int rpc_parse_container(const uint8_t *data, size_t len,
+                        RpcContainerMsg *msgs, size_t max_msgs,
+                        size_t *count) {
+    if (!data || !msgs || !count) return -1;
+    if (len < 4) return -1;
+
+    uint32_t constructor;
+    memcpy(&constructor, data, 4);
+
+    if (constructor != CRC_msg_container) {
+        /* Not a container — return as single message */
+        if (max_msgs < 1) return -1;
+        msgs[0].msg_id = 0;
+        msgs[0].seqno = 0;
+        msgs[0].body_len = (uint32_t)len;
+        msgs[0].body = data;
+        *count = 1;
+        return 0;
+    }
+
+    /* Parse: constructor(4) + count(4) + messages[] */
+    TlReader r = tl_reader_init(data, len);
+    tl_read_uint32(&r); /* skip constructor */
+    uint32_t msg_count = tl_read_uint32(&r);
+
+    if (msg_count > max_msgs) return -1;
+
+    for (uint32_t i = 0; i < msg_count; i++) {
+        if (!tl_reader_ok(&r)) return -1;
+
+        msgs[i].msg_id = tl_read_uint64(&r);
+        msgs[i].seqno = tl_read_uint32(&r);
+        msgs[i].body_len = tl_read_uint32(&r);
+
+        if (msgs[i].body_len > len - r.pos) return -1;
+
+        msgs[i].body = data + r.pos;
+        tl_read_skip(&r, msgs[i].body_len);
+    }
+
+    *count = msg_count;
+    return 0;
+}
+
+/* ---- rpc_result unwrap ---- */
+
+int rpc_unwrap_result(const uint8_t *data, size_t len,
+                      uint64_t *req_msg_id,
+                      const uint8_t **inner, size_t *inner_len) {
+    if (!data || !req_msg_id || !inner || !inner_len) return -1;
+    if (len < 12) return -1; /* constructor(4) + msg_id(8) minimum */
+
+    uint32_t constructor;
+    memcpy(&constructor, data, 4);
+    if (constructor != CRC_rpc_result) return -1;
+
+    memcpy(req_msg_id, data + 4, 8);
+    *inner = data + 12;
+    *inner_len = len - 12;
+    return 0;
+}
+
+/* ---- rpc_error parse ---- */
+
+/** Extract trailing integer from error message (e.g. "FLOOD_WAIT_30" → 30). */
+static int extract_trailing_int(const char *msg) {
+    const char *p = msg + strlen(msg);
+    while (p > msg && p[-1] >= '0' && p[-1] <= '9') p--;
+    if (*p == '\0') return 0;
+    return atoi(p);
+}
+
+int rpc_parse_error(const uint8_t *data, size_t len, RpcError *err) {
+    if (!data || !err) return -1;
+    if (len < 4) return -1;
+
+    uint32_t constructor;
+    memcpy(&constructor, data, 4);
+    if (constructor != CRC_rpc_error) return -1;
+
+    TlReader r = tl_reader_init(data, len);
+    tl_read_uint32(&r); /* skip constructor */
+
+    err->error_code = tl_read_int32(&r);
+
+    char *msg = tl_read_string(&r);
+    if (!msg) {
+        memset(err->error_msg, 0, sizeof(err->error_msg));
+        err->migrate_dc = -1;
+        err->flood_wait_secs = 0;
+        return 0;
+    }
+
+    /* Copy message (truncate if needed) */
+    size_t msg_len = strlen(msg);
+    if (msg_len >= sizeof(err->error_msg))
+        msg_len = sizeof(err->error_msg) - 1;
+    memcpy(err->error_msg, msg, msg_len);
+    err->error_msg[msg_len] = '\0';
+
+    /* Parse derived fields */
+    err->migrate_dc = -1;
+    err->flood_wait_secs = 0;
+
+    if (strncmp(msg, "PHONE_MIGRATE_", 14) == 0 ||
+        strncmp(msg, "FILE_MIGRATE_", 13) == 0 ||
+        strncmp(msg, "NETWORK_MIGRATE_", 16) == 0 ||
+        strncmp(msg, "USER_MIGRATE_", 13) == 0) {
+        err->migrate_dc = extract_trailing_int(msg);
+    } else if (strncmp(msg, "FLOOD_WAIT_", 11) == 0) {
+        err->flood_wait_secs = extract_trailing_int(msg);
+    }
+
+    free(msg);
     return 0;
 }

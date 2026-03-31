@@ -34,6 +34,9 @@ set(TEST_SOURCES
     test_phase2.c
     test_rpc.c
     test_auth.c
+    test_gzip.c
+    test_registry.c
+    test_api_call.c
     ../../src/core/fs_util.c
     ../../src/core/logger.c
     ../../src/core/config.c
@@ -42,13 +45,19 @@ set(TEST_SOURCES
     ../../src/core/mtproto_crypto.c
     ../../src/core/mtproto_session.c
     ../../src/core/mtproto_auth.c
+    ../../src/core/tl_registry.c
     ../../src/infrastructure/config_store.c
     ../../src/infrastructure/cache_store.c
     ../../src/infrastructure/transport.c
     ../../src/infrastructure/mtproto_rpc.c
-    ../../src/infrastructure/mtproto_rpc.c
+    ../../src/infrastructure/api_call.c
     ../../tests/mocks/crypto.c
     ../../tests/mocks/socket.c
+    ../../src/vendor/tinf/tinflate.c
+    ../../src/vendor/tinf/tinfgzip.c
+    ../../src/vendor/tinf/tinfzlib.c
+    ../../src/vendor/tinf/adler32.c
+    ../../src/vendor/tinf/crc32.c
     ${TEST_PLATFORM_SOURCES}
 )
 

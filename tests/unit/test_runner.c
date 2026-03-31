@@ -19,6 +19,9 @@ void test_mtproto_crypto(void);
 void test_phase2(void);
 void test_rpc(void);
 void test_auth(void);
+void test_gzip(void);
+void test_registry(void);
+void test_api_call(void);
 
 int main() {
     printf("--- tg-cli Unit Test Suite ---\n\n");
@@ -37,6 +40,9 @@ int main() {
     RUN_TEST(test_phase2);
     RUN_TEST(test_rpc);
     RUN_TEST(test_auth);
+    RUN_TEST(test_gzip);
+    RUN_TEST(test_registry);
+    RUN_TEST(test_api_call);
 
     printf("\n--- Test Results ---\n");
     printf("Tests Run:    %d\n", g_tests_run);
