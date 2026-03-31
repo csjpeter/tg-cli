@@ -82,6 +82,7 @@ Known portability gaps that need shims before non-Linux builds work:
 | `__attribute__((cleanup(...)))` (RAII) | ✅ GCC / Apple Clang | ✅ Clang NDK | ✅ MinGW-w64 (GCC) |
 | Home dir (`$HOME`) | ✅ | ⚠️ use app data dir | ❌ use `%USERPROFILE%` |
 | Cache/config paths (`~/.cache`, `~/.config`) | ✅ | ❌ use app-specific dirs | ❌ use `%APPDATA%` |
+| TCP sockets | ✅ POSIX `sys/socket.h` | ✅ POSIX | ✅ Winsock2 (`platform/windows/socket.c`) |
 
 **Compiler policy: GCC (or Clang) on every platform — MSVC is out of scope.**
 
