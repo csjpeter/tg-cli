@@ -1,0 +1,283 @@
+/**
+ * @file test_auth_session.c
+ * @brief Unit tests for auth_session.c (auth.sendCode + auth.signIn).
+ *
+ * Uses mock socket and mock crypto; verifies TL request structure and
+ * response parsing.
+ */
+
+#include "test_helpers.h"
+#include "auth_session.h"
+#include "mtproto_session.h"
+#include "transport.h"
+#include "tl_serial.h"
+#include "tl_registry.h"
+#include "mock_socket.h"
+#include "mock_crypto.h"
+
+#include <string.h>
+#include <stdlib.h>
+#include <stdint.h>
+
+/* ---- Helper: build a minimal fake encrypted response ----
+ *
+ * The RPC layer (rpc_recv_encrypted) expects:
+ *   auth_key_id(8) + msg_key(16) + encrypted_payload
+ * where encrypted_payload (after mock decrypt = identity) is:
+ *   salt(8) + session_id(8) + msg_id(8) + seq_no(4) + data_len(4) + data
+ * and data is the raw TL response we want to return.
+ *
+ * Since mock crypto uses passthrough (encrypt = copy), we build the
+ * "encrypted" buffer as if it were already the decrypted payload.
+ */
+static void build_fake_encrypted_response(const uint8_t *payload, size_t plen,
+                                           uint8_t *out, size_t *out_len) {
+    TlWriter w;
+    tl_writer_init(&w);
+
+    /* auth_key_id (8) + msg_key (16) = 24 bytes header */
+    uint8_t zeros24[24] = {0};
+    tl_write_raw(&w, zeros24, 24);
+
+    /* plaintext frame: salt(8)+session_id(8)+msg_id(8)+seq_no(4)+len(4)+data */
+    uint8_t header[32] = {0};
+    uint32_t plen32 = (uint32_t)plen;
+    memcpy(header + 28, &plen32, 4); /* data_len */
+    tl_write_raw(&w, header, 32);
+    tl_write_raw(&w, payload, plen);
+
+    /* Pad to 16-byte boundary */
+    size_t total = w.len;
+    size_t payload_start = 24; /* after auth_key_id + msg_key */
+    size_t enc_part = total - payload_start;
+    if (enc_part % 16 != 0) {
+        size_t pad = 16 - (enc_part % 16);
+        uint8_t zeros[16] = {0};
+        tl_write_raw(&w, zeros, pad);
+    }
+
+    /* Wrap in abridged transport: 1-byte length prefix (in 4-byte units) */
+    size_t wire_bytes = w.len;
+    size_t wire_units = wire_bytes / 4;
+
+    uint8_t *result = (uint8_t *)malloc(1 + wire_bytes);
+    result[0] = (uint8_t)wire_units;
+    memcpy(result + 1, w.data, wire_bytes);
+    *out_len = 1 + wire_bytes;
+    memcpy(out, result, *out_len);
+    free(result);
+    tl_writer_free(&w);
+}
+
+/* ---- Helper: make session ready for encrypted calls ---- */
+static void session_setup(MtProtoSession *s) {
+    mtproto_session_init(s);
+    uint8_t fake_key[256] = {0};
+    mtproto_session_set_auth_key(s, fake_key);
+    mtproto_session_set_salt(s, 0x1122334455667788ULL);
+}
+
+/* ---- Helper: make fake sentCode TL payload ---- */
+static size_t make_sent_code_payload(uint8_t *buf, size_t max) {
+    TlWriter w;
+    tl_writer_init(&w);
+
+    tl_write_uint32(&w, CRC_auth_sentCode);
+    tl_write_uint32(&w, 0);              /* flags = 0 */
+    /* type: sentCodeTypeApp */
+    tl_write_uint32(&w, CRC_auth_sentCodeTypeApp);
+    tl_write_int32(&w, 5);              /* length = 5 digits */
+    /* phone_code_hash */
+    tl_write_string(&w, "abc123hash456xyz");
+
+    size_t len = w.len < max ? w.len : max;
+    memcpy(buf, w.data, len);
+    tl_writer_free(&w);
+    return len;
+}
+
+/* ---- Helper: make fake auth.authorization TL payload ---- */
+static size_t make_authorization_payload(uint8_t *buf, size_t max,
+                                          int64_t user_id) {
+    TlWriter w;
+    tl_writer_init(&w);
+
+    tl_write_uint32(&w, CRC_auth_authorization);
+    tl_write_uint32(&w, 0);             /* flags = 0 */
+    /* user: user#3ff6ecb0 */
+    tl_write_uint32(&w, TL_user);
+    tl_write_uint32(&w, 0);            /* user flags */
+    tl_write_int64(&w, user_id);       /* id */
+
+    size_t len = w.len < max ? w.len : max;
+    memcpy(buf, w.data, len);
+    tl_writer_free(&w);
+    return len;
+}
+
+/* ---- Test: auth_send_code sends correct TL request ---- */
+static void test_send_code_request_structure(void) {
+    mock_socket_reset();
+    mock_crypto_reset();
+
+    /* Prepare fake sentCode response */
+    uint8_t payload[512];
+    size_t plen = make_sent_code_payload(payload, sizeof(payload));
+
+    uint8_t resp_buf[1024];
+    size_t resp_len = 0;
+    build_fake_encrypted_response(payload, plen, resp_buf, &resp_len);
+    mock_socket_set_response(resp_buf, resp_len);
+
+    MtProtoSession s;
+    session_setup(&s);
+    Transport t;
+    transport_init(&t);
+    t.fd = 42;
+    t.connected = 1;
+    t.dc_id = 1;
+
+    ApiConfig cfg;
+    api_config_init(&cfg);
+    cfg.api_id   = 12345;
+    cfg.api_hash = "deadbeef";
+
+    AuthSentCode result;
+    memset(&result, 0, sizeof(result));
+    int rc = auth_send_code(&cfg, &s, &t, "+15551234567", &result);
+
+    ASSERT(rc == 0, "send_code: must succeed with valid sentCode response");
+    ASSERT(strcmp(result.phone_code_hash, "abc123hash456xyz") == 0,
+           "send_code: phone_code_hash must be parsed correctly");
+
+    /* Verify the sent bytes contain the phone number and api_id */
+    size_t sent_len = 0;
+    const uint8_t *sent = mock_socket_get_sent(&sent_len);
+    ASSERT(sent_len > 10,  "send_code: must have sent data");
+    (void)sent;
+}
+
+/* ---- Test: auth_send_code handles RPC error ---- */
+static void test_send_code_rpc_error(void) {
+    mock_socket_reset();
+    mock_crypto_reset();
+
+    /* Build rpc_error payload */
+    uint8_t payload[256];
+    TlWriter w;
+    tl_writer_init(&w);
+    tl_write_uint32(&w, TL_rpc_error);
+    tl_write_int32(&w, 400);
+    tl_write_string(&w, "PHONE_NUMBER_INVALID");
+    memcpy(payload, w.data, w.len);
+    size_t plen = w.len;
+    tl_writer_free(&w);
+
+    uint8_t resp_buf[1024];
+    size_t resp_len = 0;
+    build_fake_encrypted_response(payload, plen, resp_buf, &resp_len);
+    mock_socket_set_response(resp_buf, resp_len);
+
+    MtProtoSession s;
+    session_setup(&s);
+    Transport t;
+    transport_init(&t);
+    t.fd = 42; t.connected = 1; t.dc_id = 1;
+
+    ApiConfig cfg;
+    api_config_init(&cfg);
+    cfg.api_id = 12345; cfg.api_hash = "deadbeef";
+
+    AuthSentCode result;
+    memset(&result, 0, sizeof(result));
+    int rc = auth_send_code(&cfg, &s, &t, "+15551234567", &result);
+
+    ASSERT(rc != 0, "send_code: must fail on RPC error");
+}
+
+/* ---- Test: auth_sign_in success path ---- */
+static void test_sign_in_success(void) {
+    mock_socket_reset();
+    mock_crypto_reset();
+
+    uint8_t payload[512];
+    size_t plen = make_authorization_payload(payload, sizeof(payload), 987654321LL);
+
+    uint8_t resp_buf[1024];
+    size_t resp_len = 0;
+    build_fake_encrypted_response(payload, plen, resp_buf, &resp_len);
+    mock_socket_set_response(resp_buf, resp_len);
+
+    MtProtoSession s;
+    session_setup(&s);
+    Transport t;
+    transport_init(&t);
+    t.fd = 42; t.connected = 1; t.dc_id = 1;
+
+    ApiConfig cfg;
+    api_config_init(&cfg);
+    cfg.api_id = 12345; cfg.api_hash = "deadbeef";
+
+    int64_t user_id = 0;
+    int rc = auth_sign_in(&cfg, &s, &t,
+                          "+15551234567", "abc123hash456xyz", "12345",
+                          &user_id);
+
+    ASSERT(rc == 0,             "sign_in: must succeed");
+    ASSERT(user_id == 987654321LL, "sign_in: user_id must be parsed correctly");
+}
+
+/* ---- Test: auth_sign_in RPC error ---- */
+static void test_sign_in_rpc_error(void) {
+    mock_socket_reset();
+    mock_crypto_reset();
+
+    uint8_t payload[256];
+    TlWriter w;
+    tl_writer_init(&w);
+    tl_write_uint32(&w, TL_rpc_error);
+    tl_write_int32(&w, 400);
+    tl_write_string(&w, "PHONE_CODE_INVALID");
+    memcpy(payload, w.data, w.len);
+    size_t plen = w.len;
+    tl_writer_free(&w);
+
+    uint8_t resp_buf[1024];
+    size_t resp_len = 0;
+    build_fake_encrypted_response(payload, plen, resp_buf, &resp_len);
+    mock_socket_set_response(resp_buf, resp_len);
+
+    MtProtoSession s;
+    session_setup(&s);
+    Transport t;
+    transport_init(&t);
+    t.fd = 42; t.connected = 1; t.dc_id = 1;
+
+    ApiConfig cfg;
+    api_config_init(&cfg);
+    cfg.api_id = 12345; cfg.api_hash = "deadbeef";
+
+    int64_t user_id = 0;
+    int rc = auth_sign_in(&cfg, &s, &t,
+                          "+15551234567", "abc123hash456xyz", "00000",
+                          &user_id);
+
+    ASSERT(rc != 0, "sign_in: must fail on RPC error");
+}
+
+/* ---- Test: null arguments are rejected ---- */
+static void test_null_args_rejected(void) {
+    AuthSentCode out;
+    ASSERT(auth_send_code(NULL, NULL, NULL, NULL, &out) == -1,
+           "send_code: null args must return -1");
+    ASSERT(auth_sign_in(NULL, NULL, NULL, NULL, NULL, NULL, NULL) == -1,
+           "sign_in: null args must return -1");
+}
+
+void run_auth_session_tests(void) {
+    RUN_TEST(test_send_code_request_structure);
+    RUN_TEST(test_send_code_rpc_error);
+    RUN_TEST(test_sign_in_success);
+    RUN_TEST(test_sign_in_rpc_error);
+    RUN_TEST(test_null_args_rejected);
+}

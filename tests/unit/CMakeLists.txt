@@ -19,6 +19,7 @@ set(TEST_SOURCES
     test_gzip.c
     test_registry.c
     test_api_call.c
+    test_auth_session.c
     ../../tests/mocks/crypto.c
     ../../tests/mocks/socket.c
 )
