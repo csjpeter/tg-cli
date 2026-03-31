@@ -35,6 +35,8 @@ static struct {
     unsigned char rsa_encrypt_result[512];
 
     int bn_mod_exp_count;
+    unsigned char bn_mod_exp_result[512];
+    size_t bn_mod_exp_result_len;
 } g_mock;
 
 /* ---- Test accessor functions ---- */
@@ -89,6 +91,12 @@ void mock_crypto_set_rsa_encrypt_result(const unsigned char *data, size_t len) {
 
 int mock_crypto_bn_mod_exp_call_count(void) {
     return g_mock.bn_mod_exp_count;
+}
+
+void mock_crypto_set_bn_mod_exp_result(const unsigned char *data, size_t len) {
+    if (len > sizeof(g_mock.bn_mod_exp_result)) len = sizeof(g_mock.bn_mod_exp_result);
+    memcpy(g_mock.bn_mod_exp_result, data, len);
+    g_mock.bn_mod_exp_result_len = len;
 }
 
 /* ---- crypto.h interface implementation ---- */
@@ -204,10 +212,17 @@ int crypto_bn_mod_exp(unsigned char *result, size_t *res_len,
     (void)ctx;
     g_mock.bn_mod_exp_count++;
 
-    /* Mock: fill result with 0xCC, length = mod_len */
+    /* Mock: use configured result or fill with 0xCC */
     size_t out_len = mod_len;
     if (out_len > *res_len) return -1;
-    memset(result, 0xCC, out_len);
+    if (g_mock.bn_mod_exp_result_len > 0) {
+        size_t copy = g_mock.bn_mod_exp_result_len < out_len
+                    ? g_mock.bn_mod_exp_result_len : out_len;
+        memset(result, 0, out_len);
+        memcpy(result + out_len - copy, g_mock.bn_mod_exp_result, copy);
+    } else {
+        memset(result, 0xCC, out_len);
+    }
     *res_len = out_len;
 
     (void)base_len;

@@ -35,4 +35,19 @@ void mock_crypto_set_rand_bytes(const unsigned char *buf, size_t len);
 /** Get number of times crypto_aes_set_encrypt_key() was called. */
 int mock_crypto_set_encrypt_key_call_count(void);
 
+/** Get number of times crypto_sha1() was called. */
+int mock_crypto_sha1_call_count(void);
+
+/** Get number of times crypto_rsa_public_encrypt() was called. */
+int mock_crypto_rsa_encrypt_call_count(void);
+
+/** Set deterministic RSA encrypt output. */
+void mock_crypto_set_rsa_encrypt_result(const unsigned char *data, size_t len);
+
+/** Get number of times crypto_bn_mod_exp() was called. */
+int mock_crypto_bn_mod_exp_call_count(void);
+
+/** Set deterministic BN mod exp result. */
+void mock_crypto_set_bn_mod_exp_result(const unsigned char *data, size_t len);
+
 #endif /* MOCK_CRYPTO_H */

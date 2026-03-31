@@ -35,6 +35,8 @@ int main() {
     RUN_TEST(test_ige);
     RUN_TEST(test_mtproto_crypto);
     RUN_TEST(test_phase2);
+    RUN_TEST(test_rpc);
+    RUN_TEST(test_auth);
 
     printf("\n--- Test Results ---\n");
     printf("Tests Run:    %d\n", g_tests_run);

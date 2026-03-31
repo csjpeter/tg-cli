@@ -22,6 +22,32 @@
 #include <stdint.h>
 
 /**
+ * @brief DH key exchange context — shared state between steps.
+ *
+ * Exported for testing. Not part of the public API.
+ */
+typedef struct {
+    Transport      *transport;
+    MtProtoSession *session;
+    uint8_t         nonce[16];
+    uint8_t         server_nonce[16];
+    uint8_t         new_nonce[32];
+    uint64_t        pq;
+    uint32_t        p;
+    uint32_t        q;
+    int32_t         dc_id;
+    int32_t         g;
+    uint8_t         dh_prime[256];
+    size_t          dh_prime_len;
+    uint8_t         g_a[256];
+    size_t          g_a_len;
+    int32_t         server_time;
+    uint8_t         b[256];
+    uint8_t         tmp_aes_key[32];
+    uint8_t         tmp_aes_iv[32];
+} AuthKeyCtx;
+
+/**
  * @brief Generate a new auth key via DH key exchange.
  *
  * Sends unencrypted messages via transport to Telegram DC.
@@ -45,5 +71,19 @@ int mtproto_auth_key_gen(Transport *t, MtProtoSession *s);
  * @return 0 on success, -1 if factorization fails.
  */
 int pq_factorize(uint64_t pq, uint32_t *p, uint32_t *q);
+
+/* ---- Step functions (exported for testing) ---- */
+
+/** Step 1: Send req_pq_multi, receive and parse ResPQ. */
+int auth_step_req_pq(AuthKeyCtx *ctx);
+
+/** Step 2: Factorize PQ, build inner data, RSA_PAD encrypt, send req_DH_params. */
+int auth_step_req_dh(AuthKeyCtx *ctx);
+
+/** Step 3: Receive server_DH_params_ok, decrypt, parse DH parameters. */
+int auth_step_parse_dh(AuthKeyCtx *ctx);
+
+/** Step 4: Compute g_b, send set_client_DH_params, receive dh_gen_ok, compute auth_key. */
+int auth_step_set_client_dh(AuthKeyCtx *ctx);
 
 #endif /* MTPROTO_AUTH_H */

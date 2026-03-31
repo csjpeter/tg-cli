@@ -57,6 +57,14 @@ void mock_socket_set_response(const uint8_t *data, size_t len) {
     g_mock_socket.response_pos = 0;
 }
 
+void mock_socket_append_response(const uint8_t *data, size_t len) {
+    if (!data || len == 0) return;
+    size_t new_len = g_mock_socket.response_len + len;
+    g_mock_socket.response = (uint8_t *)realloc(g_mock_socket.response, new_len);
+    memcpy(g_mock_socket.response + g_mock_socket.response_len, data, len);
+    g_mock_socket.response_len = new_len;
+}
+
 void mock_socket_clear_sent(void) {
     g_mock_socket.sent_len = 0;
 }

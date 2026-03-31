@@ -31,6 +31,15 @@ else()
     )
 endif()
 
+# Vendored libraries
+set(VENDOR_TINF_SOURCES
+    src/vendor/tinf/tinflate.c
+    src/vendor/tinf/tinfgzip.c
+    src/vendor/tinf/tinfzlib.c
+    src/vendor/tinf/adler32.c
+    src/vendor/tinf/crc32.c
+)
+
 # Main executable
 add_executable(${PROJECT_NAME}
     src/main.c
@@ -40,6 +49,7 @@ add_executable(${PROJECT_NAME}
     src/infrastructure/config_store.c
     src/infrastructure/cache_store.c
     ${PLATFORM_SOURCES}
+    ${VENDOR_TINF_SOURCES}
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE
@@ -47,6 +57,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     src/core
     src/infrastructure
     src/platform
+    src/vendor/tinf
 )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE OpenSSL::SSL OpenSSL::Crypto)

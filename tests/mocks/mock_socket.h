@@ -15,6 +15,7 @@ int         mock_socket_was_connected(void);
 int         mock_socket_was_closed(void);
 const uint8_t *mock_socket_get_sent(size_t *out_len);
 void        mock_socket_set_response(const uint8_t *data, size_t len);
+void        mock_socket_append_response(const uint8_t *data, size_t len);
 void        mock_socket_clear_sent(void);
 
 #endif /* MOCK_SOCKET_H */

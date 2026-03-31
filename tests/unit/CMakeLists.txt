@@ -3,6 +3,7 @@ include_directories(
     ../../src/core
     ../../src/infrastructure
     ../../src/platform
+    ../../src/vendor/tinf
     ../common
     ../mocks
 )
