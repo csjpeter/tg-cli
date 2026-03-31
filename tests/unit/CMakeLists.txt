@@ -20,6 +20,7 @@ set(TEST_SOURCES
     test_registry.c
     test_api_call.c
     test_auth_session.c
+    test_arg_parse.c
     ../../tests/mocks/crypto.c
     ../../tests/mocks/socket.c
 )
