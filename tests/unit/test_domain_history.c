@@ -151,6 +151,86 @@ static void test_history_channel_peer(void) {
     ASSERT(entries[0].id == 9999, "id matches");
 }
 
+/* Build a simple Message (no complex flags) with text = "hello" and
+ * date=1700000000. Flags include out (bit 1) only. */
+static size_t make_simple_text_message(uint8_t *buf, size_t max,
+                                         int32_t id, const char *text) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, TL_messages_messages);
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, TL_message);
+    tl_write_uint32(&w, (1u << 1));   /* flags: out */
+    tl_write_uint32(&w, 0);            /* flags2 */
+    tl_write_int32 (&w, id);
+    /* No from_id (flags.8 not set). */
+    tl_write_uint32(&w, TL_peerUser); /* peer_id */
+    tl_write_int64 (&w, 123LL);
+    tl_write_int32 (&w, 1700000000);   /* date */
+    tl_write_string(&w, text);
+    size_t n = w.len < max ? w.len : max;
+    memcpy(buf, w.data, n);
+    tl_writer_free(&w);
+    return n;
+}
+
+static void test_history_text_extraction(void) {
+    mock_socket_reset(); mock_crypto_reset();
+
+    uint8_t payload[512];
+    size_t plen = make_simple_text_message(payload, sizeof(payload),
+                                             55, "hello world");
+    uint8_t resp[1024]; size_t rlen = 0;
+    build_fake_encrypted_response(payload, plen, resp, &rlen);
+    mock_socket_set_response(resp, rlen);
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    fix_session(&s); fix_transport(&t); fix_cfg(&cfg);
+
+    HistoryEntry e[3] = {0}; int n = 0;
+    int rc = domain_get_history_self(&cfg, &s, &t, 0, 3, e, &n);
+    ASSERT(rc == 0, "simple message parsed");
+    ASSERT(n == 1, "one entry");
+    ASSERT(e[0].id == 55, "id matches");
+    ASSERT(e[0].out == 1, "out flag set");
+    ASSERT(e[0].date == 1700000000, "date extracted");
+    ASSERT(strcmp(e[0].text, "hello world") == 0, "text extracted");
+    ASSERT(e[0].complex == 0, "not complex");
+}
+
+static void test_history_complex_flag(void) {
+    mock_socket_reset(); mock_crypto_reset();
+
+    /* Message with fwd_from flag set — we should mark complex and not
+     * try to parse further. */
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, TL_messages_messages);
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, TL_message);
+    tl_write_uint32(&w, (1u << 2)); /* flags: fwd_from */
+    tl_write_uint32(&w, 0);
+    tl_write_int32 (&w, 77);
+    /* No further bytes needed — parser bails on complex mask */
+    uint8_t payload[128]; memcpy(payload, w.data, w.len);
+    size_t plen = w.len; tl_writer_free(&w);
+
+    uint8_t resp[512]; size_t rlen = 0;
+    build_fake_encrypted_response(payload, plen, resp, &rlen);
+    mock_socket_set_response(resp, rlen);
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    fix_session(&s); fix_transport(&t); fix_cfg(&cfg);
+
+    HistoryEntry e[3] = {0}; int n = 0;
+    int rc = domain_get_history_self(&cfg, &s, &t, 0, 3, e, &n);
+    ASSERT(rc == 0, "complex message parsed (without text)");
+    ASSERT(n == 1, "one entry");
+    ASSERT(e[0].id == 77, "id still captured");
+    ASSERT(e[0].complex == 1, "complex flag set");
+    ASSERT(e[0].text[0] == '\0', "text empty for complex");
+}
+
 static void test_history_null_args(void) {
     HistoryEntry e[1]; int n = 0;
     ASSERT(domain_get_history_self(NULL, NULL, NULL, 0, 5, e, &n) == -1,
@@ -166,5 +246,7 @@ void run_domain_history_tests(void) {
     RUN_TEST(test_history_one_empty);
     RUN_TEST(test_history_rpc_error);
     RUN_TEST(test_history_channel_peer);
+    RUN_TEST(test_history_text_extraction);
+    RUN_TEST(test_history_complex_flag);
     RUN_TEST(test_history_null_args);
 }

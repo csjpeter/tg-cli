@@ -364,19 +364,23 @@ static int cmd_history(const ArgResult *args) {
         printf("[");
         for (int i = 0; i < count; i++) {
             if (i) printf(",");
-            printf("{\"id\":%d,\"out\":%s,\"date\":%d}",
+            printf("{\"id\":%d,\"out\":%s,\"date\":%d,"
+                   "\"text\":\"%s\",\"complex\":%s}",
                    entries[i].id,
                    entries[i].out ? "true" : "false",
-                   entries[i].date);
+                   entries[i].date,
+                   entries[i].text,
+                   entries[i].complex ? "true" : "false");
         }
         printf("]\n");
     } else {
-        printf("%-8s %-4s %10s\n", "id", "out", "date");
         for (int i = 0; i < count; i++) {
-            printf("%-8d %-4s %10d\n",
+            printf("[%d] %s %d %s\n",
                    entries[i].id,
-                   entries[i].out ? "yes" : "no",
-                   entries[i].date);
+                   entries[i].out ? ">" : "<",
+                   entries[i].date,
+                   entries[i].complex ? "(complex — text not parsed)"
+                                       : entries[i].text);
         }
         if (count == 0) printf("(no messages)\n");
     }

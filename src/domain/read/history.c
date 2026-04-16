@@ -47,6 +47,17 @@ static int write_input_peer(TlWriter *w, const HistoryPeer *p) {
 #define MSG_FLAG_OUT              (1u << 1)
 #define MSG_FLAG_HAS_FROM_ID      (1u << 8)
 
+/* Complex-optional mask: any of these present means we can't trivially
+ * walk to the `message` field without a schema table. */
+#define MSG_FLAGS_COMPLEX_MASK    ( \
+      (1u << 2)   /* fwd_from */    \
+    | (1u << 3)   /* reply_to */    \
+    | (1u << 9)   /* media */       \
+    | (1u << 10)  /* reply_markup */ \
+    | (1u << 11)  /* via_bot_id */  \
+    | (1u << 13)  /* entities */    \
+    )
+
 static int build_request(const HistoryPeer *peer, int32_t offset_id, int limit,
                           uint8_t *buf, size_t cap, size_t *out_len) {
     TlWriter w;
@@ -74,24 +85,17 @@ static int build_request(const HistoryPeer *peer, int32_t offset_id, int limit,
     return rc;
 }
 
-/* Parse one Message constructor (best-effort). We extract id, out flag and
- * date; we DO NOT attempt to parse the text because trailing fields are
- * flag-conditional and fragile. Returns 0 if we captured the three fields,
- * -1 otherwise. On -1 the reader cursor may be mid-object. */
+/* Best-effort Message parser. Extracts id + out + date + text in the
+ * "simple" case (no fwd_from, reply_to, media, reply_markup, via_bot_id,
+ * entities). Otherwise marks entry as `complex` and still fills id/out. */
 static int parse_message_prefix(TlReader *r, HistoryEntry *out) {
     if (!tl_reader_ok(r)) return -1;
     uint32_t crc = tl_read_uint32(r);
 
     if (crc == TL_messageEmpty) {
-        /* messageEmpty#90a6ca84 flags:# id:int peer_id:flags.0?Peer */
         uint32_t flags = tl_read_uint32(r);
         out->id   = tl_read_int32(r);
-        out->date = 0;
-        out->out  = 0;
-        if (flags & 1u) { /* peer_id present */
-            tl_read_uint32(r); /* peer crc */
-            tl_read_int64(r);  /* peer value */
-        }
+        if (flags & 1u) { tl_read_uint32(r); tl_read_int64(r); }
         return 0;
     }
 
@@ -100,15 +104,48 @@ static int parse_message_prefix(TlReader *r, HistoryEntry *out) {
         return -1;
     }
 
-    uint32_t flags = tl_read_uint32(r);
+    uint32_t flags  = tl_read_uint32(r);
+    uint32_t flags2 = tl_read_uint32(r);
+    (void)flags2;
     out->out = (flags & MSG_FLAG_OUT) ? 1 : 0;
-    (void)flags; /* remaining bits used implicitly below */
-    out->id = tl_read_int32(r);
+    out->id  = tl_read_int32(r);
 
-    /* We cannot reliably skip all flag-conditional fields without a schema
-     * table. Instead, we stop here. The caller uses only id/out — date is
-     * left 0 for v1. Real date extraction lives in v2. */
-    out->date = 0;
+    if (crc == TL_messageService) {
+        /* messageService has a different layout (action) — mark complex. */
+        out->complex = 1;
+        return 0;
+    }
+
+    if (flags & MSG_FLAGS_COMPLEX_MASK) {
+        out->complex = 1;
+        return 0;
+    }
+
+    /* Simple layout:
+     *   [from_id:Peer]? (flags.8 : crc+int64)
+     *   peer_id:Peer    (crc+int64)
+     *   date:int
+     *   message:string
+     */
+    if (flags & MSG_FLAG_HAS_FROM_ID) {
+        tl_read_uint32(r); /* peer crc */
+        tl_read_int64(r);  /* peer id */
+    }
+    tl_read_uint32(r); /* peer_id crc */
+    tl_read_int64(r);  /* peer_id value */
+    out->date = tl_read_int32(r);
+
+    if (!tl_reader_ok(r)) return 0;
+    RAII_STRING char *msg = tl_read_string(r);
+    if (msg) {
+        size_t n = strlen(msg);
+        if (n >= HISTORY_TEXT_MAX) {
+            n = HISTORY_TEXT_MAX - 1;
+            out->truncated = 1;
+        }
+        memcpy(out->text, msg, n);
+        out->text[n] = '\0';
+    }
     return 0;
 }
 

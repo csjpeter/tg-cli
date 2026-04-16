@@ -101,10 +101,13 @@ static void do_history_self(const ApiConfig *cfg, MtProtoSession *s,
         puts("history: request failed");
         return;
     }
-    printf("%-8s %-4s\n", "id", "out");
     for (int i = 0; i < count; i++) {
-        printf("%-8d %-4s\n",
-               entries[i].id, entries[i].out ? "yes" : "no");
+        printf("[%d] %s %d %s\n",
+               entries[i].id,
+               entries[i].out ? ">" : "<",
+               entries[i].date,
+               entries[i].complex ? "(complex — text not parsed)"
+                                   : entries[i].text);
     }
     if (count == 0) puts("(no messages)");
 }
