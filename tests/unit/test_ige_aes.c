@@ -94,6 +94,29 @@ void test_ige_null_safe(void) {
     ASSERT(1, "null/zero inputs should not crash");
 }
 
+void test_ige_unaligned_len(void) {
+    /* QA-10: len must be a multiple of 16; otherwise the function must
+     * return without reading past the buffer. Using tight 15/17/31 byte
+     * buffers ensures ASAN would trip if we iterated past end. */
+    mock_crypto_reset();
+    uint8_t key[32] = {0}, iv[32] = {0};
+    uint8_t plain15[15] = {0}, cipher15[15] = {0};
+    uint8_t plain17[17] = {0}, cipher17[17] = {0};
+    uint8_t plain31[31] = {0}, cipher31[31] = {0};
+
+    aes_ige_encrypt(plain15, 15, key, iv, cipher15);
+    aes_ige_encrypt(plain17, 17, key, iv, cipher17);
+    aes_ige_encrypt(plain31, 31, key, iv, cipher31);
+    aes_ige_decrypt(cipher15, 15, key, iv, plain15);
+    aes_ige_decrypt(cipher17, 17, key, iv, plain17);
+    aes_ige_decrypt(cipher31, 31, key, iv, plain31);
+
+    ASSERT(mock_crypto_encrypt_block_call_count() == 0,
+           "unaligned len → no encrypt_block calls");
+    ASSERT(mock_crypto_decrypt_block_call_count() == 0,
+           "unaligned len → no decrypt_block calls");
+}
+
 void test_ige(void) {
     RUN_TEST(test_ige_encrypt_1block);
     RUN_TEST(test_ige_encrypt_3blocks);
@@ -102,4 +125,5 @@ void test_ige(void) {
     RUN_TEST(test_ige_roundtrip_1block);
     RUN_TEST(test_ige_roundtrip_4blocks);
     RUN_TEST(test_ige_null_safe);
+    RUN_TEST(test_ige_unaligned_len);
 }

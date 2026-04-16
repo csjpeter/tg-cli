@@ -23,3 +23,8 @@ CRITICAL — buffer over-read in encryption hot path, potential information leak
 
 ## Dependencies
 None
+
+## Verified — 2026-04-16
+- Added `if (len % 16 != 0) return;` guard to both `aes_ige_encrypt` and `aes_ige_decrypt`.
+- Regression test `test_ige_unaligned_len` exercises len=15,17,31 for both functions; asserts no block-cipher calls occur.
+- Unit test count: 1814 → 1816 (ASAN clean). Valgrind: 0 bytes definitely lost.

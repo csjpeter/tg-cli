@@ -20,6 +20,7 @@ void aes_ige_encrypt(const uint8_t *plain, size_t len,
                      const uint8_t *key, const uint8_t *iv,
                      uint8_t *cipher) {
     if (!plain || !key || !iv || !cipher || len == 0) return;
+    if (len % 16 != 0) return;
 
     CryptoAesKey schedule;
     crypto_aes_set_encrypt_key(key, 256, &schedule);
@@ -53,6 +54,7 @@ void aes_ige_decrypt(const uint8_t *cipher, size_t len,
                      const uint8_t *key, const uint8_t *iv,
                      uint8_t *plain) {
     if (!cipher || !key || !iv || !plain || len == 0) return;
+    if (len % 16 != 0) return;
 
     CryptoAesKey schedule;
     crypto_aes_set_decrypt_key(key, 256, &schedule);
