@@ -19,3 +19,8 @@ HIGH — credential exposure in post-mortem memory analysis.
 
 ## Dependencies
 None
+
+## Verified — 2026-04-16
+- `config_free` now calls `explicit_bzero` on `token` and `api_base` prior to `free()`; included `<string.h>` (uses project-wide `_GNU_SOURCE`).
+- No new test per ticket; existing config tests exercise the free path.
+- Unit test count: 1819 (ASAN clean). Valgrind: 0 bytes definitely lost.
