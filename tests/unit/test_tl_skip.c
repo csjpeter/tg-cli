@@ -36,6 +36,9 @@
 #define CRC_photoEmpty                0x2331b22du
 #define CRC_documentEmpty             0x36f8c871u
 #define CRC_photoSize                 0x75c78e60u
+#define CRC_chatPhotoEmpty            0x37c1011cu
+#define CRC_chatPhoto                 0x1c6e1c11u
+#define CRC_userProfilePhotoEmpty     0x4f11bae1u
 
 static void test_skip_bool(void) {
     TlWriter w; tl_writer_init(&w);
@@ -479,6 +482,133 @@ static void test_skip_media_document_empty(void) {
     tl_writer_free(&w);
 }
 
+/* ---- Chat / User skipper tests ---- */
+
+static void test_skip_chat_forbidden(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, TL_chatForbidden);
+    tl_write_int64(&w, 12345LL);
+    tl_write_string(&w, "Forbidden Chat");
+    tl_write_int32(&w, 1111);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_chat(&r) == 0, "chatForbidden skip");
+    ASSERT(tl_read_int32(&r) == 1111, "cursor past chatForbidden");
+    tl_writer_free(&w);
+}
+
+static void test_skip_channel_forbidden(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, TL_channelForbidden);
+    tl_write_uint32(&w, 0);                       /* flags: no until_date */
+    tl_write_int64(&w, -1001234567LL);            /* id */
+    tl_write_int64(&w, 0xCAFEBABELL);             /* access_hash */
+    tl_write_string(&w, "Forbidden Channel");
+    tl_write_int32(&w, 2222);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_chat(&r) == 0, "channelForbidden skip");
+    ASSERT(tl_read_int32(&r) == 2222, "cursor past channelForbidden");
+    tl_writer_free(&w);
+}
+
+static void test_skip_chat_plain(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, TL_chat);
+    tl_write_uint32(&w, 0);                        /* flags (no optionals) */
+    tl_write_int64(&w, 42LL);                      /* id */
+    tl_write_string(&w, "Group Name");
+    tl_write_uint32(&w, CRC_chatPhotoEmpty);       /* photo */
+    tl_write_int32(&w, 10);                        /* participants_count */
+    tl_write_int32(&w, 1700000000);                /* date */
+    tl_write_int32(&w, 3);                         /* version */
+    tl_write_int32(&w, 3333);                      /* sentinel */
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_chat(&r) == 0, "chat skip");
+    ASSERT(tl_read_int32(&r) == 3333, "cursor past chat");
+    tl_writer_free(&w);
+}
+
+static void test_skip_channel_minimal(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, TL_channel);
+    tl_write_uint32(&w, 0);                        /* flags */
+    tl_write_uint32(&w, 0);                        /* flags2 */
+    tl_write_int64(&w, -1009876543LL);             /* id */
+    tl_write_string(&w, "Chan");
+    tl_write_uint32(&w, CRC_chatPhotoEmpty);       /* photo */
+    tl_write_int32(&w, 1700000000);                /* date */
+    tl_write_int32(&w, 4444);                      /* sentinel */
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_chat(&r) == 0, "channel skip");
+    ASSERT(tl_read_int32(&r) == 4444, "cursor past channel");
+    tl_writer_free(&w);
+}
+
+static void test_skip_user_empty(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, TL_userEmpty);
+    tl_write_int64(&w, 777LL);
+    tl_write_int32(&w, 5555);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_user(&r) == 0, "userEmpty skip");
+    ASSERT(tl_read_int32(&r) == 5555, "cursor past userEmpty");
+    tl_writer_free(&w);
+}
+
+static void test_skip_user_full(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, TL_user);
+    uint32_t flags = (1u << 1)   /* first_name */
+                   | (1u << 2)   /* last_name */
+                   | (1u << 3);  /* username */
+    tl_write_uint32(&w, flags);
+    tl_write_uint32(&w, 0);                /* flags2 */
+    tl_write_int64(&w, 999LL);             /* id */
+    tl_write_string(&w, "Alice");
+    tl_write_string(&w, "Smith");
+    tl_write_string(&w, "asmith");
+    tl_write_int32(&w, 6666);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_user(&r) == 0, "user skip");
+    ASSERT(tl_read_int32(&r) == 6666, "cursor past user");
+    tl_writer_free(&w);
+}
+
+static void test_extract_chat_forbidden(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, TL_chatForbidden);
+    tl_write_int64(&w, 0xABCDEF00LL);
+    tl_write_string(&w, "Secret Room");
+    tl_write_int32(&w, 7777);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ChatSummary cs;
+    ASSERT(tl_extract_chat(&r, &cs) == 0, "extract chatForbidden");
+    ASSERT(cs.id == 0xABCDEF00LL, "chat id");
+    ASSERT(strcmp(cs.title, "Secret Room") == 0, "chat title");
+    ASSERT(tl_read_int32(&r) == 7777, "cursor past extract");
+    tl_writer_free(&w);
+}
+
+static void test_extract_user(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, TL_user);
+    uint32_t flags = (1u << 1) | (1u << 2) | (1u << 3);
+    tl_write_uint32(&w, flags);
+    tl_write_uint32(&w, 0);
+    tl_write_int64(&w, 0x1234567890LL);
+    tl_write_string(&w, "Alice");
+    tl_write_string(&w, "Smith");
+    tl_write_string(&w, "asmith");
+    tl_write_int32(&w, 8888);
+    TlReader r = tl_reader_init(w.data, w.len);
+    UserSummary us;
+    ASSERT(tl_extract_user(&r, &us) == 0, "extract user");
+    ASSERT(us.id == 0x1234567890LL, "user id");
+    ASSERT(strcmp(us.name, "Alice Smith") == 0, "user name joined");
+    ASSERT(strcmp(us.username, "asmith") == 0, "user username");
+    ASSERT(tl_read_int32(&r) == 8888, "cursor past extract user");
+    tl_writer_free(&w);
+}
+
 void run_tl_skip_tests(void) {
     RUN_TEST(test_skip_bool);
     RUN_TEST(test_skip_string);
@@ -516,4 +646,12 @@ void run_tl_skip_tests(void) {
     RUN_TEST(test_skip_media_photo_empty_photo);
     RUN_TEST(test_skip_media_photo_with_sizes);
     RUN_TEST(test_skip_media_document_empty);
+    RUN_TEST(test_skip_chat_forbidden);
+    RUN_TEST(test_skip_channel_forbidden);
+    RUN_TEST(test_skip_chat_plain);
+    RUN_TEST(test_skip_channel_minimal);
+    RUN_TEST(test_skip_user_empty);
+    RUN_TEST(test_skip_user_full);
+    RUN_TEST(test_extract_chat_forbidden);
+    RUN_TEST(test_extract_user);
 }
