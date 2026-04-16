@@ -31,3 +31,28 @@ primitives introduced in **P5-07**.
 
 ## Dependencies
 P5-07 (skipper primitives must exist first).
+
+## Verified — 2026-04-16 (v1 — common flags)
+- fwd_from (flags.2) → tl_skip_message_fwd_header (phase 2)
+- reply_to (flags.3) → tl_skip_message_reply_header (phase 2;
+  reply_media nested still bails)
+- via_bot_id (flags.11) → trivial int64 skip
+- entities (flags.7) → tl_skip_message_entities_vector
+- media (flags.9) → tl_skip_message_media (phase 3a): Empty,
+  Unsupported, Geo, Contact, Venue, GeoLive, Dice, Photo +
+  photoEmpty, Document + documentEmpty.
+
+Messages with these flags now yield id + date + text and the
+iteration continues to the next Message in the vector.
+
+## Remaining
+- reply_markup (flags.6) — ReplyMarkup skipper
+- reactions (flags.20) — MessageReactions skipper
+- replies (flags.23) — MessageReplies skipper
+- restriction_reason (flags.22) — Vector<RestrictionReason>
+- factcheck (flags2.3) — FactCheck
+- MessageMedia variants: Poll, Story, Game, Invoice, Giveaway,
+  PaidMedia, WebPage.
+
+These remain in the MSG_FLAGS_STOP_ITER mask or cause the media
+skipper to return -1; tracked as future phase 3c work.
