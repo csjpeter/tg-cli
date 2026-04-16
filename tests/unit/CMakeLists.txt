@@ -29,6 +29,7 @@ set(TEST_SOURCES
     test_domain_user_info.c
     test_domain_search.c
     test_dc_config.c
+    test_session_store.c
     ../../tests/mocks/crypto.c
     ../../tests/mocks/socket.c
 )

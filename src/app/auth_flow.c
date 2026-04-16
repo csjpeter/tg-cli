@@ -5,6 +5,7 @@
 
 #include "app/auth_flow.h"
 #include "app/dc_config.h"
+#include "app/session_store.h"
 
 #include "auth_session.h"
 #include "mtproto_auth.h"
@@ -63,6 +64,27 @@ int auth_flow_login(const ApiConfig *cfg,
     }
 
     if (out) memset(out, 0, sizeof(*out));
+
+    /* Fast path: restore a persisted session. */
+    {
+        int saved_dc = 0;
+        mtproto_session_init(s);
+        if (session_store_load(s, &saved_dc) == 0 && s->has_auth_key) {
+            const DcEndpoint *ep = dc_lookup(saved_dc);
+            if (ep && transport_connect(t, ep->host, ep->port) == 0) {
+                t->dc_id = saved_dc;
+                logger_log(LOG_INFO,
+                           "auth_flow: reusing persisted session on DC%d",
+                           saved_dc);
+                if (out) { out->dc_id = saved_dc; out->user_id = 0; }
+                return 0;
+            }
+            logger_log(LOG_WARN,
+                       "auth_flow: persisted session unusable, re-login");
+            if (ep) transport_close(t);
+            mtproto_session_init(s);
+        }
+    }
 
     int current_dc = DEFAULT_DC_ID;
     if (auth_flow_connect_dc(current_dc, t, s) != 0) return -1;
@@ -137,5 +159,11 @@ int auth_flow_login(const ApiConfig *cfg,
     }
     logger_log(LOG_INFO, "auth_flow: login complete on DC%d, user_id=%lld",
                current_dc, (long long)uid);
+
+    /* Persist so the next run can skip sendCode + signIn. */
+    if (session_store_save(s, current_dc) != 0) {
+        logger_log(LOG_WARN,
+                   "auth_flow: failed to persist session (non-fatal)");
+    }
     return 0;
 }

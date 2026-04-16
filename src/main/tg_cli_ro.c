@@ -10,6 +10,7 @@
 #include "app/bootstrap.h"
 #include "app/auth_flow.h"
 #include "app/credentials.h"
+#include "app/session_store.h"
 #include "arg_parse.h"
 
 #include "domain/read/self.h"
@@ -447,6 +448,7 @@ static void print_usage(void) {
         "  --phone <number>    E.g. +15551234567\n"
         "  --code <digits>     The SMS/app code received on the phone\n"
         "  --password <pass>   2FA password (when the account has one set)\n"
+        "  --logout            Clear persisted session (~/.config/tg-cli/session.bin)\n"
         "\n"
         "Credentials:\n"
         "  TG_CLI_API_ID / TG_CLI_API_HASH env vars, or\n"
@@ -459,6 +461,17 @@ int main(int argc, char **argv) {
     if (app_bootstrap(&ctx, "tg-cli-ro") != 0) {
         fprintf(stderr, "tg-cli-ro: bootstrap failed\n");
         return 1;
+    }
+
+    /* --logout is a special top-level flag: clears the persisted session
+     * and exits. Handled before arg_parse so it works standalone. */
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--logout") == 0) {
+            session_store_clear();
+            fprintf(stderr, "tg-cli-ro: persisted session cleared.\n");
+            app_shutdown(&ctx);
+            return 0;
+        }
     }
 
     ArgResult args;

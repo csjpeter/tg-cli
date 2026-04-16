@@ -32,6 +32,7 @@ void run_domain_updates_tests(void);
 void run_domain_user_info_tests(void);
 void run_domain_search_tests(void);
 void run_dc_config_tests(void);
+void run_session_store_tests(void);
 
 int main() {
     printf("--- tg-cli Unit Test Suite ---\n\n");
@@ -63,6 +64,7 @@ int main() {
     RUN_TEST(run_domain_user_info_tests);
     RUN_TEST(run_domain_search_tests);
     RUN_TEST(run_dc_config_tests);
+    RUN_TEST(run_session_store_tests);
 
     printf("\n--- Test Results ---\n");
     printf("Tests Run:    %d\n", g_tests_run);
