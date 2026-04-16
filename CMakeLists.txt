@@ -118,6 +118,9 @@ target_link_libraries(tg-domain-read PUBLIC tg-app)
 add_library(tg-domain-write STATIC
     src/domain/write/send.c
     src/domain/write/read_history.c
+    src/domain/write/edit.c
+    src/domain/write/delete.c
+    src/domain/write/forward.c
 )
 target_include_directories(tg-domain-write PUBLIC src src/domain)
 target_link_libraries(tg-domain-write PUBLIC tg-app tg-domain-read)

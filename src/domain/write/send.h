@@ -21,9 +21,9 @@
 /**
  * @brief Send a plain text message to @p peer.
  *
- * Builds a messages.sendMessage#d9d75a4 request with flags=0 and a
- * random random_id, then waits for the server's Updates.
- * Only the caller's outgoing-message id is extracted for now.
+ * Builds a messages.sendMessage#d9d75a4 request with a random random_id,
+ * then waits for the server's Updates. Only the caller's outgoing
+ * message id is extracted for now.
  *
  * @param cfg       API config.
  * @param s         Session with auth_key.
@@ -42,5 +42,19 @@ int domain_send_message(const ApiConfig *cfg,
                          const char *message,
                          int32_t *msg_id_out,
                          RpcError *err);
+
+/**
+ * @brief Like domain_send_message but with an optional reply target.
+ *
+ * @param reply_to_msg_id  Message id to reply to; 0 = no reply.
+ *                         Other parameters mirror domain_send_message.
+ */
+int domain_send_message_reply(const ApiConfig *cfg,
+                               MtProtoSession *s, Transport *t,
+                               const HistoryPeer *peer,
+                               const char *message,
+                               int32_t reply_to_msg_id,
+                               int32_t *msg_id_out,
+                               RpcError *err);
 
 #endif /* DOMAIN_WRITE_SEND_H */

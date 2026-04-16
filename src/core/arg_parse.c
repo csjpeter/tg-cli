@@ -148,9 +148,30 @@ static int parse_send(int argc, char **argv, int i, ArgResult *out) {
     }
     out->peer = argv[i++];
 
+    /* Optional --reply <msg_id> before the message text. */
+    while (i < argc && argv[i][0] == '-') {
+        if (str_eq(argv[i], "--reply")) {
+            if (i + 1 >= argc
+                || parse_int(argv[i + 1], &out->reply_to) != 0
+                || out->reply_to <= 0) {
+                fprintf(stderr,
+                        "tg-cli send: --reply needs a positive message id\n");
+                return ARG_ERROR;
+            }
+            i += 2;
+        } else if (str_eq(argv[i], "--stdin")) {
+            /* Explicit pipe opt-in; tg_cli will detect anyway, but this
+             * is convenient in scripts that redirect stdin. */
+            i++;
+        } else {
+            fprintf(stderr, "tg-cli send: unknown option: %s\n", argv[i]);
+            return ARG_ERROR;
+        }
+    }
+
     if (i >= argc) {
-        fprintf(stderr, "tg-cli send: <message> argument required\n");
-        return ARG_ERROR;
+        /* message may be provided via stdin; tg_cli checks isatty later. */
+        return ARG_OK;
     }
     out->message = argv[i];
     return ARG_OK;
@@ -295,6 +316,61 @@ int arg_parse(int argc, char **argv, ArgResult *out) {
                                       return parse_me       (argc, argv, i, out);
     if (str_eq(subcmd, "watch"))     return parse_watch    (argc, argv, i, out);
     if (str_eq(subcmd, "download"))  return parse_download (argc, argv, i, out);
+    if (str_eq(subcmd, "edit")) {
+        out->command = CMD_EDIT;
+        if (i >= argc || argv[i][0] == '-') {
+            fprintf(stderr, "tg-cli edit: <peer> required\n"); return ARG_ERROR;
+        }
+        out->peer = argv[i++];
+        if (i >= argc || parse_int(argv[i], &out->msg_id) != 0
+            || out->msg_id <= 0) {
+            fprintf(stderr, "tg-cli edit: positive <msg_id> required\n");
+            return ARG_ERROR;
+        }
+        i++;
+        if (i >= argc) {
+            fprintf(stderr, "tg-cli edit: <new-text> required\n");
+            return ARG_ERROR;
+        }
+        out->message = argv[i];
+        return ARG_OK;
+    }
+    if (str_eq(subcmd, "delete")) {
+        out->command = CMD_DELETE;
+        if (i >= argc || argv[i][0] == '-') {
+            fprintf(stderr, "tg-cli delete: <peer> required\n"); return ARG_ERROR;
+        }
+        out->peer = argv[i++];
+        if (i >= argc || parse_int(argv[i], &out->msg_id) != 0
+            || out->msg_id <= 0) {
+            fprintf(stderr, "tg-cli delete: positive <msg_id> required\n");
+            return ARG_ERROR;
+        }
+        i++;
+        while (i < argc) {
+            if (str_eq(argv[i], "--revoke")) { out->revoke = 1; i++; }
+            else {
+                fprintf(stderr, "tg-cli delete: unknown option: %s\n", argv[i]);
+                return ARG_ERROR;
+            }
+        }
+        return ARG_OK;
+    }
+    if (str_eq(subcmd, "forward")) {
+        out->command = CMD_FORWARD;
+        if (i + 2 >= argc) {
+            fprintf(stderr,
+                    "tg-cli forward: <from_peer> <to_peer> <msg_id> required\n");
+            return ARG_ERROR;
+        }
+        out->peer  = argv[i++];
+        out->peer2 = argv[i++];
+        if (parse_int(argv[i], &out->msg_id) != 0 || out->msg_id <= 0) {
+            fprintf(stderr, "tg-cli forward: positive <msg_id> required\n");
+            return ARG_ERROR;
+        }
+        return ARG_OK;
+    }
     if (str_eq(subcmd, "read")) {
         out->command = CMD_READ;
         if (i >= argc || argv[i][0] == '-') {
@@ -342,8 +418,11 @@ void arg_print_help(void) {
         "  user-info <peer>                        Show user/channel info\n"
         "  watch   [--peers X,Y]                   Watch incoming updates\n"
         "  download <peer> <msg_id> [--out PATH]   Download photo from message\n"
-        "  send    <peer> <message>                Send a message (tg-cli only)\n"
+        "  send    <peer> [--reply N] <message>    Send a message (tg-cli only)\n"
         "  read    <peer> [--max-id N]             Mark as read (tg-cli only)\n"
+        "  edit    <peer> <msg_id> <text>          Edit a message (tg-cli only)\n"
+        "  delete  <peer> <msg_id> [--revoke]      Delete a message (tg-cli only)\n"
+        "  forward <from_peer> <to_peer> <msg_id>  Forward (tg-cli only)\n"
     );
 }
 

@@ -24,6 +24,9 @@
 #include "domain/read/media.h"
 #include "domain/write/send.h"
 #include "domain/write/read_history.h"
+#include "domain/write/edit.h"
+#include "domain/write/delete.h"
+#include "domain/write/forward.h"
 #include "fs_util.h"
 
 #include <stdio.h>
@@ -107,6 +110,91 @@ static int resolve_peer_arg(const ApiConfig *cfg, MtProtoSession *s,
     return 0;
 }
 
+static int cmd_edit(const ArgResult *args) {
+    if (!args->peer || args->msg_id <= 0 || !args->message) {
+        fprintf(stderr, "tg-cli edit: <peer> <msg_id> <text> required\n");
+        return 1;
+    }
+    ApiConfig cfg; MtProtoSession s; Transport t;
+    int brc = session_bringup(args, &cfg, &s, &t);
+    if (brc != 0) return brc;
+
+    HistoryPeer peer = {0};
+    if (resolve_peer_arg(&cfg, &s, &t, args->peer, &peer) != 0) {
+        transport_close(&t); return 1;
+    }
+    RpcError err = {0};
+    int rc = domain_edit_message(&cfg, &s, &t, &peer, args->msg_id,
+                                   args->message, &err);
+    transport_close(&t);
+    if (rc != 0) {
+        fprintf(stderr, "tg-cli edit: failed (%d: %s)\n",
+                err.error_code, err.error_msg);
+        return 1;
+    }
+    if (args->json) printf("{\"edited\":%d}\n", args->msg_id);
+    else if (!args->quiet) printf("edited %d\n", args->msg_id);
+    return 0;
+}
+
+static int cmd_delete(const ArgResult *args) {
+    if (!args->peer || args->msg_id <= 0) {
+        fprintf(stderr, "tg-cli delete: <peer> <msg_id> required\n");
+        return 1;
+    }
+    ApiConfig cfg; MtProtoSession s; Transport t;
+    int brc = session_bringup(args, &cfg, &s, &t);
+    if (brc != 0) return brc;
+
+    HistoryPeer peer = {0};
+    if (resolve_peer_arg(&cfg, &s, &t, args->peer, &peer) != 0) {
+        transport_close(&t); return 1;
+    }
+    RpcError err = {0};
+    int32_t ids[1] = { args->msg_id };
+    int rc = domain_delete_messages(&cfg, &s, &t, &peer, ids, 1,
+                                      args->revoke, &err);
+    transport_close(&t);
+    if (rc != 0) {
+        fprintf(stderr, "tg-cli delete: failed (%d: %s)\n",
+                err.error_code, err.error_msg);
+        return 1;
+    }
+    if (args->json) printf("{\"deleted\":%d,\"revoke\":%s}\n",
+                            args->msg_id, args->revoke ? "true" : "false");
+    else if (!args->quiet) printf("deleted %d\n", args->msg_id);
+    return 0;
+}
+
+static int cmd_forward(const ArgResult *args) {
+    if (!args->peer || !args->peer2 || args->msg_id <= 0) {
+        fprintf(stderr,
+                "tg-cli forward: <from_peer> <to_peer> <msg_id> required\n");
+        return 1;
+    }
+    ApiConfig cfg; MtProtoSession s; Transport t;
+    int brc = session_bringup(args, &cfg, &s, &t);
+    if (brc != 0) return brc;
+
+    HistoryPeer from = {0}, to = {0};
+    if (resolve_peer_arg(&cfg, &s, &t, args->peer, &from) != 0
+        || resolve_peer_arg(&cfg, &s, &t, args->peer2, &to) != 0) {
+        transport_close(&t); return 1;
+    }
+    RpcError err = {0};
+    int32_t ids[1] = { args->msg_id };
+    int rc = domain_forward_messages(&cfg, &s, &t, &from, &to, ids, 1, &err);
+    transport_close(&t);
+    if (rc != 0) {
+        fprintf(stderr, "tg-cli forward: failed (%d: %s)\n",
+                err.error_code, err.error_msg);
+        return 1;
+    }
+    if (args->json) printf("{\"forwarded\":%d}\n", args->msg_id);
+    else if (!args->quiet) printf("forwarded %d\n", args->msg_id);
+    return 0;
+}
+
 static int cmd_read(const ArgResult *args) {
     if (!args->peer) {
         fprintf(stderr, "tg-cli read: <peer> required\n");
@@ -176,7 +264,8 @@ static int cmd_send(const ArgResult *args) {
 
     int32_t new_id = 0;
     RpcError err = {0};
-    int rc = domain_send_message(&cfg, &s, &t, &peer, msg, &new_id, &err);
+    int rc = domain_send_message_reply(&cfg, &s, &t, &peer, msg,
+                                         args->reply_to, &new_id, &err);
     transport_close(&t);
     if (rc != 0) {
         fprintf(stderr, "tg-cli send: failed (%d: %s)\n",
@@ -200,9 +289,12 @@ static void print_usage(void) {
         "For read-only scripted use, prefer tg-cli-ro.\n"
         "\n"
         "Subcommands (v1):\n"
-        "  send <peer> <message>            Send a text message (US-P5-03)\n"
-        "  send <peer> --stdin              Read message body from stdin\n"
-        "  read <peer> [--max-id N]         Mark as read (US-P5-04)\n"
+        "  send <peer> [--reply N] <message>  Send a text message (P5-03)\n"
+        "  send <peer> --stdin                Read message body from stdin\n"
+        "  read <peer> [--max-id N]           Mark as read (P5-04)\n"
+        "  edit <peer> <msg_id> <text>        Edit a message (P5-06)\n"
+        "  delete <peer> <msg_id> [--revoke]  Delete (P5-06)\n"
+        "  forward <from> <to> <msg_id>       Forward (P5-06)\n"
         "\n"
         "Batch-mode login flags:\n"
         "  --phone <number>    E.g. +15551234567\n"
@@ -241,6 +333,12 @@ int main(int argc, char **argv) {
             exit_code = cmd_send(&args); break;
         case CMD_READ:
             exit_code = cmd_read(&args); break;
+        case CMD_EDIT:
+            exit_code = cmd_edit(&args); break;
+        case CMD_DELETE:
+            exit_code = cmd_delete(&args); break;
+        case CMD_FORWARD:
+            exit_code = cmd_forward(&args); break;
         case CMD_NONE:
         default:
             print_usage(); break;

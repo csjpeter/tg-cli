@@ -29,7 +29,14 @@ typedef enum {
     CMD_WATCH,        /**< Watch incoming updates (US-07).             */
     CMD_DOWNLOAD,     /**< Download media by message id (US-08/P6-01). */
     CMD_READ,         /**< Mark history as read (P5-04).               */
+    CMD_EDIT,         /**< Edit an existing message (P5-06).           */
+    CMD_DELETE,       /**< Delete one or more messages (P5-06).        */
+    CMD_FORWARD,      /**< Forward messages from one peer to another.  */
 } ArgCommand;
+
+/** @brief Extra fields for the P5-06 edit / delete / forward / reply
+ *         family of commands. Kept in ArgResult as loose fields rather
+ *         than a union to stay consistent with the existing structure. */
 
 /** Parsed argument result. All string pointers point into argv (no copy). */
 typedef struct {
@@ -55,6 +62,11 @@ typedef struct {
     int         offset;      /**< --offset N (history).                  */
     int         msg_id;      /**< Message id for download.               */
     const char *out_path;    /**< --out <path> for download.             */
+
+    /* P5-06 extras */
+    const char *peer2;       /**< Destination peer for `forward`.        */
+    int         revoke;      /**< --revoke for delete.                   */
+    int         reply_to;    /**< --reply <msg_id> for send.             */
 } ArgResult;
 
 /**

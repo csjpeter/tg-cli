@@ -161,12 +161,18 @@ static void test_send_missing_peer(void) {
            "send without peer: must return ARG_ERROR");
 }
 
-/* ---- Test: send without message → error ---- */
+/* ---- Test: send without message → ARG_OK, message NULL (stdin pipe path).
+ *
+ * Since P8-03 the send parser accepts <peer> alone and defers message
+ * sourcing to tg-cli (which reads stdin when the tty is not connected).
+ */
 static void test_send_missing_message(void) {
     char *argv[] = {"tg-cli", "send", "@user", NULL};
     ArgResult r;
-    ASSERT(arg_parse(3, argv, &r) == ARG_ERROR,
-           "send without message: must return ARG_ERROR");
+    ASSERT(arg_parse(3, argv, &r) == ARG_OK,
+           "send without message: allowed for stdin pipe");
+    ASSERT(r.message == NULL,
+           "send without message: message stays NULL so tg-cli can read stdin");
 }
 
 /* ---- Test: search <query> (no peer) ---- */

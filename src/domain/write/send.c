@@ -48,12 +48,15 @@ static int write_input_peer(TlWriter *w, const HistoryPeer *p) {
     }
 }
 
-int domain_send_message(const ApiConfig *cfg,
-                         MtProtoSession *s, Transport *t,
-                         const HistoryPeer *peer,
-                         const char *message,
-                         int32_t *msg_id_out,
-                         RpcError *err) {
+#define CRC_inputReplyToMessage 0x22c0f6d5u
+
+int domain_send_message_reply(const ApiConfig *cfg,
+                               MtProtoSession *s, Transport *t,
+                               const HistoryPeer *peer,
+                               const char *message,
+                               int32_t reply_to_msg_id,
+                               int32_t *msg_id_out,
+                               RpcError *err) {
     if (!cfg || !s || !t || !peer || !message) return -1;
     size_t mlen = strlen(message);
     if (mlen == 0 || mlen > 4096) {
@@ -73,10 +76,20 @@ int domain_send_message(const ApiConfig *cfg,
 
     TlWriter w; tl_writer_init(&w);
     tl_write_uint32(&w, CRC_messages_sendMessage);
-    tl_write_uint32(&w, 0);                       /* flags = 0 */
+    uint32_t flags = (reply_to_msg_id > 0) ? 1u : 0u; /* flags.0 = reply_to */
+    tl_write_uint32(&w, flags);
     if (write_input_peer(&w, peer) != 0) {
         tl_writer_free(&w);
         return -1;
+    }
+    if (reply_to_msg_id > 0) {
+        /* inputReplyToMessage#22c0f6d5 flags:# reply_to_msg_id:int
+         *                              top_msg_id:flags.0?int
+         *                              reply_to_peer_id:flags.1?InputPeer
+         *                              quote_text:flags.2?string ... */
+        tl_write_uint32(&w, CRC_inputReplyToMessage);
+        tl_write_uint32(&w, 0);                    /* inner flags */
+        tl_write_int32 (&w, reply_to_msg_id);
     }
     tl_write_string(&w, message);
     tl_write_int64 (&w, random_id);
@@ -130,4 +143,14 @@ int domain_send_message(const ApiConfig *cfg,
 
     logger_log(LOG_WARN, "send: unexpected top 0x%08x — assuming success", top);
     return 0;
+}
+
+int domain_send_message(const ApiConfig *cfg,
+                         MtProtoSession *s, Transport *t,
+                         const HistoryPeer *peer,
+                         const char *message,
+                         int32_t *msg_id_out,
+                         RpcError *err) {
+    return domain_send_message_reply(cfg, s, t, peer, message, 0,
+                                       msg_id_out, err);
 }
