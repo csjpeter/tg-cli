@@ -104,10 +104,15 @@ int rpc_send_encrypted(MtProtoSession *s, Transport *t,
     TlWriter wire;
     tl_writer_init(&wire);
 
-    /* auth_key_id = lower 8 bytes of SHA256(auth_key) */
+    /* auth_key_id = last 8 bytes of SHA256(auth_key). Use memcpy rather than
+     * a pointer cast to avoid strict-aliasing UB, and let tl_write_uint64
+     * handle little-endian encoding so we stay correct on big-endian hosts
+     * (QA-11). */
     uint8_t key_hash[32];
     crypto_sha256(s->auth_key, 256, key_hash);
-    tl_write_uint64(&wire, *(uint64_t *)(key_hash + 24)); /* last 8 bytes */
+    uint64_t auth_key_id;
+    memcpy(&auth_key_id, key_hash + 24, 8);
+    tl_write_uint64(&wire, auth_key_id);
 
     tl_write_raw(&wire, msg_key, 16);
     tl_write_raw(&wire, encrypted, enc_len);

@@ -33,3 +33,8 @@ CRITICAL — undefined behavior in optimized builds; breaks on big-endian platfo
 
 ## Dependencies
 None
+
+## Verified — 2026-04-16
+- Replaced `*(uint64_t *)(key_hash + 24)` cast with `memcpy` + `tl_write_uint64` to avoid strict-aliasing UB and preserve LE encoding on big-endian hosts.
+- No new test required per ticket; existing rpc tests still pass.
+- Unit test count: unchanged at 1819 (ASAN clean). Valgrind: 0 bytes definitely lost.
