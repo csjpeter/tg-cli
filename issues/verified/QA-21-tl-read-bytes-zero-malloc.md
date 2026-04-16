@@ -22,3 +22,8 @@ MEDIUM — valid zero-length TL strings/bytes fail on some platforms.
 
 ## Dependencies
 None
+
+## Verified — 2026-04-16
+- Changed `malloc(data_len)` to `malloc(data_len ? data_len : 1)` in `tl_read_bytes`.
+- Added `test_tl_read_bytes_empty` regression test covering the zero-length round-trip.
+- `./manage.sh test` passes: 1823 tests.

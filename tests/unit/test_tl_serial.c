@@ -42,6 +42,7 @@ void test_tl_read_bool_invalid(void);
 void test_tl_read_string_short(void);
 void test_tl_read_string_empty(void);
 void test_tl_read_bytes_with_padding(void);
+void test_tl_read_bytes_empty(void);
 void test_tl_read_bytes_long_prefix(void);
 void test_tl_read_past_end(void);
 void test_tl_read_skip(void);
@@ -382,6 +383,25 @@ void test_tl_read_bytes_with_padding(void) {
     free(b);
 }
 
+void test_tl_read_bytes_empty(void) {
+    /* Zero-length bytes: 1-byte prefix (0) + 3 pad bytes.
+     * Regression: QA-21 — tl_read_bytes must return a non-NULL pointer for
+     * empty payloads even on platforms where malloc(0) returns NULL. */
+    TlWriter w;
+    tl_writer_init(&w);
+    tl_write_bytes(&w, NULL, 0);
+    ASSERT(w.len == 4, "empty bytes should serialize to 4 bytes");
+
+    TlReader r = tl_reader_init(w.data, w.len);
+    size_t len = 42;
+    unsigned char *b = tl_read_bytes(&r, &len);
+    ASSERT(b != NULL, "empty bytes should return non-NULL pointer");
+    ASSERT(len == 0, "length should be 0");
+    ASSERT(r.pos == 4, "pos should advance past padding");
+    free(b);
+    tl_writer_free(&w);
+}
+
 void test_tl_read_bytes_long_prefix(void) {
     /* 4-byte prefix: 0xFE, 0x00, 0x01, 0x00 = 256 bytes */
     size_t total = 4 + 256;
@@ -613,6 +633,7 @@ void test_tl_serial(void) {
     RUN_TEST(test_tl_read_string_short);
     RUN_TEST(test_tl_read_string_empty);
     RUN_TEST(test_tl_read_bytes_with_padding);
+    RUN_TEST(test_tl_read_bytes_empty);
     RUN_TEST(test_tl_read_bytes_long_prefix);
     RUN_TEST(test_tl_read_past_end);
     RUN_TEST(test_tl_read_skip);

@@ -266,8 +266,11 @@ unsigned char *tl_read_bytes(TlReader *r, size_t *out_len) {
     size_t total_raw = header_size + data_len;
     if (!reader_has(r, total_raw)) { r->pos = r->len; return NULL; }
 
-    /* Allocate and copy data */
-    unsigned char *result = (unsigned char *)malloc(data_len);
+    /* Allocate and copy data.
+     * C11 malloc(0) is implementation-defined and may return NULL; callers
+     * treat NULL as allocation failure, so we always request at least 1 byte
+     * to guarantee a non-NULL return for valid zero-length TL bytes/strings. */
+    unsigned char *result = (unsigned char *)malloc(data_len ? data_len : 1);
     if (!result) return NULL;
     if (data_len > 0) memcpy(result, r->data + r->pos + header_size, data_len);
 
