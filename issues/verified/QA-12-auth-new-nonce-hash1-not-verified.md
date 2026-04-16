@@ -30,3 +30,16 @@ CRITICAL — missing MITM protection in auth key exchange.
 
 ## Dependencies
 P2-auth-key-exchange
+
+## Verified — 2026-04-16
+- `src/infrastructure/mtproto_auth.c::auth_step_set_client_dh` now
+  computes `auth_key_aux_hash = SHA1(auth_key)[0:8]`, then
+  `expected = SHA1(new_nonce || 0x01 || auth_key_aux_hash)[4:20]`
+  and rejects the frame with a logged MITM warning when the value
+  does not match the received `new_nonce_hash1`.
+- `tests/unit/test_auth.c` — `build_dh_gen_ok` updated to ship the
+  correct zero hash under mock crypto; new
+  `test_set_client_dh_rejects_bad_new_nonce_hash` asserts a corrupt
+  hash is rejected and `has_auth_key` stays 0.
+
+Tests: 1824 -> 1826. Valgrind: 0 leaks. Zero warnings.

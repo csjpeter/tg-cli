@@ -176,10 +176,12 @@ static size_t build_dh_gen_ok(const uint8_t nonce[16],
     tl_write_uint32(&tl, 0x3bcbf734); /* CRC_dh_gen_ok */
     tl_write_int128(&tl, nonce);
     tl_write_int128(&tl, server_nonce);
-    /* new_nonce_hash1 (16 bytes, can be any value) */
-    uint8_t fake_hash[16];
-    memset(fake_hash, 0xDD, 16);
-    tl_write_int128(&tl, fake_hash);
+    /* new_nonce_hash1: after QA-12 the auth step verifies this field
+     * equals last 16 bytes of SHA1(new_nonce || 0x01 || auth_key_aux_hash).
+     * Under mock crypto (crypto_sha1 returns zeros after mock_crypto_reset),
+     * the last 16 bytes are zeros — match that to satisfy the check. */
+    uint8_t zero_hash[16] = {0};
+    tl_write_int128(&tl, zero_hash);
 
     size_t len = build_unenc_response(tl.data, tl.len, out);
     tl_writer_free(&tl);
@@ -695,6 +697,52 @@ void test_set_client_dh_gen_ok(void) {
     transport_close(&t);
 }
 
+/* QA-12: supply a dh_gen_ok response whose new_nonce_hash1 does NOT match
+ * the value our client computes. Must be rejected with -1, auth key must
+ * remain unset on the session. */
+void test_set_client_dh_rejects_bad_new_nonce_hash(void) {
+    Transport t;
+    MtProtoSession s;
+    test_init(&t, &s);
+
+    uint8_t nonce[16], server_nonce[16], new_nonce[32];
+    memset(nonce, 0xAA, 16);
+    memset(server_nonce, 0xBB, 16);
+    memset(new_nonce, 0xCC, 32);
+
+    /* Build dh_gen_ok manually with an INVALID new_nonce_hash. */
+    TlWriter tl; tl_writer_init(&tl);
+    tl_write_uint32(&tl, 0x3bcbf734); /* CRC_dh_gen_ok */
+    tl_write_int128(&tl, nonce);
+    tl_write_int128(&tl, server_nonce);
+    uint8_t bad_hash[16];
+    memset(bad_hash, 0xDE, 16);     /* does not match expected zeros */
+    tl_write_int128(&tl, bad_hash);
+    uint8_t resp[4096];
+    size_t resp_len = build_unenc_response(tl.data, tl.len, resp);
+    tl_writer_free(&tl);
+    mock_socket_set_response(resp, resp_len);
+
+    AuthKeyCtx ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.transport = &t;
+    ctx.session = &s;
+    memcpy(ctx.nonce, nonce, 16);
+    memcpy(ctx.server_nonce, server_nonce, 16);
+    memcpy(ctx.new_nonce, new_nonce, 32);
+    ctx.g = 2;
+    memset(ctx.dh_prime, 0x11, 32);
+    ctx.dh_prime_len = 32;
+    memset(ctx.g_a, 0x22, 32);
+    ctx.g_a_len = 32;
+
+    int rc = auth_step_set_client_dh(&ctx);
+    ASSERT(rc == -1, "QA-12: bad new_nonce_hash1 must be rejected");
+    ASSERT(s.has_auth_key == 0, "auth_key must NOT be set on MITM failure");
+
+    transport_close(&t);
+}
+
 void test_set_client_dh_sends_tl(void) {
     Transport t;
     MtProtoSession s;
@@ -956,6 +1004,7 @@ void test_auth(void) {
 
     /* Step 4: set_client_dh */
     RUN_TEST(test_set_client_dh_gen_ok);
+    RUN_TEST(test_set_client_dh_rejects_bad_new_nonce_hash);
     RUN_TEST(test_set_client_dh_sends_tl);
     RUN_TEST(test_set_client_dh_gen_retry);
     RUN_TEST(test_set_client_dh_gen_fail);

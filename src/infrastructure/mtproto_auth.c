@@ -621,12 +621,11 @@ int auth_step_set_client_dh(AuthKeyCtx *ctx) {
         return -1;
     }
 
-    /* Read server_nonce and new_nonce_hash1 (skip verification for now) */
+    /* Read server_nonce and new_nonce_hash1 (to be verified below). */
     uint8_t recv_sn[16];
     tl_read_int128(&r, recv_sn);
     uint8_t new_nonce_hash[16];
     tl_read_int128(&r, new_nonce_hash);
-    (void)new_nonce_hash;
 
     /* Compute auth_key = pow(g_a, b) mod dh_prime */
     uint8_t auth_key[256];
@@ -647,6 +646,32 @@ int auth_step_set_client_dh(AuthKeyCtx *ctx) {
     if (ak_len <= 256) {
         memcpy(auth_key_padded + (256 - ak_len), auth_key, ak_len);
     }
+
+    /* QA-12: verify new_nonce_hash1 =
+     *   last 128 bits of SHA1(new_nonce[32] || 0x01 || auth_key_aux_hash[8])
+     * where auth_key_aux_hash = SHA1(auth_key)[0:8].
+     * Without this check a MITM could substitute auth_key during DH
+     * exchange without detection. */
+    {
+        uint8_t ak_full_hash[20];
+        crypto_sha1(auth_key_padded, 256, ak_full_hash);
+        /* auth_key_aux_hash = ak_full_hash[0:8] */
+
+        uint8_t buf[32 + 1 + 8];
+        memcpy(buf,          ctx->new_nonce, 32);
+        buf[32] = 0x01; /* dh_gen_ok marker */
+        memcpy(buf + 33,     ak_full_hash, 8);
+
+        uint8_t expected_full[20];
+        crypto_sha1(buf, sizeof(buf), expected_full);
+        /* last 16 bytes of the SHA1 result */
+        if (memcmp(expected_full + 4, new_nonce_hash, 16) != 0) {
+            logger_log(LOG_ERROR,
+                       "auth: new_nonce_hash1 mismatch — possible MITM");
+            return -1;
+        }
+    }
+
     mtproto_session_set_auth_key(ctx->session, auth_key_padded);
 
     /* Compute server_salt = new_nonce[0:8] XOR server_nonce[0:8] */
