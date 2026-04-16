@@ -17,20 +17,23 @@ See `docs/SPECIFICATION.md` and `docs/adr/0005-three-binary-architecture.md`.
 - ARCH-01…04 · QA-01…09
 
 ## Active implementation order (tg-cli-ro first)
-1. **P4-04 DC migration** — PHONE_MIGRATE_X handling
-2. **P3-03 2FA password** — SRP flow
-3. **ADR-0005 directory split** — create `src/app/`, `src/domain/read/`,
-   `src/main/tg_cli_ro.c`
-4. **US-05 self info** — `users.getUsers(inputUserSelf)` (F-02)
-5. **US-04 list dialogs** — `messages.getDialogs` (F-01)
-6. **US-06 read history** — `messages.getHistory` (F-03)
-7. **US-07 watch updates** — `updates.getDifference` loop (F-04)
-8. **US-10 search** · **US-09 user-info** · **US-08 media download**
-9. **ADR-0005 tg-tui entry** — REPL + TUI rendering (US-11)
-10. Future: `src/domain/write/` + `tg-cli` (US-12)
+1. ~~ADR-0005 directory split~~ · `src/app/`, `src/domain/read/`, binaries ✅
+2. ~~US-05 self info~~ · `domain_get_self()` + `tg-cli-ro me` ✅
+3. ~~P4-04 DC migration~~ · `auth_flow_login()` + PHONE/USER/NETWORK_MIGRATE ✅
+4. ~~US-04 list dialogs~~ · minimal parser + `tg-cli-ro dialogs` ✅
+5. ~~US-06 read history~~ · inputPeerSelf / Saved Messages ✅
+6. ~~US-07 watch~~ · 30s poll loop + SIGINT ✅
+7. ~~US-11 tg-tui MVP~~ · interactive readline shell ✅
+8. **P3-03 2FA password** — SRP flow (blocker for 2FA users)
+9. **US-09 resolve** — `contacts.resolveUsername` → unlocks non-self peers
+10. **US-10 search** · **US-08 media download**
+11. Full-text message parsing (v2 of US-06 / US-07)
+12. Future: `src/domain/write/` + `tg-cli` (US-12)
 
 ## Quality gates
 zero warnings · zero ASAN · zero Valgrind leaks · core+infra ≥ 90% (TUI deferred)
 
 ## Current focus
-**Step 1: P4-04 DC migration** — required for most accounts.
+First vertical read-only slice (steps 1–7) is in place end-to-end. Next
+dependencies: **P3-03 2FA** and **US-09 resolve-username** widen the peer
+space beyond Saved Messages.
