@@ -8,6 +8,7 @@
 #include "app/session_store.h"
 
 #include "auth_session.h"
+#include "infrastructure/auth_2fa.h"
 #include "mtproto_auth.h"
 #include "mtproto_rpc.h"
 #include "logger.h"
@@ -143,10 +144,45 @@ int auth_flow_login(const ApiConfig *cfg,
             return -1;
         }
         if (strcmp(err.error_msg, "SESSION_PASSWORD_NEEDED") == 0) {
-            logger_log(LOG_WARN,
-                       "auth_flow: 2FA password required — not implemented (P3-03)");
             if (out) out->needs_password = 1;
-            return -1;
+            if (!cb->get_password) {
+                logger_log(LOG_ERROR,
+                           "auth_flow: 2FA required but no get_password callback");
+                return -1;
+            }
+            logger_log(LOG_INFO,
+                       "auth_flow: 2FA password required — running SRP flow");
+
+            Account2faPassword params = {0};
+            RpcError gp_err = {0};
+            if (auth_2fa_get_password(cfg, s, t, &params, &gp_err) != 0) {
+                logger_log(LOG_ERROR,
+                           "auth_flow: account.getPassword failed (%d: %s)",
+                           gp_err.error_code, gp_err.error_msg);
+                return -1;
+            }
+            if (!params.has_password) {
+                logger_log(LOG_ERROR,
+                           "auth_flow: SESSION_PASSWORD_NEEDED but server "
+                           "reports no password configured");
+                return -1;
+            }
+            char pwd[128];
+            if (cb->get_password(cb->user, pwd, sizeof(pwd)) != 0) {
+                logger_log(LOG_ERROR, "auth_flow: password input failed");
+                return -1;
+            }
+            RpcError cp_err = {0};
+            int64_t cp_uid = 0;
+            if (auth_2fa_check_password(cfg, s, t, &params, pwd,
+                                           &cp_uid, &cp_err) != 0) {
+                logger_log(LOG_ERROR,
+                           "auth_flow: auth.checkPassword failed (%d: %s)",
+                           cp_err.error_code, cp_err.error_msg);
+                return -1;
+            }
+            uid = cp_uid;
+            break;
         }
         logger_log(LOG_ERROR, "auth_flow: signIn failed (%d: %s)",
                    err.error_code, err.error_msg);

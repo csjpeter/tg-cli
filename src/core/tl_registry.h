@@ -44,7 +44,14 @@
 /* auth.* */
 #define TL_auth_sentCode        0x5e002502
 #define TL_auth_authorization   0x2ea2c0d4
-#define TL_auth_password        0x4a82327c
+
+/* account.* (2FA / SRP) */
+#define TL_account_password     0x957b50fb
+#define TL_passwordKdfAlgoSHA256SHA256PBKDF2HMACSHA512iter100000SHA256ModPow 0x3a912d4a
+#define TL_passwordKdfAlgoUnknown  0xd45ab096
+#define TL_inputCheckPasswordSRP   0xd27ff082
+#define TL_inputCheckPasswordEmpty 0x9880f658
+#define TL_securePasswordKdfAlgoUnknown  0x004a8537a5
 
 /* User */
 #define TL_user                 0x3ff6ecb0

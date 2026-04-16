@@ -7,6 +7,7 @@ set(FUNCTIONAL_SOURCES
     test_ige_aes_functional.c
     test_mtproto_crypto_functional.c
     test_crypto_kdf_functional.c
+    test_srp_math_functional.c
     # Real crypto implementation (not the mock used by unit tests)
     ../../src/core/crypto.c
 )

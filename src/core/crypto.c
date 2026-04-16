@@ -247,3 +247,75 @@ int crypto_bn_mod_exp(unsigned char *result, size_t *res_len,
     BN_free(bn_base); BN_free(bn_exp); BN_free(bn_mod); BN_free(bn_res);
     return 0;
 }
+
+/* Shared epilogue for mod_mul/add/sub: BN_bn2bin() into left-padded out. */
+static int bn_op_finalize(BIGNUM *bn_res,
+                           unsigned char *out, size_t *out_len,
+                           size_t pad_len) {
+    int bytes = BN_num_bytes(bn_res);
+    if ((size_t)bytes > *out_len) return -1;
+    size_t actual = (size_t)bytes;
+    if (actual < pad_len) memset(out, 0, pad_len - actual);
+    BN_bn2bin(bn_res, out + (pad_len - actual));
+    *out_len = pad_len;
+    return 0;
+}
+
+typedef int (*bn_bin_op)(BIGNUM *r, const BIGNUM *a, const BIGNUM *b,
+                          const BIGNUM *m, BN_CTX *ctx);
+
+static int bn_mod_op(bn_bin_op op,
+                      unsigned char *result, size_t *res_len,
+                      const unsigned char *a, size_t a_len,
+                      const unsigned char *b, size_t b_len,
+                      const unsigned char *m, size_t m_len,
+                      CryptoBnCtx *ctx) {
+    if (!result || !res_len || !a || !b || !m || !ctx) return -1;
+    BIGNUM *ba = BN_bin2bn(a, (int)a_len, NULL);
+    BIGNUM *bb = BN_bin2bn(b, (int)b_len, NULL);
+    BIGNUM *bm = BN_bin2bn(m, (int)m_len, NULL);
+    BIGNUM *br = BN_new();
+    int rc = -1;
+    if (ba && bb && bm && br && op(br, ba, bb, bm, ctx->ctx) == 1) {
+        rc = bn_op_finalize(br, result, res_len, m_len);
+    }
+    BN_free(ba); BN_free(bb); BN_free(bm); BN_free(br);
+    return rc;
+}
+
+int crypto_bn_mod_mul(unsigned char *result, size_t *res_len,
+                       const unsigned char *a, size_t a_len,
+                       const unsigned char *b, size_t b_len,
+                       const unsigned char *m, size_t m_len,
+                       CryptoBnCtx *ctx) {
+    return bn_mod_op(BN_mod_mul, result, res_len,
+                      a, a_len, b, b_len, m, m_len, ctx);
+}
+
+int crypto_bn_mod_add(unsigned char *result, size_t *res_len,
+                       const unsigned char *a, size_t a_len,
+                       const unsigned char *b, size_t b_len,
+                       const unsigned char *m, size_t m_len,
+                       CryptoBnCtx *ctx) {
+    return bn_mod_op(BN_mod_add, result, res_len,
+                      a, a_len, b, b_len, m, m_len, ctx);
+}
+
+int crypto_bn_mod_sub(unsigned char *result, size_t *res_len,
+                       const unsigned char *a, size_t a_len,
+                       const unsigned char *b, size_t b_len,
+                       const unsigned char *m, size_t m_len,
+                       CryptoBnCtx *ctx) {
+    return bn_mod_op(BN_mod_sub, result, res_len,
+                      a, a_len, b, b_len, m, m_len, ctx);
+}
+
+int crypto_bn_ucmp(const unsigned char *a, size_t a_len,
+                    const unsigned char *b, size_t b_len) {
+    BIGNUM *ba = BN_bin2bn(a, (int)a_len, NULL);
+    BIGNUM *bb = BN_bin2bn(b, (int)b_len, NULL);
+    int r = 0;
+    if (ba && bb) r = BN_ucmp(ba, bb);
+    BN_free(ba); BN_free(bb);
+    return r < 0 ? -1 : (r > 0 ? 1 : 0);
+}

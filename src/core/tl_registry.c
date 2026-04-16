@@ -33,7 +33,14 @@ static const TlRegistryEntry g_registry[] = {
     /* auth.* */
     { TL_auth_sentCode,         "auth.sentCode" },
     { TL_auth_authorization,    "auth.authorization" },
-    { TL_auth_password,         "account.password" },
+
+    /* account.* (2FA / SRP) */
+    { TL_account_password,      "account.password" },
+    { TL_passwordKdfAlgoSHA256SHA256PBKDF2HMACSHA512iter100000SHA256ModPow,
+                                "passwordKdfAlgoSHA256SHA256PBKDF2HMACSHA512iter100000SHA256ModPow" },
+    { TL_passwordKdfAlgoUnknown, "passwordKdfAlgoUnknown" },
+    { TL_inputCheckPasswordSRP, "inputCheckPasswordSRP" },
+    { TL_inputCheckPasswordEmpty, "inputCheckPasswordEmpty" },
 
     /* User */
     { TL_user,                  "user" },

@@ -278,3 +278,53 @@ int crypto_bn_mod_exp(unsigned char *result, size_t *res_len,
     (void)exp_len;
     return 0;
 }
+
+static int mock_bn_op(unsigned char *result, size_t *res_len,
+                      const unsigned char *a, size_t a_len,
+                      const unsigned char *b, size_t b_len,
+                      const unsigned char *m, size_t m_len,
+                      unsigned char fill) {
+    (void)a; (void)a_len; (void)b; (void)b_len; (void)m;
+    if (m_len > *res_len) return -1;
+    memset(result, fill, m_len);
+    *res_len = m_len;
+    return 0;
+}
+
+int crypto_bn_mod_mul(unsigned char *result, size_t *res_len,
+                       const unsigned char *a, size_t a_len,
+                       const unsigned char *b, size_t b_len,
+                       const unsigned char *m, size_t m_len,
+                       CryptoBnCtx *ctx) {
+    (void)ctx;
+    return mock_bn_op(result, res_len, a, a_len, b, b_len, m, m_len, 0xC1);
+}
+
+int crypto_bn_mod_add(unsigned char *result, size_t *res_len,
+                       const unsigned char *a, size_t a_len,
+                       const unsigned char *b, size_t b_len,
+                       const unsigned char *m, size_t m_len,
+                       CryptoBnCtx *ctx) {
+    (void)ctx;
+    return mock_bn_op(result, res_len, a, a_len, b, b_len, m, m_len, 0xC2);
+}
+
+int crypto_bn_mod_sub(unsigned char *result, size_t *res_len,
+                       const unsigned char *a, size_t a_len,
+                       const unsigned char *b, size_t b_len,
+                       const unsigned char *m, size_t m_len,
+                       CryptoBnCtx *ctx) {
+    (void)ctx;
+    return mock_bn_op(result, res_len, a, a_len, b, b_len, m, m_len, 0xC3);
+}
+
+int crypto_bn_ucmp(const unsigned char *a, size_t a_len,
+                    const unsigned char *b, size_t b_len) {
+    /* Mock: lexicographic comparison of the provided bytes — not a real
+     * big-number comparison but deterministic enough for the few test
+     * callers that care about "same input → same result". */
+    size_t n = a_len < b_len ? a_len : b_len;
+    int r = memcmp(a, b, n);
+    if (r == 0 && a_len != b_len) r = a_len < b_len ? -1 : 1;
+    return r < 0 ? -1 : (r > 0 ? 1 : 0);
+}

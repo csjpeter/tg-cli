@@ -119,4 +119,33 @@ int crypto_bn_mod_exp(unsigned char *result, size_t *res_len,
                        const unsigned char *mod, size_t mod_len,
                        CryptoBnCtx *ctx);
 
+/**
+ * Modular multiplication: result = (a * b) mod m. */
+int crypto_bn_mod_mul(unsigned char *result, size_t *res_len,
+                       const unsigned char *a, size_t a_len,
+                       const unsigned char *b, size_t b_len,
+                       const unsigned char *m, size_t m_len,
+                       CryptoBnCtx *ctx);
+
+/**
+ * Modular addition: result = (a + b) mod m. */
+int crypto_bn_mod_add(unsigned char *result, size_t *res_len,
+                       const unsigned char *a, size_t a_len,
+                       const unsigned char *b, size_t b_len,
+                       const unsigned char *m, size_t m_len,
+                       CryptoBnCtx *ctx);
+
+/**
+ * Modular subtraction: result = (a - b) mod m, always non-negative. */
+int crypto_bn_mod_sub(unsigned char *result, size_t *res_len,
+                       const unsigned char *a, size_t a_len,
+                       const unsigned char *b, size_t b_len,
+                       const unsigned char *m, size_t m_len,
+                       CryptoBnCtx *ctx);
+
+/**
+ * Compare a and b (big-endian, unsigned). Returns -1, 0, or 1. */
+int crypto_bn_ucmp(const unsigned char *a, size_t a_len,
+                    const unsigned char *b, size_t b_len);
+
 #endif /* CRYPTO_H */
