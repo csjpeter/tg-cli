@@ -38,6 +38,29 @@ void crypto_sha256(const unsigned char *data, size_t len, unsigned char *out);
 /** Compute SHA-1 hash (20 bytes output). */
 void crypto_sha1(const unsigned char *data, size_t len, unsigned char *out);
 
+/** Compute SHA-512 hash (64 bytes output). */
+void crypto_sha512(const unsigned char *data, size_t len, unsigned char *out);
+
+/**
+ * @brief PBKDF2 with HMAC-SHA-512.
+ *
+ * Used by Telegram's 2FA SRP: PH2 = pbkdf2(PH1, salt1, 100000, 64) where
+ * PH1 = SHA-256(salt1 || password || salt1) already happened in the caller.
+ *
+ * @param password      Input password bytes (not NUL-terminated).
+ * @param password_len  Password length.
+ * @param salt          Salt bytes.
+ * @param salt_len      Salt length.
+ * @param iters         Iteration count (Telegram uses 100000).
+ * @param out           Output buffer of @p out_len bytes.
+ * @param out_len       Output length (64 for SRP PH2).
+ * @return 0 on success, -1 on error.
+ */
+int crypto_pbkdf2_hmac_sha512(const unsigned char *password, size_t password_len,
+                              const unsigned char *salt, size_t salt_len,
+                              int iters,
+                              unsigned char *out, size_t out_len);
+
 /* ---- Random ---- */
 
 /** Fill buffer with cryptographically secure random bytes. */

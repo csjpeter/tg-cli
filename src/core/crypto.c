@@ -109,6 +109,26 @@ void crypto_sha1(const unsigned char *data, size_t len, unsigned char *out) {
     }
 }
 
+void crypto_sha512(const unsigned char *data, size_t len, unsigned char *out) {
+    if (EVP_Digest(data, len, out, NULL, EVP_sha512(), NULL) != 1) {
+        fprintf(stderr, "crypto: EVP_Digest(sha512) failed\n");
+        abort();
+    }
+}
+
+int crypto_pbkdf2_hmac_sha512(const unsigned char *password, size_t password_len,
+                              const unsigned char *salt, size_t salt_len,
+                              int iters,
+                              unsigned char *out, size_t out_len) {
+    if (!password || !salt || !out || out_len == 0 || iters <= 0) return -1;
+    if (password_len > INT_MAX || salt_len > INT_MAX || out_len > INT_MAX)
+        return -1;
+    int rc = PKCS5_PBKDF2_HMAC((const char *)password, (int)password_len,
+                                salt, (int)salt_len, iters,
+                                EVP_sha512(), (int)out_len, out);
+    return rc == 1 ? 0 : -1;
+}
+
 /* ---- RSA (OpenSSL 3.0 EVP API) ---- */
 
 struct CryptoRsaKey {

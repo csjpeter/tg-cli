@@ -50,4 +50,16 @@ int mock_crypto_bn_mod_exp_call_count(void);
 /** Set deterministic BN mod exp result. */
 void mock_crypto_set_bn_mod_exp_result(const unsigned char *data, size_t len);
 
+/** Get number of times crypto_sha512() was called. */
+int mock_crypto_sha512_call_count(void);
+
+/** Set deterministic SHA-512 output (64 bytes). */
+void mock_crypto_set_sha512_output(const unsigned char hash[64]);
+
+/** Get number of times crypto_pbkdf2_hmac_sha512() was called. */
+int mock_crypto_pbkdf2_call_count(void);
+
+/** Set deterministic PBKDF2 output. */
+void mock_crypto_set_pbkdf2_output(const unsigned char *buf, size_t len);
+
 #endif /* MOCK_CRYPTO_H */

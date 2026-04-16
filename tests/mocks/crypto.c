@@ -20,6 +20,13 @@ static struct {
     int sha1_count;
     unsigned char sha1_output[20];
 
+    int sha512_count;
+    unsigned char sha512_output[64];
+
+    int pbkdf2_count;
+    unsigned char pbkdf2_output[128];
+    size_t pbkdf2_output_len;
+
     int encrypt_block_count;
     int decrypt_block_count;
 
@@ -55,6 +62,24 @@ int mock_crypto_sha256_call_count(void) {
 
 int mock_crypto_sha1_call_count(void) {
     return g_mock.sha1_count;
+}
+
+int mock_crypto_sha512_call_count(void) {
+    return g_mock.sha512_count;
+}
+
+void mock_crypto_set_sha512_output(const unsigned char hash[64]) {
+    memcpy(g_mock.sha512_output, hash, 64);
+}
+
+int mock_crypto_pbkdf2_call_count(void) {
+    return g_mock.pbkdf2_count;
+}
+
+void mock_crypto_set_pbkdf2_output(const unsigned char *buf, size_t len) {
+    if (len > sizeof(g_mock.pbkdf2_output)) len = sizeof(g_mock.pbkdf2_output);
+    memcpy(g_mock.pbkdf2_output, buf, len);
+    g_mock.pbkdf2_output_len = len;
 }
 
 int mock_crypto_encrypt_block_call_count(void) {
@@ -113,6 +138,30 @@ void crypto_sha1(const unsigned char *data, size_t len, unsigned char *out) {
     (void)len;
     g_mock.sha1_count++;
     memcpy(out, g_mock.sha1_output, 20);
+}
+
+void crypto_sha512(const unsigned char *data, size_t len, unsigned char *out) {
+    (void)data; (void)len;
+    g_mock.sha512_count++;
+    memcpy(out, g_mock.sha512_output, 64);
+}
+
+int crypto_pbkdf2_hmac_sha512(const unsigned char *password, size_t password_len,
+                              const unsigned char *salt, size_t salt_len,
+                              int iters,
+                              unsigned char *out, size_t out_len) {
+    (void)password; (void)password_len;
+    (void)salt; (void)salt_len; (void)iters;
+    g_mock.pbkdf2_count++;
+    if (g_mock.pbkdf2_output_len > 0) {
+        size_t copy = g_mock.pbkdf2_output_len < out_len
+                    ? g_mock.pbkdf2_output_len : out_len;
+        memcpy(out, g_mock.pbkdf2_output, copy);
+        if (copy < out_len) memset(out + copy, 0, out_len - copy);
+    } else {
+        memset(out, 0xDD, out_len);
+    }
+    return 0;
 }
 
 int crypto_aes_set_encrypt_key(const unsigned char *key, int bits,
