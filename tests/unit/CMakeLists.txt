@@ -33,6 +33,7 @@ set(TEST_SOURCES
     test_domain_contacts.c
     test_domain_media.c
     test_domain_send.c
+    test_domain_read_history.c
     test_dc_config.c
     test_session_store.c
     ../../tests/mocks/crypto.c

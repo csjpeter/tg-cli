@@ -295,6 +295,22 @@ int arg_parse(int argc, char **argv, ArgResult *out) {
                                       return parse_me       (argc, argv, i, out);
     if (str_eq(subcmd, "watch"))     return parse_watch    (argc, argv, i, out);
     if (str_eq(subcmd, "download"))  return parse_download (argc, argv, i, out);
+    if (str_eq(subcmd, "read")) {
+        out->command = CMD_READ;
+        if (i >= argc || argv[i][0] == '-') {
+            fprintf(stderr, "tg-cli read: <peer> argument required\n");
+            return ARG_ERROR;
+        }
+        out->peer = argv[i++];
+        if (i < argc && str_eq(argv[i], "--max-id")) {
+            if (i + 1 >= argc
+                || parse_int(argv[i + 1], &out->msg_id) != 0) {
+                fprintf(stderr, "tg-cli read: --max-id needs a number\n");
+                return ARG_ERROR;
+            }
+        }
+        return ARG_OK;
+    }
     if (str_eq(subcmd, "help"))      return ARG_HELP;
     if (str_eq(subcmd, "version"))   return ARG_VERSION;
 
@@ -327,6 +343,7 @@ void arg_print_help(void) {
         "  watch   [--peers X,Y]                   Watch incoming updates\n"
         "  download <peer> <msg_id> [--out PATH]   Download photo from message\n"
         "  send    <peer> <message>                Send a message (tg-cli only)\n"
+        "  read    <peer> [--max-id N]             Mark as read (tg-cli only)\n"
     );
 }
 

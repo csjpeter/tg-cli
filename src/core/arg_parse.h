@@ -28,6 +28,7 @@ typedef enum {
     CMD_ME,           /**< Show own profile (US-05).                   */
     CMD_WATCH,        /**< Watch incoming updates (US-07).             */
     CMD_DOWNLOAD,     /**< Download media by message id (US-08/P6-01). */
+    CMD_READ,         /**< Mark history as read (P5-04).               */
 } ArgCommand;
 
 /** Parsed argument result. All string pointers point into argv (no copy). */

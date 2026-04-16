@@ -23,6 +23,7 @@
 #include "domain/read/contacts.h"
 #include "domain/read/media.h"
 #include "domain/write/send.h"
+#include "domain/write/read_history.h"
 #include "fs_util.h"
 
 #include <stdio.h>
@@ -106,6 +107,35 @@ static int resolve_peer_arg(const ApiConfig *cfg, MtProtoSession *s,
     return 0;
 }
 
+static int cmd_read(const ArgResult *args) {
+    if (!args->peer) {
+        fprintf(stderr, "tg-cli read: <peer> required\n");
+        return 1;
+    }
+    ApiConfig cfg; MtProtoSession s; Transport t;
+    int brc = session_bringup(args, &cfg, &s, &t);
+    if (brc != 0) return brc;
+
+    HistoryPeer peer = {0};
+    if (resolve_peer_arg(&cfg, &s, &t, args->peer, &peer) != 0) {
+        fprintf(stderr, "tg-cli read: failed to resolve peer '%s'\n",
+                args->peer);
+        transport_close(&t);
+        return 1;
+    }
+    RpcError err = {0};
+    int rc = domain_mark_read(&cfg, &s, &t, &peer, args->msg_id, &err);
+    transport_close(&t);
+    if (rc != 0) {
+        fprintf(stderr, "tg-cli read: failed (%d: %s)\n",
+                err.error_code, err.error_msg);
+        return 1;
+    }
+    if (args->json) printf("{\"read\":true}\n");
+    else if (!args->quiet) printf("marked as read\n");
+    return 0;
+}
+
 static int cmd_send(const ArgResult *args) {
     if (!args->peer) {
         fprintf(stderr, "tg-cli send: <peer> required\n");
@@ -172,6 +202,7 @@ static void print_usage(void) {
         "Subcommands (v1):\n"
         "  send <peer> <message>            Send a text message (US-P5-03)\n"
         "  send <peer> --stdin              Read message body from stdin\n"
+        "  read <peer> [--max-id N]         Mark as read (US-P5-04)\n"
         "\n"
         "Batch-mode login flags:\n"
         "  --phone <number>    E.g. +15551234567\n"
@@ -208,6 +239,8 @@ int main(int argc, char **argv) {
         switch (args.command) {
         case CMD_SEND:
             exit_code = cmd_send(&args); break;
+        case CMD_READ:
+            exit_code = cmd_read(&args); break;
         case CMD_NONE:
         default:
             print_usage(); break;
