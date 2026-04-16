@@ -23,6 +23,7 @@ set(TEST_SOURCES
     test_arg_parse.c
     test_readline.c
     test_domain_self.c
+    test_domain_dialogs.c
     test_dc_config.c
     ../../tests/mocks/crypto.c
     ../../tests/mocks/socket.c

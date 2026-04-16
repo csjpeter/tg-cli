@@ -98,6 +98,7 @@ target_link_libraries(tg-app PUBLIC tg-proto tg-crypto)
 
 add_library(tg-domain-read STATIC
     src/domain/read/self.c
+    src/domain/read/dialogs.c
 )
 target_include_directories(tg-domain-read PUBLIC src src/domain)
 target_link_libraries(tg-domain-read PUBLIC tg-app)

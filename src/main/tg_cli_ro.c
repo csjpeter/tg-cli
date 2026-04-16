@@ -13,8 +13,10 @@
 #include "arg_parse.h"
 
 #include "domain/read/self.h"
+#include "domain/read/dialogs.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* ---- Batch-mode input callbacks (values come from --phone/--code flags) ---- */
@@ -76,33 +78,45 @@ static void print_self_json(const SelfInfo *me) {
            me->is_bot     ? "true" : "false");
 }
 
-static int cmd_me(const ArgResult *args) {
-    ApiConfig cfg;
-    if (credentials_load(&cfg) != 0) return 1;
+/** @brief Bring up a fully authenticated session (shared by read commands).
+ *
+ * On success the caller owns @p t (must call transport_close) and @p s.
+ * Returns 0 on success, non-zero exit code on failure (already logged).
+ */
+static int session_bringup(const ArgResult *args, ApiConfig *cfg,
+                            MtProtoSession *s, Transport *t) {
+    if (credentials_load(cfg) != 0) return 1;
 
-    BatchCreds creds = {
-        .phone    = args->phone,
-        .code     = args->code,
-        .password = args->password,
-    };
-    AuthFlowCallbacks cb = {
-        .get_phone    = cb_get_phone,
-        .get_code     = cb_get_code,
-        .get_password = cb_get_password,
-        .user         = &creds,
-    };
+    BatchCreds *creds = (BatchCreds *)calloc(1, sizeof(BatchCreds));
+    if (!creds) return 1;
+    creds->phone    = args->phone;
+    creds->code     = args->code;
+    creds->password = args->password;
 
-    MtProtoSession s;
-    Transport t;
-    transport_init(&t);
-    mtproto_session_init(&s);
+    static AuthFlowCallbacks cb;
+    cb.get_phone    = cb_get_phone;
+    cb.get_code     = cb_get_code;
+    cb.get_password = cb_get_password;
+    cb.user         = creds;
+
+    transport_init(t);
+    mtproto_session_init(s);
 
     AuthFlowResult res = {0};
-    if (auth_flow_login(&cfg, &cb, &t, &s, &res) != 0) {
-        fprintf(stderr, "tg-cli-ro me: login failed (see logs)\n");
-        transport_close(&t);
+    if (auth_flow_login(cfg, &cb, t, s, &res) != 0) {
+        fprintf(stderr, "tg-cli-ro: login failed (see logs)\n");
+        transport_close(t);
+        free(creds);
         return 1;
     }
+    free(creds);
+    return 0;
+}
+
+static int cmd_me(const ArgResult *args) {
+    ApiConfig cfg; MtProtoSession s; Transport t;
+    int brc = session_bringup(args, &cfg, &s, &t);
+    if (brc != 0) return brc;
 
     SelfInfo me = {0};
     int rc = domain_get_self(&cfg, &s, &t, &me);
@@ -114,6 +128,60 @@ static int cmd_me(const ArgResult *args) {
 
     if (args->json) print_self_json(&me);
     else            print_self_plain(&me);
+    return 0;
+}
+
+static const char *peer_kind_name(DialogPeerKind k) {
+    switch (k) {
+    case DIALOG_PEER_USER:    return "user";
+    case DIALOG_PEER_CHAT:    return "chat";
+    case DIALOG_PEER_CHANNEL: return "channel";
+    default:                  return "unknown";
+    }
+}
+
+static int cmd_dialogs(const ArgResult *args) {
+    ApiConfig cfg; MtProtoSession s; Transport t;
+    int brc = session_bringup(args, &cfg, &s, &t);
+    if (brc != 0) return brc;
+
+    int limit = args->limit > 0 ? args->limit : 20;
+    if (limit > 100) limit = 100;
+
+    DialogEntry *entries = calloc((size_t)limit, sizeof(DialogEntry));
+    if (!entries) { transport_close(&t); return 1; }
+
+    int count = 0;
+    int rc = domain_get_dialogs(&cfg, &s, &t, limit, entries, &count);
+    transport_close(&t);
+    if (rc != 0) {
+        fprintf(stderr, "tg-cli-ro dialogs: failed (see logs)\n");
+        free(entries);
+        return 1;
+    }
+
+    if (args->json) {
+        printf("[");
+        for (int i = 0; i < count; i++) {
+            if (i) printf(",");
+            printf("{\"type\":\"%s\",\"id\":%lld,\"top\":%d,\"unread\":%d}",
+                   peer_kind_name(entries[i].kind),
+                   (long long)entries[i].peer_id,
+                   entries[i].top_message_id,
+                   entries[i].unread_count);
+        }
+        printf("]\n");
+    } else {
+        printf("%-8s %-18s %6s %6s\n", "type", "id", "top", "unread");
+        for (int i = 0; i < count; i++) {
+            printf("%-8s %-18lld %6d %6d\n",
+                   peer_kind_name(entries[i].kind),
+                   (long long)entries[i].peer_id,
+                   entries[i].top_message_id,
+                   entries[i].unread_count);
+        }
+    }
+    free(entries);
     return 0;
 }
 
@@ -164,8 +232,7 @@ int main(int argc, char **argv) {
             exit_code = cmd_me(&args);
             break;
         case CMD_DIALOGS:
-            fprintf(stderr, "tg-cli-ro dialogs: not implemented yet (US-04)\n");
-            exit_code = 2; break;
+            exit_code = cmd_dialogs(&args); break;
         case CMD_HISTORY:
             fprintf(stderr, "tg-cli-ro history: not implemented yet (US-06)\n");
             exit_code = 2; break;
