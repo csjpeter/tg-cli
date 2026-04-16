@@ -25,3 +25,16 @@ returned `DialogEntry` by matching on id.
 ## Dependencies
 P5-07 (needs multi-entry vector walk) · `tl_skip` helpers for the
 trailing User / Chat / Channel objects.
+
+## Blocked on — 2026-04-16
+Requires further tl_skip work before the users/chats vectors in the
+`messages.dialogs` response can be reached:
+- `tl_skip_message` (advance a whole Message without parsing) — needed
+  because messages:Vector<Message> sits between dialogs and chats.
+- Chat / channel / chatForbidden / channelForbidden / chatEmpty
+  skippers — need ChatPhoto skipper (chatPhotoEmpty + chatPhoto).
+- User / userEmpty skippers — need UserProfilePhoto + UserStatus
+  skippers, plus 20+ flag-conditional optional fields.
+
+Estimated ~400 LoC of skippers before a join can land. Parked until
+phase 3 of P5-07 (Chat/User/Media skippers) completes.

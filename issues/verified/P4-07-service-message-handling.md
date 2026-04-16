@@ -31,3 +31,18 @@ terminating type) arrives.
 
 ## Dependencies
 None — builds on existing `maybe_handle_bad_salt()` pattern.
+
+## Verified — 2026-04-16
+- `src/infrastructure/api_call.c` now runs a recv loop that classifies
+  each decrypted frame: SVC_RESULT passes through, SVC_BAD_SALT
+  signals a retry with the new salt, SVC_SKIP drains the frame
+  (new_session_created / msgs_ack / pong) and reads again,
+  SVC_ERROR aborts (bad_msg_notification included).
+- Loop capped at 8 service frames to guard against a runaway server.
+- `tests/unit/test_api_call.c::test_new_session_created_skipped`
+  covers the new_session_created path and confirms the salt is
+  taken from the received frame.
+- `bad_server_salt` continues to trigger a one-shot retry in the
+  caller (api_call) — unchanged.
+
+Tests: 1787 -> 1789. Valgrind: 0 leaks. Zero warnings.

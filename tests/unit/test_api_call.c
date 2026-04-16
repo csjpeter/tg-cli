@@ -205,10 +205,63 @@ static void test_bad_server_salt_retry(void) {
            "salt updated from bad_server_salt");
 }
 
+/* ---- new_session_created skip ---- */
+static void test_new_session_created_skipped(void) {
+    mock_socket_reset();
+    mock_crypto_reset();
+
+    /* First response: new_session_created — should be silently swallowed. */
+    uint8_t ns_payload[32];
+    memset(ns_payload, 0, sizeof(ns_payload));
+    uint32_t ns_crc = TL_new_session_created;
+    memcpy(ns_payload, &ns_crc, 4);
+    /* first_msg_id (8) + unique_id (8) + server_salt (8) — put a
+     * recognisable salt at offset 20. */
+    uint64_t salt = 0xAABBCCDD00112233ULL;
+    memcpy(ns_payload + 20, &salt, 8);
+
+    uint8_t resp_ns[256]; size_t rlen_ns = 0;
+    pack_encrypted(ns_payload, 28, resp_ns, &rlen_ns);
+
+    /* Second response: real bool_true. */
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, TL_boolTrue);
+    uint8_t ok_pay[8]; memcpy(ok_pay, w.data, w.len);
+    size_t ok_plen = w.len; tl_writer_free(&w);
+
+    uint8_t resp_ok[256]; size_t rlen_ok = 0;
+    pack_encrypted(ok_pay, ok_plen, resp_ok, &rlen_ok);
+
+    mock_socket_set_response(resp_ns, rlen_ns);
+    mock_socket_append_response(resp_ok, rlen_ok);
+
+    MtProtoSession s;
+    mtproto_session_init(&s);
+    uint8_t key[256] = {0};
+    mtproto_session_set_auth_key(&s, key);
+    mtproto_session_set_salt(&s, 0x1);
+
+    Transport t;
+    transport_init(&t); t.fd = 42; t.connected = 1; t.dc_id = 1;
+
+    ApiConfig cfg; api_config_init(&cfg);
+    cfg.api_id = 12345; cfg.api_hash = "deadbeef";
+
+    uint32_t q_crc = TL_boolTrue;
+    uint8_t query[4]; memcpy(query, &q_crc, 4);
+
+    uint8_t resp[64]; size_t resp_len = 0;
+    int rc = api_call(&cfg, &s, &t, query, 4, resp, sizeof(resp), &resp_len);
+    ASSERT(rc == 0, "new_session_created was skipped cleanly");
+    ASSERT(s.server_salt == 0xAABBCCDD00112233ULL,
+           "salt taken from new_session_created");
+}
+
 void test_api_call(void) {
     RUN_TEST(test_api_config_init);
     RUN_TEST(test_api_wrap_query_structure);
     RUN_TEST(test_api_wrap_query_null_args);
     RUN_TEST(test_api_wrap_query_buffer_too_small);
     RUN_TEST(test_bad_server_salt_retry);
+    RUN_TEST(test_new_session_created_skipped);
 }

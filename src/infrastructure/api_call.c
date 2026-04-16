@@ -64,32 +64,71 @@ int api_wrap_query(const ApiConfig *cfg,
     return 0;
 }
 
-/** @brief Try to handle bad_server_salt: update session salt, signal retry.
+/** @brief Classify an incoming encrypted frame.
  *
- * bad_server_salt#edab447b
- *   bad_msg_id:long bad_msg_seqno:int error_code:int new_server_salt:long
- *
- * Returns 1 if the response was bad_server_salt and the caller should
- * retry once, 0 otherwise.
+ * Returns one of the SVC_* codes. When SVC_BAD_SALT the salt on @p s is
+ * already updated; when SVC_SKIP the caller should simply recv again.
  */
-static int maybe_handle_bad_salt(MtProtoSession *s,
+enum {
+    SVC_RESULT = 0,    /**< ordinary rpc_result / unwrapped payload */
+    SVC_BAD_SALT,      /**< new salt stored, caller should retry send */
+    SVC_SKIP,          /**< service-only frame, loop back to recv */
+    SVC_ERROR,         /**< unrecoverable */
+};
+
+static int classify_service_frame(MtProtoSession *s,
                                    const uint8_t *resp, size_t resp_len) {
-    if (resp_len < 4) return 0;
+    if (resp_len < 4) return SVC_ERROR;
     uint32_t crc;
     memcpy(&crc, resp, 4);
-    if (crc != TL_bad_server_salt) return 0;
 
-    /* Layout: crc(4) + bad_msg_id(8) + bad_msg_seqno(4) + error_code(4)
-     *       + new_server_salt(8) = 28 bytes minimum. */
-    if (resp_len < 28) return 0;
-    uint64_t new_salt;
-    memcpy(&new_salt, resp + 20, 8);
-    s->server_salt = new_salt;
-    logger_log(LOG_INFO,
-               "api_call: server issued new salt 0x%016llx (retry)",
-               (unsigned long long)new_salt);
-    return 1;
+    if (crc == TL_bad_server_salt) {
+        if (resp_len < 28) return SVC_ERROR;
+        uint64_t new_salt;
+        memcpy(&new_salt, resp + 20, 8);
+        s->server_salt = new_salt;
+        logger_log(LOG_INFO,
+                   "api_call: server issued new salt 0x%016llx (retry)",
+                   (unsigned long long)new_salt);
+        return SVC_BAD_SALT;
+    }
+
+    if (crc == TL_bad_msg_notification) {
+        /* bad_msg_notification#a7eff811 bad_msg_id:long bad_msg_seqno:int
+         *                               error_code:int = BadMsgNotification
+         * Layout: crc(4) + bad_msg_id(8) + bad_msg_seqno(4) + error_code(4). */
+        int32_t error_code = 0;
+        if (resp_len >= 20) memcpy(&error_code, resp + 16, 4);
+        logger_log(LOG_WARN, "api_call: bad_msg_notification code=%d", error_code);
+        /* We cannot recover from msg_id / seqno disagreements here; bailing. */
+        return SVC_ERROR;
+    }
+
+    if (crc == TL_new_session_created) {
+        /* new_session_created#9ec20908 first_msg_id:long unique_id:long
+         *                              server_salt:long = NewSession
+         * Layout: crc(4) + first_msg_id(8) + unique_id(8) + server_salt(8). */
+        if (resp_len >= 28) {
+            uint64_t fresh_salt;
+            memcpy(&fresh_salt, resp + 20, 8);
+            s->server_salt = fresh_salt;
+            logger_log(LOG_INFO,
+                       "api_call: new_session_created, salt=0x%016llx",
+                       (unsigned long long)fresh_salt);
+        }
+        return SVC_SKIP;
+    }
+
+    if (crc == TL_msgs_ack || crc == TL_pong) {
+        logger_log(LOG_DEBUG, "api_call: ignoring service frame 0x%08x", crc);
+        return SVC_SKIP;
+    }
+
+    return SVC_RESULT;
 }
+
+/** Maximum number of service frames we'll drain before giving up. */
+#define SERVICE_FRAME_LIMIT 8
 
 static int api_call_once(const ApiConfig *cfg,
                           MtProtoSession *s, Transport *t,
@@ -114,14 +153,18 @@ static int api_call_once(const ApiConfig *cfg,
     RAII_STRING uint8_t *raw_resp = (uint8_t *)malloc(65536);
     if (!raw_resp) return -1;
     size_t raw_len = 0;
-    if (rpc_recv_encrypted(s, t, raw_resp, 65536, &raw_len) != 0) {
-        logger_log(LOG_ERROR, "api_call: failed to receive");
-        return -1;
-    }
 
-    if (maybe_handle_bad_salt(s, raw_resp, raw_len)) {
-        *bad_salt = 1;
-        return 0;
+    /* Drain service frames until we see a real result. */
+    for (int attempt = 0; attempt < SERVICE_FRAME_LIMIT; attempt++) {
+        if (rpc_recv_encrypted(s, t, raw_resp, 65536, &raw_len) != 0) {
+            logger_log(LOG_ERROR, "api_call: failed to receive");
+            return -1;
+        }
+        int klass = classify_service_frame(s, raw_resp, raw_len);
+        if (klass == SVC_ERROR) return -1;
+        if (klass == SVC_BAD_SALT) { *bad_salt = 1; return 0; }
+        if (klass == SVC_SKIP)     continue;
+        break; /* SVC_RESULT */
     }
 
     uint64_t req_msg_id;
