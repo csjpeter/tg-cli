@@ -20,6 +20,8 @@
 #include "domain/read/user_info.h"
 #include "domain/read/search.h"
 #include "domain/read/contacts.h"
+#include "domain/read/media.h"
+#include "fs_util.h"
 
 #include <signal.h>
 #include <stdio.h>
@@ -458,6 +460,83 @@ static int cmd_history(const ArgResult *args) {
     return 0;
 }
 
+static int cmd_download(const ArgResult *args, const AppContext *ctx) {
+    if (!args->peer || args->msg_id <= 0) {
+        fprintf(stderr, "tg-cli-ro download: <peer> and positive <msg_id> required\n");
+        return 1;
+    }
+    ApiConfig cfg; MtProtoSession s; Transport t;
+    int brc = session_bringup(args, &cfg, &s, &t);
+    if (brc != 0) return brc;
+
+    HistoryPeer peer = {0};
+    if (resolve_peer_arg(&cfg, &s, &t, args->peer, &peer) != 0) {
+        transport_close(&t);
+        return 1;
+    }
+
+    HistoryEntry entry = {0};
+    int count = 0;
+    int rc = domain_get_history(&cfg, &s, &t, &peer, args->msg_id + 1, 1,
+                                 &entry, &count);
+    if (rc != 0 || count == 0 || entry.id != args->msg_id) {
+        fprintf(stderr,
+                "tg-cli-ro download: message %d not found in this peer\n",
+                args->msg_id);
+        transport_close(&t);
+        return 1;
+    }
+    if (entry.media != MEDIA_PHOTO) {
+        fprintf(stderr,
+                "tg-cli-ro download: message %d has no downloadable photo "
+                "(media kind=%d)\n", args->msg_id, (int)entry.media);
+        transport_close(&t);
+        return 1;
+    }
+    if (entry.media_info.access_hash == 0
+        || entry.media_info.file_reference_len == 0) {
+        fprintf(stderr,
+                "tg-cli-ro download: missing access_hash or file_reference\n");
+        transport_close(&t);
+        return 1;
+    }
+
+    /* Compose output path: --out if given, else <cache>/downloads/photo-<id>.jpg */
+    char path_buf[2048];
+    const char *out_path = args->out_path;
+    if (!out_path) {
+        const char *cache = ctx->cache_dir ? ctx->cache_dir : "/tmp";
+        char dir_buf[1536];
+        snprintf(dir_buf, sizeof(dir_buf), "%s/downloads", cache);
+        fs_mkdir_p(dir_buf, 0700);
+        snprintf(path_buf, sizeof(path_buf), "%s/photo-%lld.jpg",
+                 dir_buf, (long long)entry.media_info.photo_id);
+        out_path = path_buf;
+    }
+
+    int wrong_dc = 0;
+    rc = domain_download_photo(&cfg, &s, &t, &entry.media_info,
+                                out_path, &wrong_dc);
+    transport_close(&t);
+    if (rc != 0) {
+        if (wrong_dc > 0) {
+            fprintf(stderr,
+                    "tg-cli-ro download: file is on DC %d — cross-DC "
+                    "download is not supported yet\n", wrong_dc);
+        } else {
+            fprintf(stderr, "tg-cli-ro download: failed (see logs)\n");
+        }
+        return 1;
+    }
+    if (args->json) {
+        printf("{\"saved\":\"%s\",\"photo_id\":%lld}\n",
+               out_path, (long long)entry.media_info.photo_id);
+    } else if (!args->quiet) {
+        printf("saved: %s\n", out_path);
+    }
+    return 0;
+}
+
 static int cmd_dialogs(const ArgResult *args) {
     ApiConfig cfg; MtProtoSession s; Transport t;
     int brc = session_bringup(args, &cfg, &s, &t);
@@ -527,6 +606,7 @@ static void print_usage(void) {
         "  search   [<peer>] <query>        Search messages (US-10)\n"
         "  user-info <peer>                 User/channel info (US-09)\n"
         "  watch    [--peers X,Y]           Watch updates (US-07)\n"
+        "  download <peer> <msg_id> [--out PATH]  Download photo (US-08)\n"
         "\n"
         "Batch-mode login flags:\n"
         "  --phone <number>    E.g. +15551234567\n"
@@ -583,6 +663,8 @@ int main(int argc, char **argv) {
             exit_code = cmd_contacts(&args); break;
         case CMD_WATCH:
             exit_code = cmd_watch(&args); break;
+        case CMD_DOWNLOAD:
+            exit_code = cmd_download(&args, &ctx); break;
         case CMD_SEND:
             fprintf(stderr, "tg-cli-ro: send is not available in read-only mode\n");
             exit_code = 2; break;

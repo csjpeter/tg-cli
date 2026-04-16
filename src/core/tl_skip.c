@@ -453,7 +453,7 @@ int tl_skip_photo_size_vector(TlReader *r) {
     return 0;
 }
 
-/* ---- Photo skipper ----
+/* ---- Photo skipper / extractor ----
  * photoEmpty#2331b22d id:long
  * photo#fb197a65 flags:# has_stickers:flags.0?true id:long access_hash:long
  *                file_reference:bytes date:int
@@ -461,15 +461,106 @@ int tl_skip_photo_size_vector(TlReader *r) {
  *                video_sizes:flags.1?Vector<VideoSize>     <- BAIL
  *                dc_id:int
  *
- * Internal helper optionally exposes id and dc_id (for P6-03 media info).
+ * photo_full walks the full object and, when @p out is non-NULL, fills
+ * access_hash, file_reference, dc_id and the largest PhotoSize.type.
+ * Used by tl_skip_message_media_ex for MEDIA_PHOTO + file-download
+ * support. tl_skip_photo is a thin wrapper that passes NULL.
  */
-static int photo_inner(TlReader *r, int64_t *id_out, int32_t *dc_id_out) {
+
+/* Walk a Vector<PhotoSize> and record the `type` of the largest entry
+ * (by pixel dimensions for photoSize / photoSizeProgressive, by byte
+ * count as a tie-breaker for cached/stripped forms). Leaves the cursor
+ * past the vector. */
+static int walk_photo_size_vector(TlReader *r,
+                                    char *best_type, size_t best_type_cap) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 8) return -1;
+    uint32_t vec_crc = tl_read_uint32(r);
+    if (vec_crc != TL_vector) return -1;
+    uint32_t count = tl_read_uint32(r);
+
+    long best_score = -1;
+    if (best_type && best_type_cap) best_type[0] = '\0';
+
+    for (uint32_t i = 0; i < count; i++) {
+        if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+        uint32_t crc = tl_read_uint32(r);
+
+        /* Capture type:string into a small buffer we may keep as best. */
+        char type_buf[8] = {0};
+        size_t type_n = 0;
+        {
+            size_t before = r->pos;
+            char *s = tl_read_string(r);
+            if (!s) return -1;
+            type_n = strlen(s);
+            if (type_n >= sizeof(type_buf)) type_n = sizeof(type_buf) - 1;
+            memcpy(type_buf, s, type_n);
+            type_buf[type_n] = '\0';
+            free(s);
+            (void)before;
+        }
+
+        long score = 0;
+        switch (crc) {
+        case CRC_photoSizeEmpty:
+            score = -1; /* empty — never best */
+            break;
+        case CRC_photoSize: {
+            if (r->len - r->pos < 12) return -1;
+            int32_t w = tl_read_int32(r);
+            int32_t h = tl_read_int32(r);
+            int32_t sz = tl_read_int32(r); (void)sz;
+            score = (long)w * (long)h;
+            break;
+        }
+        case CRC_photoCachedSize: {
+            if (r->len - r->pos < 8) return -1;
+            int32_t w = tl_read_int32(r);
+            int32_t h = tl_read_int32(r);
+            if (tl_skip_string(r) != 0) return -1; /* bytes */
+            score = (long)w * (long)h;
+            break;
+        }
+        case CRC_photoStrippedSize:
+        case CRC_photoPathSize:
+            if (tl_skip_string(r) != 0) return -1; /* bytes */
+            score = 0;
+            break;
+        case CRC_photoSizeProgressive: {
+            if (r->len - r->pos < 8) return -1;
+            int32_t w = tl_read_int32(r);
+            int32_t h = tl_read_int32(r);
+            if (r->len - r->pos < 8) return -1;
+            uint32_t vc = tl_read_uint32(r);
+            if (vc != TL_vector) return -1;
+            uint32_t nvals = tl_read_uint32(r);
+            if (r->len - r->pos < nvals * 4ULL) return -1;
+            for (uint32_t j = 0; j < nvals; j++) tl_read_int32(r);
+            score = (long)w * (long)h;
+            break;
+        }
+        default:
+            logger_log(LOG_WARN, "walk_photo_size_vector: unknown 0x%08x", crc);
+            return -1;
+        }
+
+        if (score > best_score && best_type && best_type_cap) {
+            best_score = score;
+            size_t n = type_n < best_type_cap - 1 ? type_n : best_type_cap - 1;
+            memcpy(best_type, type_buf, n);
+            best_type[n] = '\0';
+        }
+    }
+    return 0;
+}
+
+static int photo_full(TlReader *r, MediaInfo *out) {
     if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
     uint32_t crc = tl_read_uint32(r);
     if (crc == CRC_photoEmpty) {
         if (r->len - r->pos < 8) return -1;
         int64_t id = tl_read_int64(r);
-        if (id_out) *id_out = id;
+        if (out) out->photo_id = id;
         return 0;
     }
     if (crc != CRC_photo) {
@@ -480,24 +571,42 @@ static int photo_inner(TlReader *r, int64_t *id_out, int32_t *dc_id_out) {
     uint32_t flags = tl_read_uint32(r);
     if (r->len - r->pos < 16) return -1;
     int64_t id = tl_read_int64(r);
-    if (id_out) *id_out = id;
-    tl_read_int64(r); /* access_hash */
-    if (tl_skip_string(r) != 0) return -1; /* file_reference */
+    int64_t access = tl_read_int64(r);
+    if (out) { out->photo_id = id; out->access_hash = access; }
+
+    /* file_reference is a TL bytes field. Capture it into MediaInfo
+     * (truncating if it exceeds MEDIA_FILE_REF_MAX) while advancing. */
+    size_t fr_len = 0;
+    uint8_t *fr = tl_read_bytes(r, &fr_len);
+    if (!fr && fr_len != 0) return -1;
+    if (out) {
+        size_t n = fr_len;
+        if (n > MEDIA_FILE_REF_MAX) n = MEDIA_FILE_REF_MAX;
+        if (fr) memcpy(out->file_reference, fr, n);
+        out->file_reference_len = n;
+    }
+    free(fr);
+
     if (r->len - r->pos < 4) return -1;
     tl_read_int32(r); /* date */
-    if (tl_skip_photo_size_vector(r) != 0) return -1;
+
+    if (walk_photo_size_vector(r,
+                                out ? out->thumb_type : NULL,
+                                out ? sizeof(out->thumb_type) : 0) != 0)
+        return -1;
+
     if (flags & (1u << 1)) {
         logger_log(LOG_WARN, "tl_skip_photo: video_sizes not implemented");
         return -1;
     }
     if (r->len - r->pos < 4) return -1;
     int32_t dc = tl_read_int32(r);
-    if (dc_id_out) *dc_id_out = dc;
+    if (out) out->dc_id = dc;
     return 0;
 }
 
 int tl_skip_photo(TlReader *r) {
-    return photo_inner(r, NULL, NULL);
+    return photo_full(r, NULL);
 }
 
 /* ---- Document skipper ----
@@ -616,9 +725,7 @@ int tl_skip_message_media_ex(TlReader *r, MediaInfo *out) {
         if (r->len - r->pos < 4) return -1;
         uint32_t flags = tl_read_uint32(r);
         if (flags & (1u << 0)) {
-            int64_t id = 0; int32_t dc = 0;
-            if (photo_inner(r, &id, &dc) != 0) return -1;
-            if (out) { out->photo_id = id; out->dc_id = dc; }
+            if (photo_full(r, out) != 0) return -1;
         }
         if (flags & (1u << 2)) { if (r->len - r->pos < 4) return -1; tl_read_int32(r); }
         return 0;

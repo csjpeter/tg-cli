@@ -218,6 +218,41 @@ static int parse_user_info(int argc, char **argv, int i, ArgResult *out) {
     return ARG_OK;
 }
 
+static int parse_download(int argc, char **argv, int i, ArgResult *out) {
+    out->command = CMD_DOWNLOAD;
+
+    if (i >= argc || argv[i][0] == '-') {
+        fprintf(stderr, "tg-cli download: <peer> argument required\n");
+        return ARG_ERROR;
+    }
+    out->peer = argv[i++];
+
+    if (i >= argc || argv[i][0] == '-') {
+        fprintf(stderr, "tg-cli download: <msg_id> argument required\n");
+        return ARG_ERROR;
+    }
+    if (parse_int(argv[i], &out->msg_id) != 0 || out->msg_id <= 0) {
+        fprintf(stderr, "tg-cli download: <msg_id> must be a positive integer\n");
+        return ARG_ERROR;
+    }
+    i++;
+
+    while (i < argc) {
+        if (str_eq(argv[i], "--out")) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "tg-cli download: --out requires a path\n");
+                return ARG_ERROR;
+            }
+            out->out_path = argv[i + 1];
+            i += 2;
+        } else {
+            fprintf(stderr, "tg-cli download: unknown option: %s\n", argv[i]);
+            return ARG_ERROR;
+        }
+    }
+    return ARG_OK;
+}
+
 /* ---- Public API ---- */
 
 int arg_parse(int argc, char **argv, ArgResult *out) {
@@ -259,6 +294,7 @@ int arg_parse(int argc, char **argv, ArgResult *out) {
     if (str_eq(subcmd, "me")   || str_eq(subcmd, "self"))
                                       return parse_me       (argc, argv, i, out);
     if (str_eq(subcmd, "watch"))     return parse_watch    (argc, argv, i, out);
+    if (str_eq(subcmd, "download"))  return parse_download (argc, argv, i, out);
     if (str_eq(subcmd, "help"))      return ARG_HELP;
     if (str_eq(subcmd, "version"))   return ARG_VERSION;
 
@@ -289,6 +325,7 @@ void arg_print_help(void) {
         "  contacts                                List contacts\n"
         "  user-info <peer>                        Show user/channel info\n"
         "  watch   [--peers X,Y]                   Watch incoming updates\n"
+        "  download <peer> <msg_id> [--out PATH]   Download photo from message\n"
         "  send    <peer> <message>                Send a message (tg-cli only)\n"
     );
 }

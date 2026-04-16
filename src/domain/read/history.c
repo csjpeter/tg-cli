@@ -170,6 +170,7 @@ static int parse_message(TlReader *r, HistoryEntry *out) {
         out->media_id = (mi.kind == MEDIA_PHOTO) ? mi.photo_id
                       : (mi.kind == MEDIA_DOCUMENT) ? mi.document_id : 0;
         out->media_dc = mi.dc_id;
+        out->media_info = mi;
     }
 
     /* reply_markup: still no skipper — stop iteration. */

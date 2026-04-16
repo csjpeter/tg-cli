@@ -27,6 +27,7 @@ typedef enum {
     CMD_USER_INFO,    /**< Show info for a user/channel.               */
     CMD_ME,           /**< Show own profile (US-05).                   */
     CMD_WATCH,        /**< Watch incoming updates (US-07).             */
+    CMD_DOWNLOAD,     /**< Download media by message id (US-08/P6-01). */
 } ArgCommand;
 
 /** Parsed argument result. All string pointers point into argv (no copy). */
@@ -51,6 +52,8 @@ typedef struct {
     const char *query;       /**< Search query (search).                 */
     int         limit;       /**< --limit N (dialogs, history).          */
     int         offset;      /**< --offset N (history).                  */
+    int         msg_id;      /**< Message id for download.               */
+    const char *out_path;    /**< --out <path> for download.             */
 } ArgResult;
 
 /**

@@ -80,12 +80,27 @@ typedef enum {
     MEDIA_OTHER,
 } MediaKind;
 
-/** @brief Minimal media metadata pulled while skipping. */
+/** @brief Maximum file_reference bytes we retain per media object. */
+#define MEDIA_FILE_REF_MAX 128
+
+/** @brief Minimal media metadata pulled while skipping.
+ *
+ * For MEDIA_PHOTO and MEDIA_DOCUMENT with a non-empty body, the caller
+ * gets enough information to build an InputFileLocation for
+ * `upload.getFile`: id + access_hash + file_reference + dc_id. For
+ * photos, `thumb_type` carries the largest PhotoSize.type label so the
+ * caller can request the full-size rendition. For documents this phase
+ * covers only documentEmpty (id only); non-empty Document stays TODO.
+ */
 typedef struct {
     MediaKind kind;
-    int64_t   photo_id;    /**< set for MEDIA_PHOTO if non-empty */
-    int64_t   document_id; /**< set for MEDIA_DOCUMENT if non-empty */
-    int32_t   dc_id;       /**< set for photo (MEDIA_PHOTO) */
+    int64_t   photo_id;
+    int64_t   document_id;
+    int32_t   dc_id;
+    int64_t   access_hash;
+    uint8_t   file_reference[MEDIA_FILE_REF_MAX];
+    size_t    file_reference_len;
+    char      thumb_type[8];   /**< Largest PhotoSize.type (e.g. "y", "w"). */
 } MediaInfo;
 
 /** @brief Like tl_skip_message_media but fills @p out with basic metadata. */

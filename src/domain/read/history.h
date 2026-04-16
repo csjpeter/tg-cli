@@ -36,6 +36,7 @@ typedef struct {
     MediaKind media;    /**< MEDIA_NONE when flags.9 absent. */
     int64_t   media_id; /**< photo_id or document_id, 0 when N/A. */
     int32_t   media_dc; /**< dc_id for photos; 0 otherwise. */
+    MediaInfo media_info; /**< Full metadata for MEDIA_PHOTO downloads. */
 } HistoryEntry;
 
 /** @brief InputPeer kind used when building the getHistory request. */

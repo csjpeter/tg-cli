@@ -1,0 +1,48 @@
+/**
+ * @file domain/read/media.h
+ * @brief P6-01 — download media (photos) via upload.getFile.
+ *
+ * v1 covers photos; the call site passes a PhotoLocation assembled from
+ * the MediaInfo that came out of history/search. Documents and cross-DC
+ * downloads (FILE_MIGRATE_X) are tracked as follow-up work — this
+ * module surfaces the migrate_dc hint on -1 so callers can at least
+ * display an actionable error.
+ */
+
+#ifndef DOMAIN_READ_MEDIA_H
+#define DOMAIN_READ_MEDIA_H
+
+#include "api_call.h"
+#include "mtproto_session.h"
+#include "transport.h"
+#include "tl_skip.h"          /* MediaInfo */
+
+#include <stddef.h>
+#include <stdint.h>
+
+/**
+ * @brief Download a photo referenced by a MediaInfo into @p out_path.
+ *
+ * Makes a chain of upload.getFile calls until an end-of-file chunk
+ * (shorter than @p chunk_size bytes) arrives. Returns the photo DC id
+ * via @p wrong_dc when the server rejects with FILE_MIGRATE_X so the
+ * caller can surface it.
+ *
+ * @param cfg        API config.
+ * @param s          Session with auth_key.
+ * @param t          Connected transport.
+ * @param info       MediaInfo filled by tl_skip_message_media_ex (must have
+ *                   kind == MEDIA_PHOTO, non-zero id + access_hash +
+ *                   file_reference_len).
+ * @param out_path   Filesystem path to write the photo to (overwritten).
+ * @param wrong_dc   Optional; set to the server-suggested DC when the
+ *                   request fails with FILE_MIGRATE_X, 0 otherwise.
+ * @return 0 on success, -1 on error.
+ */
+int domain_download_photo(const ApiConfig *cfg,
+                           MtProtoSession *s, Transport *t,
+                           const MediaInfo *info,
+                           const char *out_path,
+                           int *wrong_dc);
+
+#endif /* DOMAIN_READ_MEDIA_H */
