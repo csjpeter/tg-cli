@@ -29,3 +29,11 @@ structures.
 
 ## Dependencies
 - ARCH-01 (pending) — domain/ hozzáadása a tg-proto static library-hoz
+
+## Verified — 2026-04-16 (v1)
+- `src/domain/read/` now holds self, dialogs, history, updates,
+  user_info, search modules. Writes live under `src/domain/write/`
+  (empty; ADR-0005 defines the split).
+- `src/app/` carries bootstrap, auth_flow, credentials, dc_config,
+  session_store — shared by all binaries.
+- ADR-0005 documents the split.
