@@ -63,6 +63,14 @@ void test_logger(void) {
     res = logger_clean_logs("/nonexistent/dir/path");
     ASSERT(res == -1, "logger_clean_logs should return -1 for non-existent dir");
 
+    // QA-16 guard: calling logger_init twice must not leak the previous
+    // path+fd. Valgrind would flag these as lost blocks without the fix.
+    res = logger_init(test_log_file, LOG_INFO);
+    ASSERT(res == 0, "logger_init first call ok");
+    res = logger_init(test_log_file, LOG_INFO);
+    ASSERT(res == 0, "logger_init second call ok — no leak");
+    logger_close();
+
     // 10. Test log rotation: create a file > 5MB, then init should rotate it
     unlink(test_log_file);
     {

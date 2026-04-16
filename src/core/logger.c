@@ -57,8 +57,20 @@ static void rotate_logs() {
 }
 
 int logger_init(const char *log_file_path, LogLevel level) {
+    /* Idempotent: if called a second time, release the previous handle
+     * and path before overwriting. Prevents QA-16 fd + heap leak. */
+    if (g_log_fp) {
+        if (fclose(g_log_fp) != 0) {
+            fprintf(stderr, "logger_init: previous fclose failed\n");
+        }
+        g_log_fp = NULL;
+    }
+    free(g_log_path);
+    g_log_path = NULL;
+
     g_log_level = level;
     g_log_path = strdup(log_file_path);
+    if (!g_log_path) return -1;
 
     // Check size and rotate if necessary
     struct stat st;

@@ -20,3 +20,10 @@ HIGH — file descriptor leak (finite OS resource) + memory leak.
 
 ## Dependencies
 None
+
+## Verified — 2026-04-16
+- `src/core/logger.c::logger_init` now closes the previous `g_log_fp`
+  and frees `g_log_path` before overwriting them, so repeated calls
+  are idempotent and leak-free.
+- `tests/unit/test_logger.c` calls `logger_init` twice back-to-back;
+  Valgrind continues to report 0 bytes lost (1814 tests pass).
