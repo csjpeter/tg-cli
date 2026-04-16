@@ -25,6 +25,8 @@ typedef enum {
     CMD_SEARCH,       /**< Search messages (optionally within a peer). */
     CMD_CONTACTS,     /**< List contacts.                              */
     CMD_USER_INFO,    /**< Show info for a user/channel.               */
+    CMD_ME,           /**< Show own profile (US-05).                   */
+    CMD_WATCH,        /**< Watch incoming updates (US-07).             */
 } ArgCommand;
 
 /** Parsed argument result. All string pointers point into argv (no copy). */
@@ -34,6 +36,11 @@ typedef struct {
     int         json;        /**< --json  : machine-readable JSON output. */
     int         quiet;       /**< --quiet : suppress informational output. */
     const char *config_path; /**< --config <path> : custom config file.  */
+
+    /* Login credentials (batch mode; NULL otherwise) */
+    const char *phone;        /**< --phone +15551234567                   */
+    const char *code;         /**< --code 12345                           */
+    const char *password;     /**< --password ... (2FA)                   */
 
     /* Subcommand */
     ArgCommand  command;

@@ -144,7 +144,7 @@ static void test_send_code_request_structure(void) {
 
     AuthSentCode result;
     memset(&result, 0, sizeof(result));
-    int rc = auth_send_code(&cfg, &s, &t, "+15551234567", &result);
+    int rc = auth_send_code(&cfg, &s, &t, "+15551234567", &result, NULL);
 
     ASSERT(rc == 0, "send_code: must succeed with valid sentCode response");
     ASSERT(strcmp(result.phone_code_hash, "abc123hash456xyz") == 0,
@@ -190,7 +190,7 @@ static void test_send_code_rpc_error(void) {
 
     AuthSentCode result;
     memset(&result, 0, sizeof(result));
-    int rc = auth_send_code(&cfg, &s, &t, "+15551234567", &result);
+    int rc = auth_send_code(&cfg, &s, &t, "+15551234567", &result, NULL);
 
     ASSERT(rc != 0, "send_code: must fail on RPC error");
 }
@@ -221,7 +221,7 @@ static void test_sign_in_success(void) {
     int64_t user_id = 0;
     int rc = auth_sign_in(&cfg, &s, &t,
                           "+15551234567", "abc123hash456xyz", "12345",
-                          &user_id);
+                          &user_id, NULL);
 
     ASSERT(rc == 0,             "sign_in: must succeed");
     ASSERT(user_id == 987654321LL, "sign_in: user_id must be parsed correctly");
@@ -260,7 +260,7 @@ static void test_sign_in_rpc_error(void) {
     int64_t user_id = 0;
     int rc = auth_sign_in(&cfg, &s, &t,
                           "+15551234567", "abc123hash456xyz", "00000",
-                          &user_id);
+                          &user_id, NULL);
 
     ASSERT(rc != 0, "sign_in: must fail on RPC error");
 }
@@ -268,9 +268,9 @@ static void test_sign_in_rpc_error(void) {
 /* ---- Test: null arguments are rejected ---- */
 static void test_null_args_rejected(void) {
     AuthSentCode out;
-    ASSERT(auth_send_code(NULL, NULL, NULL, NULL, &out) == -1,
+    ASSERT(auth_send_code(NULL, NULL, NULL, NULL, &out, NULL) == -1,
            "send_code: null args must return -1");
-    ASSERT(auth_sign_in(NULL, NULL, NULL, NULL, NULL, NULL, NULL) == -1,
+    ASSERT(auth_sign_in(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL) == -1,
            "sign_in: null args must return -1");
 }
 
@@ -306,7 +306,7 @@ static void test_send_code_unexpected_constructor(void) {
     setup_session_and_transport(&s, &t, &cfg);
 
     AuthSentCode result = {0};
-    int rc = auth_send_code(&cfg, &s, &t, "+15551234567", &result);
+    int rc = auth_send_code(&cfg, &s, &t, "+15551234567", &result, NULL);
     ASSERT(rc != 0, "send_code: unexpected constructor must fail");
 }
 
@@ -336,7 +336,7 @@ static void test_send_code_flash_call_type(void) {
     setup_session_and_transport(&s, &t, &cfg);
 
     AuthSentCode result = {0};
-    int rc = auth_send_code(&cfg, &s, &t, "+15551234567", &result);
+    int rc = auth_send_code(&cfg, &s, &t, "+15551234567", &result, NULL);
     ASSERT(rc == 0, "send_code: FlashCall path must succeed");
     ASSERT(result.timeout == 120, "timeout must be parsed from flags.2");
     ASSERT(strcmp(result.phone_code_hash, "flash_hash") == 0,
@@ -366,7 +366,7 @@ static void test_send_code_unknown_type(void) {
     setup_session_and_transport(&s, &t, &cfg);
 
     AuthSentCode result = {0};
-    int rc = auth_send_code(&cfg, &s, &t, "+15551234567", &result);
+    int rc = auth_send_code(&cfg, &s, &t, "+15551234567", &result, NULL);
     ASSERT(rc != 0, "send_code: unknown sentCodeType must fail");
 }
 
@@ -380,7 +380,7 @@ static void test_send_code_api_call_fails(void) {
     setup_session_and_transport(&s, &t, &cfg);
 
     AuthSentCode result = {0};
-    int rc = auth_send_code(&cfg, &s, &t, "+15551234567", &result);
+    int rc = auth_send_code(&cfg, &s, &t, "+15551234567", &result, NULL);
     ASSERT(rc != 0, "send_code: api_call failure must propagate");
 }
 
@@ -406,7 +406,7 @@ static void test_sign_in_unexpected_constructor(void) {
     setup_session_and_transport(&s, &t, &cfg);
 
     int64_t uid = 0;
-    int rc = auth_sign_in(&cfg, &s, &t, "+1", "h", "12345", &uid);
+    int rc = auth_sign_in(&cfg, &s, &t, "+1", "h", "12345", &uid, NULL);
     ASSERT(rc != 0, "sign_in: unexpected constructor must fail");
 }
 
@@ -433,7 +433,7 @@ static void test_sign_in_unexpected_user_crc(void) {
     setup_session_and_transport(&s, &t, &cfg);
 
     int64_t uid = 77;
-    int rc = auth_sign_in(&cfg, &s, &t, "+1", "h", "12345", &uid);
+    int rc = auth_sign_in(&cfg, &s, &t, "+1", "h", "12345", &uid, NULL);
     ASSERT(rc == 0, "sign_in: unexpected user constructor still OK");
     ASSERT(uid == 0, "sign_in: uid must be reset to 0");
 }
@@ -448,7 +448,7 @@ static void test_sign_in_api_call_fails(void) {
     setup_session_and_transport(&s, &t, &cfg);
 
     int64_t uid = 0;
-    int rc = auth_sign_in(&cfg, &s, &t, "+1", "h", "12345", &uid);
+    int rc = auth_sign_in(&cfg, &s, &t, "+1", "h", "12345", &uid, NULL);
     ASSERT(rc != 0, "sign_in: api_call failure must propagate");
 }
 

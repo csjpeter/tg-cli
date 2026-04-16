@@ -35,6 +35,16 @@ static int parse_int(const char *s, int *out) {
  * Called for each positional slot; returns 0 if argv[i] is not a global
  * flag, 1 for a boolean flag, 2 for a flag that takes a value.
  */
+static int take_value_flag(int argc, char **argv, int i,
+                            const char *name, const char **out) {
+    if (i + 1 >= argc) {
+        fprintf(stderr, "tg-cli: %s requires a value\n", name);
+        return -1;
+    }
+    *out = argv[i + 1];
+    return 2;
+}
+
 static int try_global_flag(int argc, char **argv, int i, ArgResult *out) {
     const char *a = argv[i];
 
@@ -44,14 +54,14 @@ static int try_global_flag(int argc, char **argv, int i, ArgResult *out) {
     if (str_eq(a, "--help")   || str_eq(a, "-h")) return TGF_HELP;
     if (str_eq(a, "--version") || str_eq(a, "-v")) return TGF_VERSION;
 
-    if (str_eq(a, "--config")) {
-        if (i + 1 >= argc) {
-            fprintf(stderr, "tg-cli: --config requires a path argument\n");
-            return -1;
-        }
-        out->config_path = argv[i + 1];
-        return 2;
-    }
+    if (str_eq(a, "--config"))
+        return take_value_flag(argc, argv, i, "--config", &out->config_path);
+    if (str_eq(a, "--phone"))
+        return take_value_flag(argc, argv, i, "--phone", &out->phone);
+    if (str_eq(a, "--code"))
+        return take_value_flag(argc, argv, i, "--code", &out->code);
+    if (str_eq(a, "--password"))
+        return take_value_flag(argc, argv, i, "--password", &out->password);
 
     return 0; /* not a global flag */
 }
@@ -173,6 +183,30 @@ static int parse_contacts(int argc, char **argv, int i, ArgResult *out) {
     return ARG_OK;
 }
 
+static int parse_me(int argc, char **argv, int i, ArgResult *out) {
+    (void)argc; (void)argv; (void)i;
+    out->command = CMD_ME;
+    return ARG_OK;
+}
+
+static int parse_watch(int argc, char **argv, int i, ArgResult *out) {
+    out->command = CMD_WATCH;
+    while (i < argc) {
+        if (str_eq(argv[i], "--peers")) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "tg-cli watch: --peers requires a value\n");
+                return ARG_ERROR;
+            }
+            out->peer = argv[i + 1]; /* comma-separated list stored as-is */
+            i += 2;
+        } else {
+            fprintf(stderr, "tg-cli watch: unknown option: %s\n", argv[i]);
+            return ARG_ERROR;
+        }
+    }
+    return ARG_OK;
+}
+
 static int parse_user_info(int argc, char **argv, int i, ArgResult *out) {
     out->command = CMD_USER_INFO;
 
@@ -222,6 +256,9 @@ int arg_parse(int argc, char **argv, ArgResult *out) {
     if (str_eq(subcmd, "search"))    return parse_search   (argc, argv, i, out);
     if (str_eq(subcmd, "contacts"))  return parse_contacts (argc, argv, i, out);
     if (str_eq(subcmd, "user-info")) return parse_user_info(argc, argv, i, out);
+    if (str_eq(subcmd, "me")   || str_eq(subcmd, "self"))
+                                      return parse_me       (argc, argv, i, out);
+    if (str_eq(subcmd, "watch"))     return parse_watch    (argc, argv, i, out);
     if (str_eq(subcmd, "help"))      return ARG_HELP;
     if (str_eq(subcmd, "version"))   return ARG_VERSION;
 
@@ -234,20 +271,25 @@ void arg_print_help(void) {
         "Usage: tg-cli [GLOBAL FLAGS] <subcommand> [ARGS]\n"
         "\n"
         "Global flags:\n"
-        "  --batch          Non-interactive batch mode\n"
-        "  --json           Machine-readable JSON output\n"
-        "  --quiet          Suppress informational output\n"
-        "  --config <path>  Custom config file path\n"
-        "  --help, -h       Show this help\n"
-        "  --version, -v    Show version\n"
+        "  --batch            Non-interactive batch mode\n"
+        "  --json             Machine-readable JSON output\n"
+        "  --quiet            Suppress informational output\n"
+        "  --config <path>    Custom config file path\n"
+        "  --phone <number>   Phone number for login (batch)\n"
+        "  --code <digits>    SMS/app code for login (batch)\n"
+        "  --password <pass>  2FA password if required (batch)\n"
+        "  --help, -h         Show this help\n"
+        "  --version, -v      Show version\n"
         "\n"
         "Subcommands:\n"
+        "  me                                      Show own profile\n"
         "  dialogs [--limit N]                     List dialogs/chats\n"
         "  history <peer> [--limit N] [--offset N] Fetch message history\n"
-        "  send    <peer> <message>                Send a message\n"
         "  search  [<peer>] <query>                Search messages\n"
         "  contacts                                List contacts\n"
         "  user-info <peer>                        Show user/channel info\n"
+        "  watch   [--peers X,Y]                   Watch incoming updates\n"
+        "  send    <peer> <message>                Send a message (tg-cli only)\n"
     );
 }
 

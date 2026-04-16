@@ -12,6 +12,7 @@
 
 #include "api_call.h"
 #include "mtproto_session.h"
+#include "mtproto_rpc.h"
 #include "transport.h"
 
 #include <stdint.h>
@@ -51,12 +52,14 @@ typedef struct {
  * @param t      Connected transport.
  * @param phone  Phone number in international format (e.g. "+15551234567").
  * @param out    Receives phone_code_hash and timeout on success.
+ * @param err    Optional; populated with RPC error info on failure (NULL ok).
  * @return 0 on success, -1 on error.
  */
 int auth_send_code(const ApiConfig *cfg,
                    MtProtoSession *s, Transport *t,
                    const char *phone,
-                   AuthSentCode *out);
+                   AuthSentCode *out,
+                   RpcError *err);
 
 /**
  * @brief Send auth.signIn with the code received from auth.sendCode.
@@ -68,6 +71,7 @@ int auth_send_code(const ApiConfig *cfg,
  * @param phone_code_hash  Hash received in AuthSentCode.
  * @param code             Code entered by user.
  * @param user_id_out      Receives the authenticated user's ID on success.
+ * @param err              Optional RPC error output (NULL ok).
  * @return 0 on success, -1 on error (wrong code, flood wait, etc.).
  */
 int auth_sign_in(const ApiConfig *cfg,
@@ -75,6 +79,7 @@ int auth_sign_in(const ApiConfig *cfg,
                  const char *phone,
                  const char *phone_code_hash,
                  const char *code,
-                 int64_t *user_id_out);
+                 int64_t *user_id_out,
+                 RpcError *err);
 
 #endif /* AUTH_SESSION_H */

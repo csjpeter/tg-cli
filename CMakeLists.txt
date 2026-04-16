@@ -75,13 +75,23 @@ target_include_directories(tg-proto PUBLIC
 
 target_link_libraries(tg-proto PUBLIC OpenSSL::SSL OpenSSL::Crypto)
 
+# Real OpenSSL crypto implementation. Production binaries link this;
+# unit tests link tests/mocks/crypto.c instead. Kept separate so tg-proto
+# can be linked against either backend.
+add_library(tg-crypto STATIC src/core/crypto.c)
+target_include_directories(tg-crypto PUBLIC src src/core)
+target_link_libraries(tg-crypto PUBLIC OpenSSL::SSL OpenSSL::Crypto)
+
 # ---- App runtime (shared by all binaries) ----
 
 add_library(tg-app STATIC
     src/app/bootstrap.c
+    src/app/dc_config.c
+    src/app/auth_flow.c
+    src/app/credentials.c
 )
 target_include_directories(tg-app PUBLIC src src/app)
-target_link_libraries(tg-app PUBLIC tg-proto)
+target_link_libraries(tg-app PUBLIC tg-proto tg-crypto)
 
 # ---- Domain: read-only module (tg-cli-ro, tg-tui, tg-cli all link this) ----
 # Sources will grow as US-04, US-05, US-06, US-07 land.

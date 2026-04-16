@@ -73,8 +73,11 @@ static int skip_sent_code_type(TlReader *r) {
 int auth_send_code(const ApiConfig *cfg,
                    MtProtoSession *s, Transport *t,
                    const char *phone,
-                   AuthSentCode *out) {
+                   AuthSentCode *out,
+                   RpcError *err) {
     if (!cfg || !s || !t || !phone || !out) return -1;
+    if (err) { err->error_code = 0; err->error_msg[0] = '\0';
+               err->migrate_dc = -1; err->flood_wait_secs = 0; }
 
     uint8_t query[4096];
     size_t qlen = 0;
@@ -101,10 +104,11 @@ int auth_send_code(const ApiConfig *cfg,
     uint32_t constructor;
     memcpy(&constructor, resp, 4);
     if (constructor == TL_rpc_error) {
-        RpcError err;
-        rpc_parse_error(resp, resp_len, &err);
+        RpcError perr;
+        rpc_parse_error(resp, resp_len, &perr);
         logger_log(LOG_ERROR, "auth_send_code: RPC error %d: %s",
-                   err.error_code, err.error_msg);
+                   perr.error_code, perr.error_msg);
+        if (err) *err = perr;
         return -1;
     }
 
@@ -183,8 +187,11 @@ int auth_sign_in(const ApiConfig *cfg,
                  const char *phone,
                  const char *phone_code_hash,
                  const char *code,
-                 int64_t *user_id_out) {
+                 int64_t *user_id_out,
+                 RpcError *err) {
     if (!cfg || !s || !t || !phone || !phone_code_hash || !code) return -1;
+    if (err) { err->error_code = 0; err->error_msg[0] = '\0';
+               err->migrate_dc = -1; err->flood_wait_secs = 0; }
 
     uint8_t query[4096];
     size_t qlen = 0;
@@ -212,10 +219,11 @@ int auth_sign_in(const ApiConfig *cfg,
     memcpy(&constructor, resp, 4);
 
     if (constructor == TL_rpc_error) {
-        RpcError err;
-        rpc_parse_error(resp, resp_len, &err);
+        RpcError perr;
+        rpc_parse_error(resp, resp_len, &perr);
         logger_log(LOG_ERROR, "auth_sign_in: RPC error %d: %s",
-                   err.error_code, err.error_msg);
+                   perr.error_code, perr.error_msg);
+        if (err) *err = perr;
         return -1;
     }
 
