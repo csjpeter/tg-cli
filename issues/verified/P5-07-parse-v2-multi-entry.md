@@ -60,3 +60,27 @@ cover > 95% of inbound dialogs/messages.
 - Message-side skippers (MessageFwdHeader, MessageReplyHeader,
   MessageMedia, Vector<MessageEntity>). Needed for history/search/
   updates multi-entry iteration and for P5-09 complex-message parse.
+
+## Verified — 2026-04-16 (phase 2: message iteration)
+- `tl_skip` gained MessageEntity (all 20 variants), Vector<MessageEntity>,
+  MessageFwdHeader, MessageReplyHeader skippers.
+- `src/domain/read/history.c::parse_message` and
+  `src/domain/read/search.c::parse_message` now walk to the end of a
+  Message for the common flag combinations — from_id, saved_peer_id,
+  fwd_from, via_bot_id, via_business_bot_id, reply_to, entities,
+  views/forwards, edit_date, post_author, grouped_id, ttl_period,
+  quick_reply_shortcut_id, effect.
+- Text (message:string) and date extracted first, so even entries that
+  hit a stop-iteration flag (media, reply_markup, reactions,
+  restriction_reason, replies) still return id/date/text with
+  complex=1.
+- `tests/unit/test_domain_history.c`: 3 new tests —
+  iterates_multiple (3 plain), iterates_with_entities, stops_on_media.
+- `tests/unit/test_tl_skip.c`: 6 new skipper tests.
+
+## Remaining
+- MessageMedia, MessageReactions, MessageReplies, ReplyMarkup,
+  RestrictionReason skippers — once added, the stop-iteration mask
+  shrinks further. Tracked as phase 3 under the same ticket.
+
+Tests: 1759 -> 1787.

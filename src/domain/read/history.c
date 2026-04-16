@@ -7,6 +7,7 @@
 
 #include "tl_serial.h"
 #include "tl_registry.h"
+#include "tl_skip.h"
 #include "mtproto_rpc.h"
 #include "logger.h"
 #include "raii.h"
@@ -47,15 +48,15 @@ static int write_input_peer(TlWriter *w, const HistoryPeer *p) {
 #define MSG_FLAG_OUT              (1u << 1)
 #define MSG_FLAG_HAS_FROM_ID      (1u << 8)
 
-/* Complex-optional mask: any of these present means we can't trivially
- * walk to the `message` field without a schema table. */
-#define MSG_FLAGS_COMPLEX_MASK    ( \
-      (1u << 2)   /* fwd_from */    \
-    | (1u << 3)   /* reply_to */    \
-    | (1u << 9)   /* media */       \
-    | (1u << 10)  /* reply_markup */ \
-    | (1u << 11)  /* via_bot_id */  \
-    | (1u << 13)  /* entities */    \
+/* Flags that block full Message iteration because the corresponding nested
+ * type has no skipper yet. If any is set we still return id/out/date but
+ * must stop walking the vector. */
+#define MSG_FLAGS_STOP_ITER       ( \
+      (1u << 6)   /* reply_markup */ \
+    | (1u << 9)   /* media */        \
+    | (1u << 20)  /* reactions */    \
+    | (1u << 22)  /* restriction_reason */ \
+    | (1u << 23)  /* replies */      \
     )
 
 static int build_request(const HistoryPeer *peer, int32_t offset_id, int limit,
@@ -85,67 +86,111 @@ static int build_request(const HistoryPeer *peer, int32_t offset_id, int limit,
     return rc;
 }
 
-/* Best-effort Message parser. Extracts id + out + date + text in the
- * "simple" case (no fwd_from, reply_to, media, reply_markup, via_bot_id,
- * entities). Otherwise marks entry as `complex` and still fills id/out. */
-static int parse_message_prefix(TlReader *r, HistoryEntry *out) {
+/* Parse a Message. On success advance r past the whole object so the
+ * caller can read the next vector element. Returns 0 on success, -1 on
+ * parse failure, and sets `out->complex = 1` when we got the text/date
+ * but had to bail before reaching the end of the object. */
+static int parse_message(TlReader *r, HistoryEntry *out) {
     if (!tl_reader_ok(r)) return -1;
     uint32_t crc = tl_read_uint32(r);
 
     if (crc == TL_messageEmpty) {
         uint32_t flags = tl_read_uint32(r);
-        out->id   = tl_read_int32(r);
+        out->id = tl_read_int32(r);
         if (flags & 1u) { tl_read_uint32(r); tl_read_int64(r); }
         return 0;
     }
 
     if (crc != TL_message && crc != TL_messageService) {
-        logger_log(LOG_WARN, "history: unknown Message constructor 0x%08x", crc);
+        logger_log(LOG_WARN, "history: unknown Message 0x%08x", crc);
         return -1;
     }
 
     uint32_t flags  = tl_read_uint32(r);
     uint32_t flags2 = tl_read_uint32(r);
-    (void)flags2;
     out->out = (flags & MSG_FLAG_OUT) ? 1 : 0;
     out->id  = tl_read_int32(r);
 
     if (crc == TL_messageService) {
-        /* messageService has a different layout (action) — mark complex. */
+        /* messageService layout is action-specific — not attempted yet. */
         out->complex = 1;
-        return 0;
+        return -1;
     }
 
-    if (flags & MSG_FLAGS_COMPLEX_MASK) {
-        out->complex = 1;
-        return 0;
-    }
-
-    /* Simple layout:
-     *   [from_id:Peer]? (flags.8 : crc+int64)
-     *   peer_id:Peer    (crc+int64)
-     *   date:int
-     *   message:string
-     */
+    /* Pre-text fields (message is read AFTER these). */
     if (flags & MSG_FLAG_HAS_FROM_ID) {
-        tl_read_uint32(r); /* peer crc */
-        tl_read_int64(r);  /* peer id */
+        if (tl_skip_peer(r) != 0) { out->complex = 1; return -1; }
     }
-    tl_read_uint32(r); /* peer_id crc */
-    tl_read_int64(r);  /* peer_id value */
+    if (tl_skip_peer(r) != 0)         { out->complex = 1; return -1; }
+    if (flags & (1u << 28)) { /* saved_peer_id (layer 185+) */
+        if (tl_skip_peer(r) != 0) { out->complex = 1; return -1; }
+    }
+    if (flags & (1u << 2)) { /* fwd_from */
+        if (tl_skip_message_fwd_header(r) != 0) { out->complex = 1; return -1; }
+    }
+    if (flags & (1u << 11)) { /* via_bot_id */
+        if (r->len - r->pos < 8) { out->complex = 1; return -1; }
+        tl_read_int64(r);
+    }
+    if (flags2 & (1u << 0)) { /* via_business_bot_id */
+        if (r->len - r->pos < 8) { out->complex = 1; return -1; }
+        tl_read_int64(r);
+    }
+    if (flags & (1u << 3)) { /* reply_to */
+        if (tl_skip_message_reply_header(r) != 0) { out->complex = 1; return -1; }
+    }
+    if (r->len - r->pos < 4) { out->complex = 1; return -1; }
     out->date = tl_read_int32(r);
 
-    if (!tl_reader_ok(r)) return 0;
+    /* message:string — always present. */
     RAII_STRING char *msg = tl_read_string(r);
     if (msg) {
         size_t n = strlen(msg);
-        if (n >= HISTORY_TEXT_MAX) {
-            n = HISTORY_TEXT_MAX - 1;
-            out->truncated = 1;
-        }
+        if (n >= HISTORY_TEXT_MAX) { n = HISTORY_TEXT_MAX - 1; out->truncated = 1; }
         memcpy(out->text, msg, n);
         out->text[n] = '\0';
     }
+
+    /* If anything blocking iteration is set, return success-with-complex so
+     * the caller records this entry but stops iterating the vector. */
+    if (flags & MSG_FLAGS_STOP_ITER) {
+        out->complex = 1;
+        return -1;
+    }
+
+    /* Skippable optionals after `message` (in the order they appear on the wire). */
+    if (flags & (1u << 7))  { /* entities */
+        if (tl_skip_message_entities_vector(r) != 0) { out->complex = 1; return -1; }
+    }
+    if (flags & (1u << 10)) { /* views + forwards */
+        if (r->len - r->pos < 8) { out->complex = 1; return -1; }
+        tl_read_int32(r); tl_read_int32(r);
+    }
+    if (flags & (1u << 15)) { /* edit_date */
+        if (r->len - r->pos < 4) { out->complex = 1; return -1; }
+        tl_read_int32(r);
+    }
+    if (flags & (1u << 16)) { /* post_author */
+        if (tl_skip_string(r) != 0) { out->complex = 1; return -1; }
+    }
+    if (flags & (1u << 17)) { /* grouped_id */
+        if (r->len - r->pos < 8) { out->complex = 1; return -1; }
+        tl_read_int64(r);
+    }
+    if (flags & (1u << 25)) { /* ttl_period */
+        if (r->len - r->pos < 4) { out->complex = 1; return -1; }
+        tl_read_int32(r);
+    }
+    if (flags2 & (1u << 30)) { /* quick_reply_shortcut_id */
+        if (r->len - r->pos < 4) { out->complex = 1; return -1; }
+        tl_read_int32(r);
+    }
+    if (flags2 & (1u << 2)) { /* effect */
+        if (r->len - r->pos < 8) { out->complex = 1; return -1; }
+        tl_read_int64(r);
+    }
+    /* flags2.3 factcheck and a few unlisted recent additions would need
+     * their own skippers; if present we can't advance so stop iteration. */
     return 0;
 }
 
@@ -217,12 +262,11 @@ int domain_get_history(const ApiConfig *cfg,
     int written = 0;
     for (uint32_t i = 0; i < count && written < limit; i++) {
         HistoryEntry e = {0};
-        if (parse_message_prefix(&r, &e) != 0) break;
-        out[written++] = e;
-        /* As with dialogs, fully consuming a Message's flag-conditional
-         * trailer requires a schema table; for v1 we stop after the first
-         * message to avoid alignment errors on the next iteration. */
-        break;
+        int rc2 = parse_message(&r, &e);
+        if (e.id != 0 || e.text[0] != '\0') {
+            out[written++] = e;
+        }
+        if (rc2 != 0) break; /* could not advance past message — stop */
     }
     *out_count = written;
     return 0;

@@ -35,4 +35,16 @@ int tl_skip_peer_notify_settings(TlReader *r);
 /** Skip a DraftMessage (draftMessageEmpty or draftMessage). */
 int tl_skip_draft_message(TlReader *r);
 
+/** Skip a single MessageEntity (any of the known variants). */
+int tl_skip_message_entity(TlReader *r);
+
+/** Skip a `Vector<MessageEntity>` (TL_vector + count + entities). */
+int tl_skip_message_entities_vector(TlReader *r);
+
+/** Skip a MessageFwdHeader. */
+int tl_skip_message_fwd_header(TlReader *r);
+
+/** Skip a MessageReplyHeader (conservative — bails on reply_media). */
+int tl_skip_message_reply_header(TlReader *r);
+
 #endif /* TL_SKIP_H */

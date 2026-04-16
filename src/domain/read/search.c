@@ -7,6 +7,7 @@
 
 #include "tl_serial.h"
 #include "tl_registry.h"
+#include "tl_skip.h"
 #include "mtproto_rpc.h"
 #include "logger.h"
 #include "raii.h"
@@ -42,25 +43,57 @@ static int write_input_peer(TlWriter *w, const HistoryPeer *p) {
     }
 }
 
-/* Parse a Message prefix and extract id + out-flag (same as history.c). */
-static int parse_message_prefix(TlReader *r, HistoryEntry *out) {
+/* Stop-iteration mask — must match history.c. */
+#define MSG_FLAGS_STOP_ITER ( \
+      (1u << 6) | (1u << 9) | (1u << 20) | (1u << 22) | (1u << 23) )
+
+/* Message parser — identical semantics to history.c::parse_message. */
+static int parse_message(TlReader *r, HistoryEntry *out) {
     if (!tl_reader_ok(r)) return -1;
     uint32_t crc = tl_read_uint32(r);
     if (crc == TL_messageEmpty) {
         uint32_t flags = tl_read_uint32(r);
-        out->id   = tl_read_int32(r);
-        out->date = 0;
-        out->out  = 0;
-        if (flags & 1u) {
-            tl_read_uint32(r); tl_read_int64(r);
-        }
+        out->id = tl_read_int32(r);
+        if (flags & 1u) { tl_read_uint32(r); tl_read_int64(r); }
         return 0;
     }
     if (crc != TL_message && crc != TL_messageService) return -1;
-    uint32_t flags = tl_read_uint32(r);
+
+    uint32_t flags  = tl_read_uint32(r);
+    uint32_t flags2 = tl_read_uint32(r);
     out->out = (flags & (1u << 1)) ? 1 : 0;
     out->id  = tl_read_int32(r);
-    out->date = 0;
+    if (crc == TL_messageService) { out->complex = 1; return -1; }
+
+    if (flags & (1u << 8))   if (tl_skip_peer(r) != 0) { out->complex=1; return -1; }
+    if (tl_skip_peer(r) != 0) { out->complex = 1; return -1; }
+    if (flags & (1u << 28))  if (tl_skip_peer(r) != 0) { out->complex=1; return -1; }
+    if (flags & (1u << 2))   if (tl_skip_message_fwd_header(r) != 0) { out->complex=1; return -1; }
+    if (flags & (1u << 11))  { if (r->len - r->pos < 8) { out->complex=1; return -1; } tl_read_int64(r); }
+    if (flags2 & (1u << 0))  { if (r->len - r->pos < 8) { out->complex=1; return -1; } tl_read_int64(r); }
+    if (flags & (1u << 3))   if (tl_skip_message_reply_header(r) != 0) { out->complex=1; return -1; }
+    if (r->len - r->pos < 4) { out->complex=1; return -1; }
+    out->date = tl_read_int32(r);
+
+    char *msg = tl_read_string(r);
+    if (msg) {
+        size_t n = strlen(msg);
+        if (n >= HISTORY_TEXT_MAX) { n = HISTORY_TEXT_MAX - 1; out->truncated = 1; }
+        memcpy(out->text, msg, n);
+        out->text[n] = '\0';
+        free(msg);
+    }
+
+    if (flags & MSG_FLAGS_STOP_ITER) { out->complex = 1; return -1; }
+
+    if (flags & (1u << 7))   if (tl_skip_message_entities_vector(r) != 0) { out->complex=1; return -1; }
+    if (flags & (1u << 10))  { if (r->len - r->pos < 8) { out->complex=1; return -1; } tl_read_int32(r); tl_read_int32(r); }
+    if (flags & (1u << 15))  { if (r->len - r->pos < 4) { out->complex=1; return -1; } tl_read_int32(r); }
+    if (flags & (1u << 16))  if (tl_skip_string(r) != 0) { out->complex=1; return -1; }
+    if (flags & (1u << 17))  { if (r->len - r->pos < 8) { out->complex=1; return -1; } tl_read_int64(r); }
+    if (flags & (1u << 25))  { if (r->len - r->pos < 4) { out->complex=1; return -1; } tl_read_int32(r); }
+    if (flags2 & (1u << 30)) { if (r->len - r->pos < 4) { out->complex=1; return -1; } tl_read_int32(r); }
+    if (flags2 & (1u << 2))  { if (r->len - r->pos < 8) { out->complex=1; return -1; } tl_read_int64(r); }
     return 0;
 }
 
@@ -95,9 +128,9 @@ static int parse_top(const uint8_t *resp, size_t resp_len,
     int written = 0;
     for (uint32_t i = 0; i < count && written < limit; i++) {
         HistoryEntry e = {0};
-        if (parse_message_prefix(&r, &e) != 0) break;
-        out[written++] = e;
-        break; /* same v1 limitation as history */
+        int rc = parse_message(&r, &e);
+        if (e.id != 0 || e.text[0] != '\0') out[written++] = e;
+        if (rc != 0) break;
     }
     *out_count = written;
     return 0;

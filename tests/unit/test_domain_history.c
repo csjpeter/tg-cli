@@ -231,6 +231,134 @@ static void test_history_complex_flag(void) {
     ASSERT(e[0].text[0] == '\0', "text empty for complex");
 }
 
+/* Write a simple text Message body only (no top-level wrapper). */
+static void write_simple_message(TlWriter *w, int32_t id, const char *text) {
+    tl_write_uint32(w, TL_message);
+    tl_write_uint32(w, 0);             /* flags: no out, no from_id */
+    tl_write_uint32(w, 0);             /* flags2 */
+    tl_write_int32 (w, id);
+    tl_write_uint32(w, TL_peerUser);   /* peer_id */
+    tl_write_int64 (w, 100LL);
+    tl_write_int32 (w, 1700000000);    /* date */
+    tl_write_string(w, text);
+}
+
+static void test_history_iterates_multiple(void) {
+    mock_socket_reset(); mock_crypto_reset();
+
+    /* messages.messages + Vector<Message> with 3 simple messages. */
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, TL_messages_messages);
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 3);
+    write_simple_message(&w, 1, "first");
+    write_simple_message(&w, 2, "second");
+    write_simple_message(&w, 3, "third");
+    uint8_t payload[1024]; memcpy(payload, w.data, w.len);
+    size_t plen = w.len; tl_writer_free(&w);
+
+    uint8_t resp[2048]; size_t rlen = 0;
+    build_fake_encrypted_response(payload, plen, resp, &rlen);
+    mock_socket_set_response(resp, rlen);
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    fix_session(&s); fix_transport(&t); fix_cfg(&cfg);
+
+    HistoryEntry entries[10] = {0}; int n = 0;
+    int rc = domain_get_history_self(&cfg, &s, &t, 0, 10, entries, &n);
+    ASSERT(rc == 0, "iteration ok");
+    ASSERT(n == 3, "all 3 messages parsed");
+    ASSERT(entries[0].id == 1, "id0");
+    ASSERT(strcmp(entries[0].text, "first") == 0, "text0");
+    ASSERT(entries[1].id == 2, "id1");
+    ASSERT(strcmp(entries[1].text, "second") == 0, "text1");
+    ASSERT(entries[2].id == 3, "id2");
+    ASSERT(strcmp(entries[2].text, "third") == 0, "text2");
+}
+
+static void test_history_iterates_with_entities(void) {
+    mock_socket_reset(); mock_crypto_reset();
+
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, TL_messages_messages);
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 2);
+
+    /* Msg 1: with entities (flags.7). */
+    tl_write_uint32(&w, TL_message);
+    tl_write_uint32(&w, (1u << 7));        /* flags: entities present */
+    tl_write_uint32(&w, 0);                 /* flags2 */
+    tl_write_int32 (&w, 11);
+    tl_write_uint32(&w, TL_peerUser);
+    tl_write_int64 (&w, 100LL);
+    tl_write_int32 (&w, 1700000000);
+    tl_write_string(&w, "bold message");
+    /* entities vector: 1 bold */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, 0xbd610bc9u);       /* messageEntityBold */
+    tl_write_int32 (&w, 0);                 /* offset */
+    tl_write_int32 (&w, 4);                 /* length */
+
+    /* Msg 2: plain. */
+    write_simple_message(&w, 12, "plain");
+
+    uint8_t payload[1024]; memcpy(payload, w.data, w.len);
+    size_t plen = w.len; tl_writer_free(&w);
+
+    uint8_t resp[2048]; size_t rlen = 0;
+    build_fake_encrypted_response(payload, plen, resp, &rlen);
+    mock_socket_set_response(resp, rlen);
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    fix_session(&s); fix_transport(&t); fix_cfg(&cfg);
+
+    HistoryEntry entries[5] = {0}; int n = 0;
+    int rc = domain_get_history_self(&cfg, &s, &t, 0, 5, entries, &n);
+    ASSERT(rc == 0, "entities iter ok");
+    ASSERT(n == 2, "both messages parsed despite entities");
+    ASSERT(strcmp(entries[0].text, "bold message") == 0, "text0");
+    ASSERT(strcmp(entries[1].text, "plain") == 0, "text1");
+}
+
+static void test_history_stops_on_media(void) {
+    mock_socket_reset(); mock_crypto_reset();
+
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, TL_messages_messages);
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 3);
+
+    /* Msg 1: with media (flags.9) — should capture text but stop iteration. */
+    tl_write_uint32(&w, TL_message);
+    tl_write_uint32(&w, (1u << 9));
+    tl_write_uint32(&w, 0);
+    tl_write_int32 (&w, 21);
+    tl_write_uint32(&w, TL_peerUser);
+    tl_write_int64 (&w, 100LL);
+    tl_write_int32 (&w, 1700000000);
+    tl_write_string(&w, "has media");
+
+    /* Msg 2 & 3 would be here but unreachable. */
+
+    uint8_t payload[512]; memcpy(payload, w.data, w.len);
+    size_t plen = w.len; tl_writer_free(&w);
+
+    uint8_t resp[1024]; size_t rlen = 0;
+    build_fake_encrypted_response(payload, plen, resp, &rlen);
+    mock_socket_set_response(resp, rlen);
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    fix_session(&s); fix_transport(&t); fix_cfg(&cfg);
+
+    HistoryEntry entries[5] = {0}; int n = 0;
+    int rc = domain_get_history_self(&cfg, &s, &t, 0, 5, entries, &n);
+    ASSERT(rc == 0, "media entry still returned");
+    ASSERT(n == 1, "only first captured before iteration stop");
+    ASSERT(entries[0].complex == 1, "flagged complex");
+    ASSERT(strcmp(entries[0].text, "has media") == 0, "text before bail");
+}
+
 static void test_history_null_args(void) {
     HistoryEntry e[1]; int n = 0;
     ASSERT(domain_get_history_self(NULL, NULL, NULL, 0, 5, e, &n) == -1,
@@ -248,5 +376,8 @@ void run_domain_history_tests(void) {
     RUN_TEST(test_history_channel_peer);
     RUN_TEST(test_history_text_extraction);
     RUN_TEST(test_history_complex_flag);
+    RUN_TEST(test_history_iterates_multiple);
+    RUN_TEST(test_history_iterates_with_entities);
+    RUN_TEST(test_history_stops_on_media);
     RUN_TEST(test_history_null_args);
 }
