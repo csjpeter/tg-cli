@@ -2,12 +2,10 @@
  * @file main/tg_tui.c
  * @brief tg-tui — interactive Telegram client entry point.
  *
- * V1 is an interactive command shell (readline-backed) that wraps the
- * same read-only domain functions as tg-cli-ro. A full curses-style TUI
- * with panes and live redraw is tracked under US-11 v2.
- *
- * Read-only in v1; write capability (send/edit/...) lands under US-12
- * once the write domain module exists. See docs/adr/0005.
+ * V1 is an interactive command shell (readline-backed). Since P5-03/06
+ * landed, the TUI also links tg-domain-write and exposes send / reply /
+ * edit / delete / forward / read commands. A full curses-style TUI with
+ * panes and live redraw is tracked under US-11 v2.
  */
 
 #include "app/bootstrap.h"
@@ -23,6 +21,12 @@
 #include "domain/read/user_info.h"
 #include "domain/read/contacts.h"
 #include "domain/read/search.h"
+
+#include "domain/write/send.h"
+#include "domain/write/edit.h"
+#include "domain/write/delete.h"
+#include "domain/write/forward.h"
+#include "domain/write/read_history.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -214,6 +218,149 @@ static void do_search(const ApiConfig *cfg, MtProtoSession *s, Transport *t,
     if (n == 0) puts("(no matches)");
 }
 
+/* ---- Write commands ---- */
+
+/* Split "arg" on the first whitespace. Returns pointer to the remainder
+ * (may be empty). The first token is NUL-terminated in place. */
+static char *split_rest(char *arg) {
+    while (*arg && *arg != ' ' && *arg != '\t') arg++;
+    if (!*arg) return arg;
+    *arg++ = '\0';
+    while (*arg == ' ' || *arg == '\t') arg++;
+    return arg;
+}
+
+static void do_send(const ApiConfig *cfg, MtProtoSession *s, Transport *t,
+                     char *arg) {
+    if (!arg || !*arg) { puts("usage: send <peer> <text>"); return; }
+    char *text = split_rest(arg);
+    if (!*text) { puts("usage: send <peer> <text>"); return; }
+
+    HistoryPeer peer = {0};
+    if (resolve_history_peer(cfg, s, t, arg, &peer) != 0) {
+        printf("send: cannot resolve '%s'\n", arg);
+        return;
+    }
+    int32_t new_id = 0;
+    RpcError err = {0};
+    if (domain_send_message(cfg, s, t, &peer, text, &new_id, &err) != 0) {
+        printf("send: failed (%d: %s)\n", err.error_code, err.error_msg);
+        return;
+    }
+    if (new_id > 0) printf("sent, id=%d\n", new_id);
+    else            puts("sent");
+}
+
+static void do_reply(const ApiConfig *cfg, MtProtoSession *s, Transport *t,
+                      char *arg) {
+    if (!arg || !*arg) { puts("usage: reply <peer> <msg_id> <text>"); return; }
+    char *rest = split_rest(arg);
+    if (!*rest) { puts("usage: reply <peer> <msg_id> <text>"); return; }
+    char *text = split_rest(rest);
+    if (!*text) { puts("usage: reply <peer> <msg_id> <text>"); return; }
+    int32_t mid = atoi(rest);
+    if (mid <= 0) { puts("reply: <msg_id> must be positive"); return; }
+
+    HistoryPeer peer = {0};
+    if (resolve_history_peer(cfg, s, t, arg, &peer) != 0) {
+        printf("reply: cannot resolve '%s'\n", arg); return;
+    }
+    int32_t new_id = 0; RpcError err = {0};
+    if (domain_send_message_reply(cfg, s, t, &peer, text, mid,
+                                    &new_id, &err) != 0) {
+        printf("reply: failed (%d: %s)\n", err.error_code, err.error_msg);
+        return;
+    }
+    if (new_id > 0) printf("sent, id=%d (reply to %d)\n", new_id, mid);
+    else            printf("sent (reply to %d)\n", mid);
+}
+
+static void do_edit(const ApiConfig *cfg, MtProtoSession *s, Transport *t,
+                     char *arg) {
+    if (!arg || !*arg) { puts("usage: edit <peer> <msg_id> <text>"); return; }
+    char *rest = split_rest(arg);
+    if (!*rest) { puts("usage: edit <peer> <msg_id> <text>"); return; }
+    char *text = split_rest(rest);
+    if (!*text) { puts("usage: edit <peer> <msg_id> <text>"); return; }
+    int32_t mid = atoi(rest);
+    if (mid <= 0) { puts("edit: <msg_id> must be positive"); return; }
+
+    HistoryPeer peer = {0};
+    if (resolve_history_peer(cfg, s, t, arg, &peer) != 0) {
+        printf("edit: cannot resolve '%s'\n", arg); return;
+    }
+    RpcError err = {0};
+    if (domain_edit_message(cfg, s, t, &peer, mid, text, &err) != 0) {
+        printf("edit: failed (%d: %s)\n", err.error_code, err.error_msg);
+        return;
+    }
+    printf("edited %d\n", mid);
+}
+
+static void do_delete(const ApiConfig *cfg, MtProtoSession *s, Transport *t,
+                       char *arg) {
+    if (!arg || !*arg) { puts("usage: delete <peer> <msg_id> [revoke]"); return; }
+    char *rest = split_rest(arg);
+    if (!*rest) { puts("usage: delete <peer> <msg_id> [revoke]"); return; }
+    int revoke = 0;
+    char *id_tok = rest;
+    char *extra = split_rest(rest);
+    if (*extra && !strcmp(extra, "revoke")) revoke = 1;
+    int32_t mid = atoi(id_tok);
+    if (mid <= 0) { puts("delete: <msg_id> must be positive"); return; }
+
+    HistoryPeer peer = {0};
+    if (resolve_history_peer(cfg, s, t, arg, &peer) != 0) {
+        printf("delete: cannot resolve '%s'\n", arg); return;
+    }
+    int32_t ids[1] = { mid };
+    RpcError err = {0};
+    if (domain_delete_messages(cfg, s, t, &peer, ids, 1, revoke, &err) != 0) {
+        printf("delete: failed (%d: %s)\n", err.error_code, err.error_msg);
+        return;
+    }
+    printf("deleted %d%s\n", mid, revoke ? " (revoke)" : "");
+}
+
+static void do_forward(const ApiConfig *cfg, MtProtoSession *s, Transport *t,
+                        char *arg) {
+    if (!arg || !*arg) { puts("usage: forward <from> <to> <msg_id>"); return; }
+    char *rest = split_rest(arg);
+    if (!*rest) { puts("usage: forward <from> <to> <msg_id>"); return; }
+    char *id_tok = split_rest(rest);
+    if (!*id_tok) { puts("usage: forward <from> <to> <msg_id>"); return; }
+    int32_t mid = atoi(id_tok);
+    if (mid <= 0) { puts("forward: <msg_id> must be positive"); return; }
+
+    HistoryPeer from = {0}, to = {0};
+    if (resolve_history_peer(cfg, s, t, arg, &from) != 0
+        || resolve_history_peer(cfg, s, t, rest, &to) != 0) {
+        puts("forward: cannot resolve peers"); return;
+    }
+    int32_t ids[1] = { mid };
+    RpcError err = {0};
+    if (domain_forward_messages(cfg, s, t, &from, &to, ids, 1, &err) != 0) {
+        printf("forward: failed (%d: %s)\n", err.error_code, err.error_msg);
+        return;
+    }
+    printf("forwarded %d\n", mid);
+}
+
+static void do_read(const ApiConfig *cfg, MtProtoSession *s, Transport *t,
+                     const char *arg) {
+    if (!arg || !*arg) { puts("usage: read <peer>"); return; }
+    HistoryPeer peer = {0};
+    if (resolve_history_peer(cfg, s, t, arg, &peer) != 0) {
+        printf("read: cannot resolve '%s'\n", arg); return;
+    }
+    RpcError err = {0};
+    if (domain_mark_read(cfg, s, t, &peer, 0, &err) != 0) {
+        printf("read: failed (%d: %s)\n", err.error_code, err.error_msg);
+        return;
+    }
+    puts("marked as read");
+}
+
 static void do_poll(const ApiConfig *cfg, MtProtoSession *s, Transport *t) {
     UpdatesState st = {0};
     if (domain_updates_state(cfg, s, t, &st) != 0) {
@@ -233,18 +380,25 @@ static void do_poll(const ApiConfig *cfg, MtProtoSession *s, Transport *t) {
 
 static void print_help(void) {
     puts(
-        "Commands (read-only v1, accept '/' prefix too):\n"
-        "  me                    Show own profile\n"
-        "  dialogs [N]           List up to N dialogs (default 20)\n"
-        "  history [<peer>] [N]  Saved Messages by default, or <peer>\n"
-        "  contacts              List my contacts\n"
-        "  info <@peer>          Resolve peer info\n"
-        "  search <query>        Global message search (top 20)\n"
-        "  poll                  One-shot updates.getDifference\n"
-        "  help                  This help\n"
-        "  quit, exit, :q        Leave the TUI\n"
+        "Commands (accept '/' prefix too):\n"
+        "  me                           Show own profile\n"
+        "  dialogs [N]                  List up to N dialogs (default 20)\n"
+        "  history [<peer>] [N]         Saved Messages by default, or <peer>\n"
+        "  contacts                     List my contacts\n"
+        "  info <@peer>                 Resolve peer info\n"
+        "  search <query>               Global message search (top 20)\n"
+        "  poll                         One-shot updates.getDifference\n"
+        "  read <peer>                  Mark peer's history as read\n"
         "\n"
-        "Write commands (send/edit/...) arrive under US-12.\n"
+        "Write commands:\n"
+        "  send <peer> <text>           Send a text message\n"
+        "  reply <peer> <msg_id> <text> Send as a reply to msg_id\n"
+        "  edit <peer> <msg_id> <text>  Edit a previously sent message\n"
+        "  delete <peer> <msg_id> [revoke]  Delete a message\n"
+        "  forward <from> <to> <msg_id> Forward one message\n"
+        "\n"
+        "  help                         This help\n"
+        "  quit, exit, :q               Leave the TUI\n"
     );
 }
 
@@ -311,6 +465,16 @@ static int repl(const ApiConfig *cfg, MtProtoSession *s, Transport *t,
         if (!strcmp(cmd, "info"))     { do_info(cfg, s, t, arg); continue; }
         if (!strcmp(cmd, "search"))   { do_search(cfg, s, t, arg); continue; }
         if (!strcmp(cmd, "poll"))     { do_poll(cfg, s, t); continue; }
+        if (!strcmp(cmd, "send"))     { do_send(cfg, s, t, arg); continue; }
+        if (!strcmp(cmd, "reply"))    { do_reply(cfg, s, t, arg); continue; }
+        if (!strcmp(cmd, "edit"))     { do_edit(cfg, s, t, arg); continue; }
+        if (!strcmp(cmd, "delete") || !strcmp(cmd, "del")) {
+            do_delete(cfg, s, t, arg); continue;
+        }
+        if (!strcmp(cmd, "forward") || !strcmp(cmd, "fwd")) {
+            do_forward(cfg, s, t, arg); continue;
+        }
+        if (!strcmp(cmd, "read"))     { do_read(cfg, s, t, arg); continue; }
 
         printf("unknown command: %s  (try 'help')\n", cmd);
     }
