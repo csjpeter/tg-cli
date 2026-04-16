@@ -17,3 +17,6 @@ No graceful recovery needed. Abort with message is sufficient.
 
 ## Dependencies
 P1-mtproto-crypto (will be fixed together with that issue)
+
+## Reviewed — 2026-04-16
+Pass. Confirmed mtproto_crypto.c lines 96-99: `if (!buf) { fprintf(stderr, "OOM: mtproto_compute_msg_key"); abort(); }`. Same pattern in mtproto_encrypt lines 160-163. No silent returns on malloc failure.

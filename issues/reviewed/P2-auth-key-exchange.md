@@ -16,3 +16,6 @@ src/core/mtproto_auth.h/c — full 8-step DH exchange with tests
 ### Incomplete Doxygen on public functions
 - `auth_step_req_pq`, `auth_step_req_dh`, `auth_step_parse_dh`,
   `auth_step_set_client_dh` (lines 78-87) lack `@param` and `@return` tags
+
+## Reviewed — 2026-04-16
+Pass. Confirmed module moved to src/infrastructure/mtproto_auth.{c,h} (layering correct — infra may depend on core+transport+rpc). RAII_STRING on pq_bytes, enc_answer, decrypted, prime_bytes, ga_bytes, padded, encrypted. auth_step_req_pq/req_dh/parse_dh/set_client_dh all have full Doxygen @param/@return.

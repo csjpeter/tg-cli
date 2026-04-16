@@ -19,3 +19,6 @@ Also, cache test coverage is minimal (56 LOC for 126 LOC module):
 
 ## Dependencies
 None
+
+## Reviewed — 2026-04-16
+Pass. Confirmed cache_store.c adds logger_log(LOG_ERROR,...) on mkdir_p failure (line 46), fopen failure (line 52), fwrite short-write (line 57), cache_load NULL path (line 84), cache_load missing data (line 90, DEBUG). Tests added for load-missing and save-mkdir-fails (test_cache.c lines 60-95).

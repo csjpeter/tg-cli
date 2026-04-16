@@ -23,3 +23,6 @@ output, which masks real bugs (as demonstrated by the P1-mtproto-crypto rejectio
 ## Dependencies
 - P1-mtproto-crypto ✅ (ready) — key derivation korrektségének ellenőrzése szükséges
 - ARCH-01 (pending, soft) — CMake-ben külön test target könnyebb a static library-val
+
+## Reviewed — 2026-04-16
+Pass. Confirmed tests/functional/ directory with test_runner.c, test_ige_aes_functional.c, test_mtproto_crypto_functional.c, and CMakeLists.txt. Links real crypto (tg-crypto, not mock). Covered by commit 3644cd2 "QA-08: add functional test suite with real OpenSSL; fix crypto bugs found".

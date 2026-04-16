@@ -15,3 +15,6 @@ computation. This violates DRY and wastes CPU cycles.
 
 ## Dependencies
 None
+
+## Reviewed — 2026-04-16
+Pass. Confirmed rpc_send_encrypted (mtproto_rpc.c lines 83-101) builds the plaintext TlWriter once; msg_key computed from plain.data/plain.len directly; encryption reuses the same buffer. No duplicate TlWriter remains.

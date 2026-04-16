@@ -17,3 +17,6 @@ No graceful recovery needed. `fprintf(stderr, "OOM\n"); abort();` is sufficient.
 
 ## Dependencies
 None
+
+## Reviewed — 2026-04-16
+Pass. Confirmed EVP_CIPHER_CTX_new NULL check with OOM abort at crypto.c lines 47-48 (encrypt) and 61-62 (decrypt). Diagnostic stderr message before abort.

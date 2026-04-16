@@ -21,3 +21,6 @@ src/core/mtproto_session.h/c
 - No test for `load_auth_key` with non-existent file
 - No test for `load_auth_key` with truncated file
 - No test for `save_auth_key` with invalid path
+
+## Reviewed — 2026-04-16
+Pass. Confirmed RAII_FILE on fopen in save_auth_key (line 104) and load_auth_key (line 125). fs_ensure_permissions(path, 0600) called after open. All public functions have Doxygen. tests/unit/test_phase2.c covers missing-file, truncated-file, invalid-path, NULL-args edge cases (lines 386-432).

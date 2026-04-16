@@ -28,3 +28,6 @@ with unresolved symbols.
 
 ## Dependencies
 - ARCH-01 (pending, soft) — CMake refactor tisztábbá teszi a source hozzáadást, de nem blokkoló
+
+## Reviewed — 2026-04-16
+Pass. Confirmed src/platform/windows/socket.c implements all 6 functions via Winsock2 (WSAStartup, socket, getaddrinfo/connect, send, recv, closesocket/WSACleanup, ioctlsocket FIONBIO). CMakeLists.txt WIN32 branch includes it (line 26); posix branch includes posix/socket.c (line 32). CLAUDE.md portability table updated with `platform/windows/socket.c` reference.

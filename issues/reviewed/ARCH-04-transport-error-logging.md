@@ -21,3 +21,6 @@ since the caller only sees -1 with no diagnostic context.
 
 ## Dependencies
 Nincs — önállóan végrehajtható.
+
+## Reviewed — 2026-04-16
+Pass. Confirmed `#include "logger.h"` added to transport.c and logger_log(LOG_ERROR,...) on every -1 return (socket create, connect, marker send, length prefix send/recv, payload send/recv, frame-too-large). Every error path now carries diagnostic context.

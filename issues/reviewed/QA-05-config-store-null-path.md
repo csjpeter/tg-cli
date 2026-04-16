@@ -15,3 +15,6 @@ which will fail with an unclear error message.
 
 ## Dependencies
 None
+
+## Reviewed — 2026-04-16
+Pass. Confirmed config_store.c line 85-89: `get_config_path()` result checked, logger_log(LOG_ERROR, "Failed to determine config directory") + return -1 on NULL. fopen error also logged.

@@ -22,3 +22,6 @@ Login flow: phone number → SMS code → session.
 - P2-session ✅ (ready) — msg_id/seq_no kezelés
 
 Nincs pending függőség — önállóan indítható.
+
+## Reviewed — 2026-04-16
+Pass. Confirmed auth_send_code + auth_sign_in in src/infrastructure/auth_session.{c,h} (266 LOC module + 468 LOC tests). TL constructor IDs for auth.sendCode/signIn/codeSettings/authorization defined. Proper RpcError propagation, phone_code_hash threaded through. Commit 3644cd2 logged.

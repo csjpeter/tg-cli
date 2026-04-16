@@ -27,3 +27,6 @@ src/core/mtproto_crypto.h/c
 ### Note
 Unit tests pass only because mock SHA256 returns fixed output regardless of input,
 masking all derivation bugs. Real Telegram server communication will fail.
+
+## Reviewed — 2026-04-16
+Pass. Confirmed mtproto_derive_keys matches MTProto 2.0 spec: sha256_a = SHA256(msg_key || auth_key[x:x+36]), sha256_b = SHA256(auth_key[x+40:x+76] || msg_key), 3-part splits for aes_key (8+16+8) and aes_iv. mtproto_compute_msg_key uses exact 32-byte slice at offset 88+x. Functional tests (tests/functional/test_mtproto_crypto_functional.c) verify with real OpenSSL.

@@ -26,3 +26,6 @@ for integration.
 
 ## Dependencies
 Nincs — önállóan végrehajtható.
+
+## Reviewed — 2026-04-16
+Pass. Confirmed `add_library(tg-proto STATIC ...)` in root CMakeLists.txt lines 46-66 with all protocol sources + PLATFORM_SOURCES + VENDOR_TINF_SOURCES. `tests/unit/CMakeLists.txt` now links `tg-proto` + mocks only (26 individual source paths removed). posix/socket.c added to PLATFORM_SOURCES on line 32. Builds clean; 1735/1735 tests pass.

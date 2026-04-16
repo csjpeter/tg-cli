@@ -14,3 +14,6 @@ and the last buffered writes may be lost silently.
 
 ## Dependencies
 None
+
+## Reviewed — 2026-04-16
+Pass. Confirmed logger.c line 110-112: `if (fclose(g_log_fp) != 0) fprintf(stderr, "logger: fclose failed")`. Earlier fopen error path now handled by early-return (no leftover unchecked fclose).
