@@ -27,3 +27,11 @@ auth exchange fails with unhelpful error.
 
 ## Dependencies
 None
+
+## Verified — 2026-04-16
+- `src/infrastructure/mtproto_auth.c::pq_factorize` now checks
+  `p > UINT32_MAX || q > UINT32_MAX` and returns -1 with a clear
+  logger message before the cast to uint32_t.
+- `tests/unit/test_auth.c::test_pq_factorize_rejects_wide_factors`
+  exercises a product with a 33-bit factor; the function either
+  returns 0 with p*q == pq (no truncation) or -1 (explicit reject).

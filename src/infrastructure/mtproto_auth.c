@@ -212,6 +212,13 @@ int pq_factorize(uint64_t pq, uint32_t *p_out, uint32_t *q_out) {
             uint64_t p = d;
             uint64_t q = pq / d;
             if (p > q) { uint64_t tmp = p; p = q; q = tmp; }
+            if (p > UINT32_MAX || q > UINT32_MAX) {
+                logger_log(LOG_ERROR,
+                           "pq_factorize: factor exceeds 2^32 (p=%llu q=%llu) — "
+                           "server input is invalid",
+                           (unsigned long long)p, (unsigned long long)q);
+                return -1;
+            }
             *p_out = (uint32_t)p;
             *q_out = (uint32_t)q;
             return 0;

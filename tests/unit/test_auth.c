@@ -287,6 +287,28 @@ void test_pq_factorize_mtproto_sized(void) {
     ASSERT(p <= q, "p should be <= q");
 }
 
+/* QA-22: reject PQ whose factors would be truncated to 32 bits. We can't
+ * easily compute a pq with factors > UINT32_MAX that Pollard's rho will
+ * crack quickly, but we can at least assert that pq_factorize rejects
+ * a clearly-too-large product by never returning truncated values. Use a
+ * product of 33-bit primes and verify p*q equality still holds OR the
+ * function returns -1. */
+void test_pq_factorize_rejects_wide_factors(void) {
+    uint32_t p, q;
+    /* 4294967311 is the smallest prime > 2^32. */
+    uint64_t p33 = 4294967311ULL;
+    /* We need the product to be <= 2^63-1 and factor-able by our rho
+     * implementation. Multiply by a small prime instead so the test
+     * is tractable. Our implementation will return either a valid
+     * (p, q) within uint32 OR refuse with -1 — never a truncated one. */
+    uint64_t pq = p33 * 3ULL;
+    int rc = pq_factorize(pq, &p, &q);
+    if (rc == 0) {
+        ASSERT((uint64_t)p * q == pq,
+               "returned factors must satisfy p*q == pq without truncation");
+    } /* rc == -1 is also acceptable — it's the explicit rejection path. */
+}
+
 /* ======================================================================
  * Step 1: auth_step_req_pq tests
  * ====================================================================== */
@@ -914,6 +936,7 @@ void test_auth(void) {
     RUN_TEST(test_pq_factorize_invalid);
     RUN_TEST(test_pq_factorize_null);
     RUN_TEST(test_pq_factorize_mtproto_sized);
+    RUN_TEST(test_pq_factorize_rejects_wide_factors);
 
     /* Step 1: req_pq */
     RUN_TEST(test_req_pq_parses_respq);
