@@ -7,45 +7,68 @@ See `docs/SPECIFICATION.md` and `docs/adr/0005-three-binary-architecture.md`.
 
 ## Working end-to-end
 - Phases 1–4 MTProto stack · ADR-0005 three-binary split
-- US-05 me · US-04 dialogs (multi-entry) · US-06 history (self + @peer,
-  simple-flag text extraction) · US-10 search (global + peer)
-- US-07 watch poll loop · US-09 user-info · P7-01 contacts
-- US-11 tg-tui MVP REPL (me / dialogs / history / contacts / info /
-  search / poll / help / quit with '/' prefix and @peer resolution)
-- Session persistence + `--logout` · `bad_server_salt` retry
-- P4-04 DC migration · P4-07 service-message draining
-- P5-07 tl_skip (phase 1: PeerNotifySettings; phase 2: Message trailer
-  via fwd/reply/entities skippers and scalar optionals)
-- Message text extraction for simple-flag messages
-- 14 QA hardening fixes (crypto OOM, alignment, endianness, msg_id
-  randomness, MITM hash verification, …)
+- **Login**: phone+code, DC migration (PHONE/USER/NETWORK_MIGRATE_X),
+  session persistence, `--logout`, `bad_server_salt` retry,
+  service-frame draining (bad_msg / new_session / ack / pong)
+- **Read features**:
+  - US-05 me · US-09 user-info · P7-01 contacts
+  - US-04 dialogs with **titles + @usernames** (P5-08 join)
+  - US-06 history (self + @peer) with message text, media kind,
+    photo_id/document_id metadata (P6-03)
+  - US-10 search (global + peer)
+  - US-07 watch poll loop with new message text
+  - US-11 tg-tui MVP REPL
+- **Protocol parse coverage (P5-07 phase 1/2/3a/3b + P5-09 v1)**:
+  - tl_skip for Bool, string, Peer, NotificationSound,
+    PeerNotifySettings, DraftMessage(empty), MessageEntity (20
+    variants), Vector<MessageEntity>, MessageFwdHeader,
+    MessageReplyHeader, PhotoSize (6 variants), Vector<PhotoSize>,
+    Photo, Document, MessageMedia (Empty, Unsupported, Geo,
+    Contact, Venue, GeoLive, Dice, Photo, Document), ChatPhoto,
+    UserProfilePhoto, UserStatus, Vector<RestrictionReason>,
+    Vector<Username>, PeerColor, EmojiStatus, Chat (5 variants),
+    User (user/userEmpty), Message.
+  - Extractors: `tl_extract_chat` (id + title),
+    `tl_extract_user` (id + name + username),
+    `tl_skip_message_media_ex` (kind + photo_id / doc_id / dc_id).
+- **Security + robustness (14 QA fixes)**: MITM hash verification
+  (QA-12), OOM guards, alignment, endianness, msg_id randomness,
+  abridged 3-byte prefix, logger idempotent, config bzero,
+  crypto_rand_bytes bounds, pq_factorize UINT32_MAX, etc.
+
+## Quality
+- 1892 unit tests passing
+- Valgrind: 0 leaks, 0 errors
+- Zero warnings under `-Wall -Wextra -Werror -pedantic`
+- Core+infra coverage (TUI excluded): ~89%
 
 ## Known v1 limitations
-- Messages with `media`, `reply_markup`, `reactions`,
-  `restriction_reason`, `replies` set mark `complex=1` and halt
-  iteration for that response. Tracked as **P5-09**.
-- Dialog listings show peer id/unread only (titles require Chat/User
-  skippers) — tracked as **P5-08**.
+- Messages with `reply_markup`, `reactions`, `replies`,
+  `restriction_reason`, `factcheck` still halt iteration for that
+  response. Tracked as future phase 3c.
+- Rare MessageMedia variants (Poll, Story, Game, Invoice, Giveaway,
+  WebPage, PaidMedia) cause iteration halt — partial support would
+  need per-variant skippers.
 - 2FA accounts can't log in — needs P3-03 (SRP + PBKDF2-HMAC-SHA512).
-- No media download yet — P6-01/03.
+- No media download yet — P6-01 (extract file_reference +
+  access_hash from Photo/Document, chunked upload.getFile).
 - No write capabilities (send/edit/delete/read-marker) — P5-03/04/06,
   P6-02, and the `tg-cli` batch binary are future work.
 
-## Quality
-- 1836 unit tests passing
-- Valgrind: 0 leaks, 0 errors
-- Zero warnings under `-Wall -Wextra -Werror -pedantic`
-- Core+infra coverage (TUI excluded): **89.9%**
-
 ## Backlog by priority
-1. **P5-07 phase 3** — Chat / User / MessageMedia skippers. Unblocks
-   P5-08 title join, P5-09 complex messages, P6-01 file download.
-2. **P3-03 2FA password (SRP)** — needs PBKDF2-HMAC-SHA512 wrapper.
-3. **P6-01..03 media** — depends on phase 3.
-4. **`src/domain/write/` + `tg-cli` binary** — P5-03 send-message and
-   friends (US-12).
+1. **P6-01 file download** — chunked `upload.getFile` + FILE_MIGRATE_X.
+   Needs full Photo/Document parsing to extract access_hash and
+   file_reference.
+2. **P3-03 2FA password (SRP)** — adds `crypto_sha512` +
+   `crypto_pbkdf2_hmac_sha512` wrappers, implements SRP math.
+3. **Remaining MessageMedia / trailing flag skippers** — Poll,
+   Reactions, Replies, ReplyMarkup, RestrictionReason, FactCheck.
+4. **`src/domain/write/` + `tg-cli` binary** — P5-03 send-message,
+   P5-04 read-history, P5-06 edit/delete/forward/reply, P6-02
+   upload, P8-03 stdin pipe (US-12).
 
 ## Current focus
-v1 consolidation is essentially complete. Next structural dependency
-is **P5-07 phase 3 skippers** (Chat / User / MessageMedia), which
-unlocks multiple downstream tickets at once.
+v1 read-only MVP is feature-complete end-to-end for the common
+case: login → dialogs with titles → history with text + media type
+→ search → user-info → contacts → watch. Next best step:
+**P6-01 file download** so media can be opened from the filesystem.
