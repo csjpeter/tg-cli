@@ -8,7 +8,8 @@ set -e
 PROJECT_NAME="tg-cli"
 BUILD_DIR="./build"
 BIN_DIR="./bin"
-BIN_PATH="$BIN_DIR/$PROJECT_NAME"
+# Binaries produced by this project (see docs/adr/0005-three-binary-architecture.md)
+BINARIES=(tg-cli-ro tg-tui)
 
 show_help() {
     echo "Usage: ./manage.sh [command]"
@@ -73,19 +74,23 @@ cmake_configure() {
 
 cmake_build() {
     cmake --build "$BUILD_DIR"
-    cp "$BUILD_DIR/$PROJECT_NAME" "$BIN_DIR/"
+    for b in "${BINARIES[@]}"; do
+        if [ -f "$BUILD_DIR/$b" ]; then
+            cp "$BUILD_DIR/$b" "$BIN_DIR/"
+        fi
+    done
 }
 
 build_release() {
     cmake_configure Release
     cmake_build
-    echo "Build complete: $BIN_PATH"
+    echo "Build complete: ${BINARIES[*]/#/$BIN_DIR/}"
 }
 
 build_debug() {
     cmake_configure Debug
     cmake_build
-    echo "Debug build (with ASAN) complete: $BIN_PATH"
+    echo "Debug build (with ASAN) complete: ${BINARIES[*]/#/$BIN_DIR/}"
 }
 
 build_test_runner() {
@@ -104,8 +109,8 @@ case "$1" in
         ;;
     run)
         build_release
-        echo "Launching $PROJECT_NAME..."
-        $BIN_PATH
+        echo "Launching tg-cli-ro..."
+        "$BIN_DIR/tg-cli-ro" "${@:2}"
         ;;
     test)
         echo "Running unit tests with ASAN..."
@@ -132,13 +137,8 @@ case "$1" in
         echo "Coverage report available at $BUILD_DIR/coverage_report/index.html"
         ;;
     clean-logs)
-        if [ -f "$BIN_PATH" ]; then
-            $BIN_PATH --clean-logs
-        else
-            echo "Binary not found. Attempting manual cleanup..."
-            rm -rf ~/.cache/tg-cli/logs/*
-            echo "Logs cleaned."
-        fi
+        rm -rf ~/.cache/tg-cli/logs/*
+        echo "Logs cleaned."
         ;;
     clean)
         rm -rf "$BUILD_DIR" "$BIN_DIR"

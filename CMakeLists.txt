@@ -75,12 +75,30 @@ target_include_directories(tg-proto PUBLIC
 
 target_link_libraries(tg-proto PUBLIC OpenSSL::SSL OpenSSL::Crypto)
 
-# Main executable
-add_executable(${PROJECT_NAME}
-    src/main.c
-)
+# ---- App runtime (shared by all binaries) ----
 
-target_link_libraries(${PROJECT_NAME} PRIVATE tg-proto)
+add_library(tg-app STATIC
+    src/app/bootstrap.c
+)
+target_include_directories(tg-app PUBLIC src src/app)
+target_link_libraries(tg-app PUBLIC tg-proto)
+
+# ---- Domain: read-only module (tg-cli-ro, tg-tui, tg-cli all link this) ----
+# Sources will grow as US-04, US-05, US-06, US-07 land.
+
+add_library(tg-domain-read STATIC
+    src/domain/read/self.c
+)
+target_include_directories(tg-domain-read PUBLIC src src/domain)
+target_link_libraries(tg-domain-read PUBLIC tg-app)
+
+# ---- Binaries ----
+
+add_executable(tg-cli-ro src/main/tg_cli_ro.c)
+target_link_libraries(tg-cli-ro PRIVATE tg-domain-read)
+
+add_executable(tg-tui src/main/tg_tui.c)
+target_link_libraries(tg-tui PRIVATE tg-domain-read)
 
 # Unit tests
 enable_testing()

@@ -25,6 +25,7 @@ void test_api_call(void);
 void run_auth_session_tests(void);
 void run_arg_parse_tests(void);
 void run_readline_tests(void);
+void run_domain_self_tests(void);
 
 int main() {
     printf("--- tg-cli Unit Test Suite ---\n\n");
@@ -49,6 +50,7 @@ int main() {
     RUN_TEST(run_auth_session_tests);
     RUN_TEST(run_arg_parse_tests);
     RUN_TEST(run_readline_tests);
+    RUN_TEST(run_domain_self_tests);
 
     printf("\n--- Test Results ---\n");
     printf("Tests Run:    %d\n", g_tests_run);
