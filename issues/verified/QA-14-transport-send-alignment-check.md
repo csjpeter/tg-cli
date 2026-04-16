@@ -22,3 +22,8 @@ HIGH — protocol violation causes silent data corruption on the wire.
 
 ## Dependencies
 None
+
+## Verified — 2026-04-16
+- Added `if (len % 4 != 0) return -1;` with error log to `transport_send` before length-prefix encoding.
+- Regression test `test_transport_send_unaligned_len` verifies -1 return for len=5,7,13.
+- Unit test count: 1816 → 1819 (ASAN clean). Valgrind: 0 bytes definitely lost.

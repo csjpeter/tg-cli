@@ -114,6 +114,21 @@ void test_transport_send_bad_args(void) {
     ASSERT(transport_send(&t, data, 4) == -1, "fd < 0");
 }
 
+void test_transport_send_unaligned_len(void) {
+    /* QA-14: MTProto Abridged requires 4-byte aligned payloads. Any len
+     * that isn't a multiple of 4 must be rejected with -1 rather than
+     * silently truncating via the length prefix division. */
+    mock_socket_reset();
+    Transport t;
+    transport_init(&t);
+    transport_connect(&t, "host", 443);
+    uint8_t data[16] = {0};
+    ASSERT(transport_send(&t, data, 5) == -1, "len=5 not 4-byte aligned");
+    ASSERT(transport_send(&t, data, 7) == -1, "len=7 not 4-byte aligned");
+    ASSERT(transport_send(&t, data, 13) == -1, "len=13 not 4-byte aligned");
+    transport_close(&t);
+}
+
 void test_transport_send_prefix_fails(void) {
     mock_socket_reset();
     Transport t;
@@ -495,6 +510,7 @@ void test_phase2(void) {
     RUN_TEST(test_transport_connect_marker_send_fails);
     RUN_TEST(test_transport_connect_null_args);
     RUN_TEST(test_transport_send_bad_args);
+    RUN_TEST(test_transport_send_unaligned_len);
     RUN_TEST(test_transport_send_prefix_fails);
     RUN_TEST(test_transport_send_extended_prefix);
     RUN_TEST(test_transport_send_extended_prefix_wide);

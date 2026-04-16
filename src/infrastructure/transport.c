@@ -50,6 +50,14 @@ int transport_connect(Transport *t, const char *host, int port) {
 int transport_send(Transport *t, const uint8_t *data, size_t len) {
     if (!t || !data || len == 0 || t->fd < 0) return -1;
 
+    /* MTProto Abridged transport requires 4-byte aligned payloads.
+     * If len is not a multiple of 4, the length prefix would truncate
+     * and desynchronize the TCP stream. */
+    if (len % 4 != 0) {
+        logger_log(LOG_ERROR, "transport: send length %zu not 4-byte aligned", len);
+        return -1;
+    }
+
     /* Abridged: length is in 4-byte units */
     size_t wire_len = len / 4;
 
