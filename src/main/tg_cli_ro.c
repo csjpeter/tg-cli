@@ -19,6 +19,7 @@
 #include "domain/read/updates.h"
 #include "domain/read/user_info.h"
 #include "domain/read/search.h"
+#include "domain/read/contacts.h"
 
 #include <signal.h>
 #include <stdio.h>
@@ -216,6 +217,43 @@ static int cmd_watch(const ArgResult *args) {
 static int resolve_peer_arg(const ApiConfig *cfg, MtProtoSession *s,
                              Transport *t, const char *peer_arg,
                              HistoryPeer *out);
+
+static int cmd_contacts(const ArgResult *args) {
+    ApiConfig cfg; MtProtoSession s; Transport t;
+    int brc = session_bringup(args, &cfg, &s, &t);
+    if (brc != 0) return brc;
+
+    ContactEntry *entries = calloc(CONTACTS_MAX, sizeof(ContactEntry));
+    if (!entries) { transport_close(&t); return 1; }
+    int count = 0;
+    int rc = domain_get_contacts(&cfg, &s, &t, entries, CONTACTS_MAX, &count);
+    transport_close(&t);
+    if (rc != 0) {
+        fprintf(stderr, "tg-cli-ro contacts: failed (see logs)\n");
+        free(entries);
+        return 1;
+    }
+    if (args->json) {
+        printf("[");
+        for (int i = 0; i < count; i++) {
+            if (i) printf(",");
+            printf("{\"user_id\":%lld,\"mutual\":%s}",
+                   (long long)entries[i].user_id,
+                   entries[i].mutual ? "true" : "false");
+        }
+        printf("]\n");
+    } else {
+        printf("%-18s %s\n", "user_id", "mutual");
+        for (int i = 0; i < count; i++) {
+            printf("%-18lld %s\n",
+                   (long long)entries[i].user_id,
+                   entries[i].mutual ? "yes" : "no");
+        }
+        if (count == 0) printf("(no contacts)\n");
+    }
+    free(entries);
+    return 0;
+}
 
 static int cmd_search(const ArgResult *args) {
     if (!args->query) {
@@ -516,8 +554,7 @@ int main(int argc, char **argv) {
         case CMD_USER_INFO:
             exit_code = cmd_user_info(&args); break;
         case CMD_CONTACTS:
-            fprintf(stderr, "tg-cli-ro contacts: not implemented yet (US-09)\n");
-            exit_code = 2; break;
+            exit_code = cmd_contacts(&args); break;
         case CMD_WATCH:
             exit_code = cmd_watch(&args); break;
         case CMD_SEND:

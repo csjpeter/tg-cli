@@ -32,6 +32,7 @@ void run_domain_history_tests(void);
 void run_domain_updates_tests(void);
 void run_domain_user_info_tests(void);
 void run_domain_search_tests(void);
+void run_domain_contacts_tests(void);
 void run_dc_config_tests(void);
 void run_session_store_tests(void);
 
@@ -65,6 +66,7 @@ int main() {
     RUN_TEST(run_domain_updates_tests);
     RUN_TEST(run_domain_user_info_tests);
     RUN_TEST(run_domain_search_tests);
+    RUN_TEST(run_domain_contacts_tests);
     RUN_TEST(run_dc_config_tests);
     RUN_TEST(run_session_store_tests);
 

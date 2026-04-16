@@ -29,6 +29,7 @@ set(TEST_SOURCES
     test_domain_updates.c
     test_domain_user_info.c
     test_domain_search.c
+    test_domain_contacts.c
     test_dc_config.c
     test_session_store.c
     ../../tests/mocks/crypto.c
