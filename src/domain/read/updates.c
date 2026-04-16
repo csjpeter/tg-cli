@@ -7,6 +7,7 @@
 
 #include "tl_serial.h"
 #include "tl_registry.h"
+#include "tl_skip.h"
 #include "mtproto_rpc.h"
 #include "logger.h"
 #include "raii.h"
@@ -17,6 +18,63 @@
 #define CRC_updates_getState      0xedd4882au
 #define CRC_updates_getDifference 0x19c2f763u
 #define CRC_updates_differenceTooLong 0x4afe8f6du
+
+/* Stop-iteration flag mask (must match history.c). */
+#define MSG_FLAGS_STOP_ITER ( \
+      (1u << 6) | (1u << 9) | (1u << 20) | (1u << 22) | (1u << 23) )
+
+/* Parse one Message, advance the cursor past it. Populates entry with
+ * id/out/date/text; sets complex=1 if we had to bail on a trailing
+ * unsupported flag. Return 0 = advanced cleanly, -1 = cursor is at an
+ * unknown offset and iteration must stop. */
+static int parse_message(TlReader *r, HistoryEntry *out) {
+    if (!tl_reader_ok(r)) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    if (crc == TL_messageEmpty) {
+        uint32_t flags = tl_read_uint32(r);
+        out->id = tl_read_int32(r);
+        if (flags & 1u) { tl_read_uint32(r); tl_read_int64(r); }
+        return 0;
+    }
+    if (crc != TL_message && crc != TL_messageService) return -1;
+
+    uint32_t flags  = tl_read_uint32(r);
+    uint32_t flags2 = tl_read_uint32(r);
+    out->out = (flags & (1u << 1)) ? 1 : 0;
+    out->id  = tl_read_int32(r);
+    if (crc == TL_messageService) { out->complex = 1; return -1; }
+
+    if (flags & (1u << 8))   if (tl_skip_peer(r) != 0) { out->complex=1; return -1; }
+    if (tl_skip_peer(r) != 0) { out->complex = 1; return -1; }
+    if (flags & (1u << 28))  if (tl_skip_peer(r) != 0) { out->complex=1; return -1; }
+    if (flags & (1u << 2))   if (tl_skip_message_fwd_header(r) != 0) { out->complex=1; return -1; }
+    if (flags & (1u << 11))  { if (r->len - r->pos < 8) { out->complex=1; return -1; } tl_read_int64(r); }
+    if (flags2 & (1u << 0))  { if (r->len - r->pos < 8) { out->complex=1; return -1; } tl_read_int64(r); }
+    if (flags & (1u << 3))   if (tl_skip_message_reply_header(r) != 0) { out->complex=1; return -1; }
+    if (r->len - r->pos < 4) { out->complex=1; return -1; }
+    out->date = tl_read_int32(r);
+
+    char *msg = tl_read_string(r);
+    if (msg) {
+        size_t n = strlen(msg);
+        if (n >= HISTORY_TEXT_MAX) { n = HISTORY_TEXT_MAX - 1; out->truncated = 1; }
+        memcpy(out->text, msg, n);
+        out->text[n] = '\0';
+        free(msg);
+    }
+
+    if (flags & MSG_FLAGS_STOP_ITER) { out->complex = 1; return -1; }
+
+    if (flags & (1u << 7))   if (tl_skip_message_entities_vector(r) != 0) { out->complex=1; return -1; }
+    if (flags & (1u << 10))  { if (r->len - r->pos < 8) { out->complex=1; return -1; } tl_read_int32(r); tl_read_int32(r); }
+    if (flags & (1u << 15))  { if (r->len - r->pos < 4) { out->complex=1; return -1; } tl_read_int32(r); }
+    if (flags & (1u << 16))  if (tl_skip_string(r) != 0) { out->complex=1; return -1; }
+    if (flags & (1u << 17))  { if (r->len - r->pos < 8) { out->complex=1; return -1; } tl_read_int64(r); }
+    if (flags & (1u << 25))  { if (r->len - r->pos < 4) { out->complex=1; return -1; } tl_read_int32(r); }
+    if (flags2 & (1u << 30)) { if (r->len - r->pos < 4) { out->complex=1; return -1; } tl_read_int32(r); }
+    if (flags2 & (1u << 2))  { if (r->len - r->pos < 8) { out->complex=1; return -1; } tl_read_int64(r); }
+    return 0;
+}
 
 static int send_trivial(const ApiConfig *cfg,
                          MtProtoSession *s, Transport *t,
@@ -149,18 +207,23 @@ int domain_updates_difference(const ApiConfig *cfg,
      * activity. Actual message/update bodies need a per-element TL
      * walker which is deferred to v2.
      */
-    uint32_t vec;
-    /* new_messages */
-    vec = tl_read_uint32(&r);
+    /* new_messages: Vector<Message> */
+    uint32_t vec = tl_read_uint32(&r);
     if (vec != TL_vector) {
         logger_log(LOG_ERROR, "updates: expected Vector, got 0x%08x", vec);
         return -1;
     }
-    out->new_messages_count = (int32_t)tl_read_uint32(&r);
-    /* We cannot reliably step over each Message, so stop here. next_state
-     * is left as the input state; the caller will need to re-seed via
-     * getState for the next poll. */
+    uint32_t count = tl_read_uint32(&r);
+    int32_t written = 0;
+    for (uint32_t i = 0; i < count && written < UPDATES_MAX_MESSAGES; i++) {
+        HistoryEntry e = {0};
+        int rc = parse_message(&r, &e);
+        if (e.id != 0 || e.text[0] != '\0') {
+            out->new_messages[written++] = e;
+        }
+        if (rc != 0) break; /* iteration stopped */
+    }
+    out->new_messages_count = written;
     out->next_state = *in;
-    (void)out->other_updates_count;
     return 0;
 }

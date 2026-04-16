@@ -122,6 +122,53 @@ static void test_updates_rpc_error(void) {
     ASSERT(rc != 0, "RPC error propagates");
 }
 
+static void test_updates_difference_messages(void) {
+    mock_socket_reset(); mock_crypto_reset();
+
+    /* updates.difference with 2 simple new messages, then empty
+     * Vectors for encrypted/other/chats/users, then a state tail. */
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, TL_updates_difference);
+
+    /* new_messages */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 2);
+    /* msg 1 */
+    tl_write_uint32(&w, TL_message);
+    tl_write_uint32(&w, 0); tl_write_uint32(&w, 0);
+    tl_write_int32 (&w, 501);
+    tl_write_uint32(&w, TL_peerUser); tl_write_int64(&w, 10LL);
+    tl_write_int32 (&w, 1700000000);
+    tl_write_string(&w, "alpha");
+    /* msg 2 */
+    tl_write_uint32(&w, TL_message);
+    tl_write_uint32(&w, 0); tl_write_uint32(&w, 0);
+    tl_write_int32 (&w, 502);
+    tl_write_uint32(&w, TL_peerUser); tl_write_int64(&w, 10LL);
+    tl_write_int32 (&w, 1700000001);
+    tl_write_string(&w, "beta");
+
+    uint8_t payload[1024]; memcpy(payload, w.data, w.len);
+    size_t plen = w.len; tl_writer_free(&w);
+
+    uint8_t resp[2048]; size_t rlen = 0;
+    build_fake_encrypted_response(payload, plen, resp, &rlen);
+    mock_socket_set_response(resp, rlen);
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    fix_session(&s); fix_transport(&t); fix_cfg(&cfg);
+
+    UpdatesState in = { .pts=10, .qts=0, .date=1700000000, .seq=1 };
+    UpdatesDifference diff = {0};
+    int rc = domain_updates_difference(&cfg, &s, &t, &in, &diff);
+    ASSERT(rc == 0, "difference with messages parsed");
+    ASSERT(diff.new_messages_count == 2, "both messages captured");
+    ASSERT(diff.new_messages[0].id == 501, "msg0 id");
+    ASSERT(strcmp(diff.new_messages[0].text, "alpha") == 0, "msg0 text");
+    ASSERT(diff.new_messages[1].id == 502, "msg1 id");
+    ASSERT(strcmp(diff.new_messages[1].text, "beta") == 0, "msg1 text");
+}
+
 static void test_updates_null_args(void) {
     ASSERT(domain_updates_state(NULL, NULL, NULL, NULL) == -1, "null rejected");
     ASSERT(domain_updates_difference(NULL, NULL, NULL, NULL, NULL) == -1,
@@ -132,5 +179,6 @@ void run_domain_updates_tests(void) {
     RUN_TEST(test_updates_state_parse);
     RUN_TEST(test_updates_difference_empty);
     RUN_TEST(test_updates_rpc_error);
+    RUN_TEST(test_updates_difference_messages);
     RUN_TEST(test_updates_null_args);
 }

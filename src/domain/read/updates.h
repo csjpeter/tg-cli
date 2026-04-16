@@ -13,6 +13,7 @@
 #include "api_call.h"
 #include "mtproto_session.h"
 #include "transport.h"
+#include "domain/read/history.h"   /* HistoryEntry */
 
 #include <stdint.h>
 
@@ -24,12 +25,16 @@ typedef struct {
     int32_t unread_count;
 } UpdatesState;
 
+/** @brief Max new messages returned in one UpdatesDifference. */
+#define UPDATES_MAX_MESSAGES 32
+
 typedef struct {
-    int32_t new_messages_count;
-    int32_t other_updates_count;
-    UpdatesState next_state;   /**< Updated high-water marks. */
-    int     is_too_long;       /**< Non-zero if server signalled differenceTooLong. */
-    int     is_empty;          /**< Non-zero if differenceEmpty. */
+    int32_t       new_messages_count;     /**< Number actually written.    */
+    int32_t       other_updates_count;
+    HistoryEntry  new_messages[UPDATES_MAX_MESSAGES];
+    UpdatesState  next_state;              /**< Updated high-water marks.   */
+    int           is_too_long;             /**< Server signalled Too Long.  */
+    int           is_empty;                /**< differenceEmpty.            */
 } UpdatesDifference;
 
 /** @brief Fetch updates.getState to seed the poll loop. */

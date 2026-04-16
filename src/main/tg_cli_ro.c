@@ -176,16 +176,32 @@ static int cmd_watch(const ArgResult *args) {
             state = diff.next_state;
             if (args->json) {
                 printf("{\"new_messages\":%d,\"empty\":%s,\"too_long\":%s,"
-                       "\"pts\":%d,\"date\":%d}\n",
+                       "\"pts\":%d,\"date\":%d,\"items\":[",
                        diff.new_messages_count,
                        diff.is_empty ? "true" : "false",
                        diff.is_too_long ? "true" : "false",
                        state.pts, state.date);
+                for (int i = 0; i < diff.new_messages_count; i++) {
+                    if (i) printf(",");
+                    printf("{\"id\":%d,\"date\":%d,\"text\":\"%s\"}",
+                           diff.new_messages[i].id,
+                           diff.new_messages[i].date,
+                           diff.new_messages[i].text);
+                }
+                printf("]}\n");
             } else {
-                printf("new_messages=%d empty=%d too_long=%d pts=%d date=%d\n",
-                       diff.new_messages_count,
-                       diff.is_empty, diff.is_too_long,
-                       state.pts, state.date);
+                for (int i = 0; i < diff.new_messages_count; i++) {
+                    printf("[%d] %d %s\n",
+                           diff.new_messages[i].id,
+                           diff.new_messages[i].date,
+                           diff.new_messages[i].complex
+                               ? "(complex — text not parsed)"
+                               : diff.new_messages[i].text);
+                }
+                if (diff.new_messages_count == 0 && !args->quiet) {
+                    printf("(no new messages; pts=%d date=%d)\n",
+                           state.pts, state.date);
+                }
             }
             fflush(stdout);
         }
