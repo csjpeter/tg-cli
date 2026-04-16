@@ -16,6 +16,7 @@
 #include "domain/read/dialogs.h"
 #include "domain/read/history.h"
 #include "domain/read/updates.h"
+#include "domain/read/user_info.h"
 
 #include <signal.h>
 #include <stdio.h>
@@ -194,6 +195,48 @@ static int cmd_watch(const ArgResult *args) {
     return 0;
 }
 
+static const char *resolved_kind_name(ResolvedKind k) {
+    switch (k) {
+    case RESOLVED_KIND_USER:    return "user";
+    case RESOLVED_KIND_CHAT:    return "chat";
+    case RESOLVED_KIND_CHANNEL: return "channel";
+    default:                    return "unknown";
+    }
+}
+
+static int cmd_user_info(const ArgResult *args) {
+    if (!args->peer) {
+        fprintf(stderr, "tg-cli-ro user-info: <peer> argument required\n");
+        return 1;
+    }
+    ApiConfig cfg; MtProtoSession s; Transport t;
+    int brc = session_bringup(args, &cfg, &s, &t);
+    if (brc != 0) return brc;
+
+    ResolvedPeer r = {0};
+    int rc = domain_resolve_username(&cfg, &s, &t, args->peer, &r);
+    transport_close(&t);
+    if (rc != 0) {
+        fprintf(stderr, "tg-cli-ro user-info: resolve failed (see logs)\n");
+        return 1;
+    }
+
+    if (args->json) {
+        printf("{\"type\":\"%s\",\"id\":%lld,\"username\":\"%s\","
+               "\"access_hash\":\"%s\"}\n",
+               resolved_kind_name(r.kind),
+               (long long)r.id,
+               r.username,
+               r.have_hash ? "present" : "none");
+    } else {
+        printf("type:         %s\n", resolved_kind_name(r.kind));
+        printf("id:           %lld\n", (long long)r.id);
+        if (r.username[0]) printf("username:     @%s\n", r.username);
+        printf("access_hash:  %s\n", r.have_hash ? "present" : "none");
+    }
+    return 0;
+}
+
 static int cmd_history(const ArgResult *args) {
     if (!args->peer || strcmp(args->peer, "self") != 0) {
         fprintf(stderr,
@@ -345,9 +388,10 @@ int main(int argc, char **argv) {
         case CMD_SEARCH:
             fprintf(stderr, "tg-cli-ro search: not implemented yet (US-10)\n");
             exit_code = 2; break;
-        case CMD_CONTACTS:
         case CMD_USER_INFO:
-            fprintf(stderr, "tg-cli-ro: not implemented yet (US-09)\n");
+            exit_code = cmd_user_info(&args); break;
+        case CMD_CONTACTS:
+            fprintf(stderr, "tg-cli-ro contacts: not implemented yet (US-09)\n");
             exit_code = 2; break;
         case CMD_WATCH:
             exit_code = cmd_watch(&args); break;

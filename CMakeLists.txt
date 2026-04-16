@@ -101,6 +101,7 @@ add_library(tg-domain-read STATIC
     src/domain/read/dialogs.c
     src/domain/read/history.c
     src/domain/read/updates.c
+    src/domain/read/user_info.c
 )
 target_include_directories(tg-domain-read PUBLIC src src/domain)
 target_link_libraries(tg-domain-read PUBLIC tg-app)
