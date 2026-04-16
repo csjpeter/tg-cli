@@ -1,0 +1,222 @@
+/**
+ * @file main/tg_cli.c
+ * @brief tg-cli — batch read+write Telegram CLI entry point.
+ *
+ * Thin wrapper over tg-domain-read + tg-domain-write (ADR-0005). For
+ * read commands the behaviour matches tg-cli-ro. `send` is added
+ * on top. More write commands (edit, delete, forward, upload, read
+ * markers) will follow as their domain modules land.
+ */
+
+#include "app/bootstrap.h"
+#include "app/auth_flow.h"
+#include "app/credentials.h"
+#include "app/session_store.h"
+#include "arg_parse.h"
+
+#include "domain/read/self.h"
+#include "domain/read/dialogs.h"
+#include "domain/read/history.h"
+#include "domain/read/updates.h"
+#include "domain/read/user_info.h"
+#include "domain/read/search.h"
+#include "domain/read/contacts.h"
+#include "domain/read/media.h"
+#include "domain/write/send.h"
+#include "fs_util.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+typedef struct {
+    const char *phone;
+    const char *code;
+    const char *password;
+} BatchCreds;
+
+static int cb_get_phone(void *u, char *out, size_t cap) {
+    const BatchCreds *c = (const BatchCreds *)u;
+    if (!c->phone) {
+        fprintf(stderr, "tg-cli: --phone <number> required in batch mode\n");
+        return -1;
+    }
+    snprintf(out, cap, "%s", c->phone);
+    return 0;
+}
+static int cb_get_code(void *u, char *out, size_t cap) {
+    const BatchCreds *c = (const BatchCreds *)u;
+    if (!c->code) {
+        fprintf(stderr, "tg-cli: --code <digits> required in batch mode\n");
+        return -1;
+    }
+    snprintf(out, cap, "%s", c->code);
+    return 0;
+}
+static int cb_get_password(void *u, char *out, size_t cap) {
+    const BatchCreds *c = (const BatchCreds *)u;
+    if (!c->password) return -1;
+    snprintf(out, cap, "%s", c->password);
+    return 0;
+}
+
+static int session_bringup(const ArgResult *args, ApiConfig *cfg,
+                            MtProtoSession *s, Transport *t) {
+    if (credentials_load(cfg) != 0) return 1;
+    static BatchCreds creds;
+    creds.phone = args->phone;
+    creds.code = args->code;
+    creds.password = args->password;
+
+    static AuthFlowCallbacks cb;
+    cb.get_phone = cb_get_phone;
+    cb.get_code = cb_get_code;
+    cb.get_password = cb_get_password;
+    cb.user = &creds;
+
+    transport_init(t);
+    mtproto_session_init(s);
+    AuthFlowResult res = {0};
+    if (auth_flow_login(cfg, &cb, t, s, &res) != 0) {
+        fprintf(stderr, "tg-cli: login failed (see logs)\n");
+        transport_close(t);
+        return 1;
+    }
+    return 0;
+}
+
+static int resolve_peer_arg(const ApiConfig *cfg, MtProtoSession *s,
+                             Transport *t, const char *peer_arg,
+                             HistoryPeer *out) {
+    if (!peer_arg || strcmp(peer_arg, "self") == 0) {
+        out->kind = HISTORY_PEER_SELF;
+        return 0;
+    }
+    ResolvedPeer rp = {0};
+    if (domain_resolve_username(cfg, s, t, peer_arg, &rp) != 0) return -1;
+    switch (rp.kind) {
+    case RESOLVED_KIND_USER:    out->kind = HISTORY_PEER_USER;    break;
+    case RESOLVED_KIND_CHANNEL: out->kind = HISTORY_PEER_CHANNEL; break;
+    case RESOLVED_KIND_CHAT:    out->kind = HISTORY_PEER_CHAT;    break;
+    default: return -1;
+    }
+    out->peer_id = rp.id;
+    out->access_hash = rp.access_hash;
+    return 0;
+}
+
+static int cmd_send(const ArgResult *args) {
+    if (!args->peer) {
+        fprintf(stderr, "tg-cli send: <peer> required\n");
+        return 1;
+    }
+    const char *msg = args->message;
+    char stdin_buf[4096];
+
+    /* If no inline message and stdin is a pipe, read it (P8-03 done here). */
+    if ((!msg || !*msg)) {
+        if (isatty(0)) {
+            fprintf(stderr, "tg-cli send: <message> required "
+                            "(or pipe it on stdin)\n");
+            return 1;
+        }
+        size_t n = fread(stdin_buf, 1, sizeof(stdin_buf) - 1, stdin);
+        if (n == 0) {
+            fprintf(stderr, "tg-cli send: empty stdin\n");
+            return 1;
+        }
+        stdin_buf[n] = '\0';
+        /* Strip one trailing newline for convenience. */
+        if (n > 0 && stdin_buf[n - 1] == '\n') stdin_buf[n - 1] = '\0';
+        msg = stdin_buf;
+    }
+
+    ApiConfig cfg; MtProtoSession s; Transport t;
+    int brc = session_bringup(args, &cfg, &s, &t);
+    if (brc != 0) return brc;
+
+    HistoryPeer peer = {0};
+    if (resolve_peer_arg(&cfg, &s, &t, args->peer, &peer) != 0) {
+        fprintf(stderr, "tg-cli send: failed to resolve peer '%s'\n",
+                args->peer);
+        transport_close(&t);
+        return 1;
+    }
+
+    int32_t new_id = 0;
+    RpcError err = {0};
+    int rc = domain_send_message(&cfg, &s, &t, &peer, msg, &new_id, &err);
+    transport_close(&t);
+    if (rc != 0) {
+        fprintf(stderr, "tg-cli send: failed (%d: %s)\n",
+                err.error_code, err.error_msg);
+        return 1;
+    }
+    if (args->json) {
+        printf("{\"sent\":true,\"message_id\":%d}\n", new_id);
+    } else if (!args->quiet) {
+        if (new_id > 0) printf("sent, id=%d\n", new_id);
+        else            printf("sent\n");
+    }
+    return 0;
+}
+
+static void print_usage(void) {
+    puts(
+        "Usage: tg-cli [GLOBAL FLAGS] <subcommand> [ARGS]\n"
+        "\n"
+        "Batch mode Telegram CLI with read + write capability.\n"
+        "For read-only scripted use, prefer tg-cli-ro.\n"
+        "\n"
+        "Subcommands (v1):\n"
+        "  send <peer> <message>            Send a text message (US-P5-03)\n"
+        "  send <peer> --stdin              Read message body from stdin\n"
+        "\n"
+        "Batch-mode login flags:\n"
+        "  --phone <number>    E.g. +15551234567\n"
+        "  --code <digits>     SMS/app code\n"
+        "  --password <pass>   2FA password\n"
+    );
+}
+
+int main(int argc, char **argv) {
+    AppContext ctx;
+    if (app_bootstrap(&ctx, "tg-cli") != 0) {
+        fprintf(stderr, "tg-cli: bootstrap failed\n");
+        return 1;
+    }
+
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--logout") == 0) {
+            session_store_clear();
+            fprintf(stderr, "tg-cli: persisted session cleared.\n");
+            app_shutdown(&ctx);
+            return 0;
+        }
+    }
+
+    ArgResult args;
+    int rc = arg_parse(argc, argv, &args);
+    int exit_code = 0;
+
+    switch (rc) {
+    case ARG_HELP:    print_usage(); break;
+    case ARG_VERSION: arg_print_version(); break;
+    case ARG_ERROR:   exit_code = 1; break;
+    case ARG_OK:
+        switch (args.command) {
+        case CMD_SEND:
+            exit_code = cmd_send(&args); break;
+        case CMD_NONE:
+        default:
+            print_usage(); break;
+        }
+        break;
+    default:
+        exit_code = 1; break;
+    }
+
+    app_shutdown(&ctx);
+    return exit_code;
+}

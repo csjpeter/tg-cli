@@ -32,6 +32,7 @@ set(TEST_SOURCES
     test_domain_search.c
     test_domain_contacts.c
     test_domain_media.c
+    test_domain_send.c
     test_dc_config.c
     test_session_store.c
     ../../tests/mocks/crypto.c
@@ -39,6 +40,6 @@ set(TEST_SOURCES
 )
 
 add_executable(test-runner ${TEST_SOURCES})
-target_link_libraries(test-runner PRIVATE tg-domain-read tg-app tg-proto OpenSSL::SSL OpenSSL::Crypto)
+target_link_libraries(test-runner PRIVATE tg-domain-write tg-domain-read tg-app tg-proto OpenSSL::SSL OpenSSL::Crypto)
 
 add_test(NAME UnitTests COMMAND test-runner)

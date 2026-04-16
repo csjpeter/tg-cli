@@ -112,6 +112,15 @@ add_library(tg-domain-read STATIC
 target_include_directories(tg-domain-read PUBLIC src src/domain)
 target_link_libraries(tg-domain-read PUBLIC tg-app)
 
+# ---- Domain: write module (tg-cli + tg-tui link this; tg-cli-ro must NOT) ----
+# ADR-0005: read-only binary is guarded at link time by simply not listing
+# this library in its target_link_libraries.
+add_library(tg-domain-write STATIC
+    src/domain/write/send.c
+)
+target_include_directories(tg-domain-write PUBLIC src src/domain)
+target_link_libraries(tg-domain-write PUBLIC tg-app tg-domain-read)
+
 # ---- Binaries ----
 
 add_executable(tg-cli-ro src/main/tg_cli_ro.c)
@@ -119,6 +128,9 @@ target_link_libraries(tg-cli-ro PRIVATE tg-domain-read)
 
 add_executable(tg-tui src/main/tg_tui.c)
 target_link_libraries(tg-tui PRIVATE tg-domain-read)
+
+add_executable(tg-cli src/main/tg_cli.c)
+target_link_libraries(tg-cli PRIVATE tg-domain-read tg-domain-write)
 
 # Unit tests
 enable_testing()
