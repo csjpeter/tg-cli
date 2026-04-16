@@ -17,7 +17,10 @@
 #include <string.h>
 
 void crypto_sha256(const unsigned char *data, size_t len, unsigned char *out) {
-    EVP_Digest(data, len, out, NULL, EVP_sha256(), NULL);
+    if (EVP_Digest(data, len, out, NULL, EVP_sha256(), NULL) != 1) {
+        fprintf(stderr, "crypto: EVP_Digest(sha256) failed\n");
+        abort();
+    }
 }
 
 int crypto_aes_set_encrypt_key(const unsigned char *key, int bits,
@@ -51,8 +54,15 @@ void crypto_aes_encrypt_block(const unsigned char *in, unsigned char *out,
     EVP_CIPHER_CTX_set_padding(ctx, 0);
 
     int out_len = 0;
-    EVP_EncryptUpdate(ctx, out, &out_len, in, 16);
-    EVP_EncryptFinal_ex(ctx, out + out_len, &out_len);
+    if (EVP_EncryptUpdate(ctx, out, &out_len, in, 16) != 1) {
+        fprintf(stderr, "crypto: EVP_EncryptUpdate failed\n");
+        abort();
+    }
+    int final_len = 0;
+    if (EVP_EncryptFinal_ex(ctx, out + out_len, &final_len) != 1) {
+        fprintf(stderr, "crypto: EVP_EncryptFinal_ex failed\n");
+        abort();
+    }
     EVP_CIPHER_CTX_free(ctx);
 }
 
@@ -65,8 +75,15 @@ void crypto_aes_decrypt_block(const unsigned char *in, unsigned char *out,
     EVP_CIPHER_CTX_set_padding(ctx, 0);
 
     int out_len = 0;
-    EVP_DecryptUpdate(ctx, out, &out_len, in, 16);
-    EVP_DecryptFinal_ex(ctx, out + out_len, &out_len);
+    if (EVP_DecryptUpdate(ctx, out, &out_len, in, 16) != 1) {
+        fprintf(stderr, "crypto: EVP_DecryptUpdate failed\n");
+        abort();
+    }
+    int final_len = 0;
+    if (EVP_DecryptFinal_ex(ctx, out + out_len, &final_len) != 1) {
+        fprintf(stderr, "crypto: EVP_DecryptFinal_ex failed\n");
+        abort();
+    }
     EVP_CIPHER_CTX_free(ctx);
 }
 
@@ -77,7 +94,10 @@ int crypto_rand_bytes(unsigned char *buf, size_t len) {
 /* ---- SHA-1 ---- */
 
 void crypto_sha1(const unsigned char *data, size_t len, unsigned char *out) {
-    EVP_Digest(data, len, out, NULL, EVP_sha1(), NULL);
+    if (EVP_Digest(data, len, out, NULL, EVP_sha1(), NULL) != 1) {
+        fprintf(stderr, "crypto: EVP_Digest(sha1) failed\n");
+        abort();
+    }
 }
 
 /* ---- RSA (OpenSSL 3.0 EVP API) ---- */

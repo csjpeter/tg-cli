@@ -31,3 +31,8 @@ CRITICAL — silent crypto failure leads to corrupted keys/ciphertext.
 
 ## Dependencies
 None (extends QA-01 which only covers EVP_CIPHER_CTX_new NULL check)
+
+## Verified — 2026-04-16
+- Checked return values of `EVP_Digest` (sha256, sha1), `EVP_EncryptUpdate`, `EVP_EncryptFinal_ex`, `EVP_DecryptUpdate`, `EVP_DecryptFinal_ex`; abort on failure with stderr message, matching the existing OOM pattern from QA-01.
+- No new test per ticket; existing crypto tests still pass.
+- Unit test count: 1819 (ASAN clean). Valgrind: 0 bytes definitely lost.
