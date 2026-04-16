@@ -60,12 +60,15 @@ int transport_send(Transport *t, const uint8_t *data, size_t len) {
             return -1;
         }
     } else {
+        /* Abridged extended prefix: 0x7F + 3 LE bytes carrying wire_len
+         * (in 4-byte units). Capacity = 0xFFFFFF * 4 = ~67 MB. */
         uint8_t prefix[4];
         prefix[0] = 0x7F;
         prefix[1] = (uint8_t)(wire_len & 0xFF);
         prefix[2] = (uint8_t)((wire_len >> 8) & 0xFF);
-        if (sys_socket_send(t->fd, prefix, 3) != 3) {
-            logger_log(LOG_ERROR, "transport: failed to send 3-byte length prefix");
+        prefix[3] = (uint8_t)((wire_len >> 16) & 0xFF);
+        if (sys_socket_send(t->fd, prefix, 4) != 4) {
+            logger_log(LOG_ERROR, "transport: failed to send 4-byte length prefix");
             return -1;
         }
     }
@@ -98,13 +101,16 @@ int transport_recv(Transport *t, uint8_t *out, size_t max_len, size_t *out_len) 
     if (first < 0x7F) {
         wire_len = first;
     } else {
-        uint8_t extra[2];
-        r = sys_socket_recv(t->fd, extra, 2);
-        if (r != 2) {
+        /* 0x7F marker → 3-byte LE length follows. */
+        uint8_t extra[3];
+        r = sys_socket_recv(t->fd, extra, 3);
+        if (r != 3) {
             logger_log(LOG_ERROR, "transport: failed to read 3-byte length prefix");
             return -1;
         }
-        wire_len = (size_t)extra[0] | ((size_t)extra[1] << 8);
+        wire_len = (size_t)extra[0]
+                 | ((size_t)extra[1] << 8)
+                 | ((size_t)extra[2] << 16);
     }
 
     size_t payload_len = wire_len * 4;

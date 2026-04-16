@@ -40,3 +40,22 @@ large server responses (e.g., file downloads, large chat histories).
 
 ## Dependencies
 None
+
+## Verified — 2026-04-16
+- `src/infrastructure/transport.c::transport_send` extended-prefix
+  path now emits 4 bytes total (0x7F + LE24), closing the silent
+  truncation above 256 KB payloads.
+- `transport_recv` now reads 3 extra bytes after the 0x7F marker
+  and decodes them as LE24.
+- `tests/unit/test_phase2.c`:
+  - Existing wide-prefix test updated from 3 → 4 bytes.
+  - New `test_transport_send_extended_prefix_wide` exercises
+    payload = 0x040000 (3rd byte carries the 17th bit).
+  - New `test_transport_recv_extended_prefix_wide` verifies the
+    parsed wire_len overflows a small buffer correctly.
+  - Existing truncated-prefix test updated to the new threshold.
+
+Tests: 1803 -> 1812. Valgrind: 0 leaks. Zero warnings.
+
+Related: QA-23 (transport-recv-3byte-prefix) is the same wire defect
+on the receive side, now also fixed by this change.

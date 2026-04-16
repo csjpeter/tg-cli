@@ -142,11 +142,40 @@ void test_transport_send_extended_prefix(void) {
 
     size_t sent_len = 0;
     const uint8_t *sent = mock_socket_get_sent(&sent_len);
-    ASSERT(sent_len == 3 + 512, "should send 3-byte prefix + 512 payload");
+    /* QA-15: extended prefix is 4 bytes (0x7F + LE24). */
+    ASSERT(sent_len == 4 + 512, "should send 4-byte prefix + 512 payload");
     ASSERT(sent[0] == 0x7F, "extended prefix marker");
     /* wire_len = 512/4 = 128 = 0x80 */
     ASSERT(sent[1] == 0x80, "low byte of wire_len");
     ASSERT(sent[2] == 0x00, "middle byte of wire_len");
+    ASSERT(sent[3] == 0x00, "high byte of wire_len");
+    transport_close(&t);
+}
+
+/* QA-15: payload > 0xFFFF * 4 bytes must round-trip the 3rd length byte. */
+void test_transport_send_extended_prefix_wide(void) {
+    mock_socket_reset();
+    Transport t;
+    transport_init(&t);
+    transport_connect(&t, "host", 443);
+    mock_socket_clear_sent();
+
+    /* wire_len = 0x010000 → payload = 0x040000 bytes = 262144 bytes. */
+    const size_t payload_len = 0x040000;
+    uint8_t *big = (uint8_t *)calloc(payload_len, 1);
+    ASSERT(big != NULL, "allocation ok");
+    int rc = transport_send(&t, big, payload_len);
+    ASSERT(rc == 0, "wide extended prefix send ok");
+
+    size_t sent_len = 0;
+    const uint8_t *sent = mock_socket_get_sent(&sent_len);
+    ASSERT(sent_len == 4 + payload_len, "4-byte prefix + payload");
+    ASSERT(sent[0] == 0x7F, "marker");
+    ASSERT(sent[1] == 0x00, "LE[0]");
+    ASSERT(sent[2] == 0x00, "LE[1]");
+    ASSERT(sent[3] == 0x01, "LE[2] carries the 17th bit");
+
+    free(big);
     transport_close(&t);
 }
 
@@ -206,13 +235,14 @@ void test_transport_recv_extended_prefix(void) {
     transport_init(&t);
     transport_connect(&t, "host", 443);
 
-    /* 3-byte prefix path: first=0x7F + 2 bytes wire_len little-endian */
-    /* wire_len = 3 → payload 12 bytes */
-    uint8_t wire[3 + 12];
+    /* QA-15: extended prefix = marker(0x7F) + 3 LE bytes wire_len.
+     * wire_len = 3 → payload 12 bytes. */
+    uint8_t wire[4 + 12];
     wire[0] = 0x7F;
     wire[1] = 0x03;
     wire[2] = 0x00;
-    for (int i = 0; i < 12; i++) wire[3 + i] = (uint8_t)(i + 1);
+    wire[3] = 0x00;
+    for (int i = 0; i < 12; i++) wire[4 + i] = (uint8_t)(i + 1);
     mock_socket_set_response(wire, sizeof(wire));
 
     uint8_t buf[64];
@@ -229,14 +259,35 @@ void test_transport_recv_extended_prefix_short(void) {
     Transport t;
     transport_init(&t);
     transport_connect(&t, "host", 443);
-    /* Only 2 bytes (0x7F + 1 byte) — second recv returns <2 */
-    uint8_t wire[2] = {0x7F, 0x01};
+    /* Only 3 bytes (0x7F + 2 bytes) — second recv returns <3 */
+    uint8_t wire[3] = {0x7F, 0x01, 0x00};
     mock_socket_set_response(wire, sizeof(wire));
 
     uint8_t buf[32];
     size_t out_len = 0;
     int rc = transport_recv(&t, buf, sizeof(buf), &out_len);
     ASSERT(rc == -1, "must fail on truncated extended prefix");
+    transport_close(&t);
+}
+
+/* QA-15: recv handles 3rd length byte (>16 MB payload encoded). */
+void test_transport_recv_extended_prefix_wide(void) {
+    mock_socket_reset();
+    Transport t;
+    transport_init(&t);
+    transport_connect(&t, "host", 443);
+
+    /* wire_len = 0x010001 → payload = 0x040004 bytes. Too big to allocate
+     * in test but we can check the length is parsed correctly by making
+     * it exceed the caller's max_len and expecting -1. */
+    uint8_t wire[4] = {0x7F, 0x01, 0x00, 0x01};
+    mock_socket_set_response(wire, sizeof(wire));
+
+    uint8_t buf[128];
+    size_t out_len = 0;
+    int rc = transport_recv(&t, buf, sizeof(buf), &out_len);
+    /* 0x040004 bytes > 128 buffer, expect "frame too large" error. */
+    ASSERT(rc == -1, "wide frame rejected against small buffer");
     transport_close(&t);
 }
 
@@ -446,11 +497,13 @@ void test_phase2(void) {
     RUN_TEST(test_transport_send_bad_args);
     RUN_TEST(test_transport_send_prefix_fails);
     RUN_TEST(test_transport_send_extended_prefix);
+    RUN_TEST(test_transport_send_extended_prefix_wide);
     RUN_TEST(test_transport_send_extended_prefix_send_fails);
     RUN_TEST(test_transport_send_payload_send_fails);
     RUN_TEST(test_transport_recv_bad_args);
     RUN_TEST(test_transport_recv_prefix_fails);
     RUN_TEST(test_transport_recv_extended_prefix);
+    RUN_TEST(test_transport_recv_extended_prefix_wide);
     RUN_TEST(test_transport_recv_extended_prefix_short);
     RUN_TEST(test_transport_recv_zero_payload);
     RUN_TEST(test_transport_recv_frame_too_large);

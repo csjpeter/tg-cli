@@ -31,3 +31,8 @@ LOW (paired with QA-15 which covers the full issue at HIGH severity).
 
 ## Dependencies
 QA-15 (should be fixed together)
+
+## Verified — 2026-04-16
+Duplicate of QA-15. Fixed in the same commit; transport_recv now
+reads 3 bytes after the 0x7F marker and decodes LE24. See the
+QA-15 verification note for test coverage.
