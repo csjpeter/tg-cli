@@ -356,6 +356,30 @@ int arg_parse(int argc, char **argv, ArgResult *out) {
         }
         return ARG_OK;
     }
+    if (str_eq(subcmd, "send-file")) {
+        out->command = CMD_SEND_FILE;
+        if (i + 1 >= argc) {
+            fprintf(stderr, "tg-cli send-file: <peer> <path> required\n");
+            return ARG_ERROR;
+        }
+        out->peer = argv[i++];
+        out->out_path = argv[i++];          /* reuse out_path as local file */
+        while (i < argc) {
+            if (str_eq(argv[i], "--caption")) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "tg-cli send-file: --caption needs text\n");
+                    return ARG_ERROR;
+                }
+                out->message = argv[i + 1];
+                i += 2;
+            } else {
+                fprintf(stderr, "tg-cli send-file: unknown option: %s\n",
+                        argv[i]);
+                return ARG_ERROR;
+            }
+        }
+        return ARG_OK;
+    }
     if (str_eq(subcmd, "forward")) {
         out->command = CMD_FORWARD;
         if (i + 2 >= argc) {
@@ -423,6 +447,7 @@ void arg_print_help(void) {
         "  edit    <peer> <msg_id> <text>          Edit a message (tg-cli only)\n"
         "  delete  <peer> <msg_id> [--revoke]      Delete a message (tg-cli only)\n"
         "  forward <from_peer> <to_peer> <msg_id>  Forward (tg-cli only)\n"
+        "  send-file <peer> <path> [--caption T]   Upload file (tg-cli only)\n"
     );
 }
 

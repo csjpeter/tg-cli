@@ -27,6 +27,7 @@
 #include "domain/write/delete.h"
 #include "domain/write/forward.h"
 #include "domain/write/read_history.h"
+#include "domain/write/upload.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -346,6 +347,25 @@ static void do_forward(const ApiConfig *cfg, MtProtoSession *s, Transport *t,
     printf("forwarded %d\n", mid);
 }
 
+static void do_upload(const ApiConfig *cfg, MtProtoSession *s, Transport *t,
+                       char *arg) {
+    if (!arg || !*arg) { puts("usage: upload <peer> <path> [caption]"); return; }
+    char *path = split_rest(arg);
+    if (!*path) { puts("usage: upload <peer> <path> [caption]"); return; }
+    char *caption = split_rest(path);
+    HistoryPeer peer = {0};
+    if (resolve_history_peer(cfg, s, t, arg, &peer) != 0) {
+        printf("upload: cannot resolve '%s'\n", arg); return;
+    }
+    RpcError err = {0};
+    if (domain_send_file(cfg, s, t, &peer, path,
+                          *caption ? caption : NULL, NULL, &err) != 0) {
+        printf("upload: failed (%d: %s)\n", err.error_code, err.error_msg);
+        return;
+    }
+    printf("uploaded %s\n", path);
+}
+
 static void do_read(const ApiConfig *cfg, MtProtoSession *s, Transport *t,
                      const char *arg) {
     if (!arg || !*arg) { puts("usage: read <peer>"); return; }
@@ -396,6 +416,7 @@ static void print_help(void) {
         "  edit <peer> <msg_id> <text>  Edit a previously sent message\n"
         "  delete <peer> <msg_id> [revoke]  Delete a message\n"
         "  forward <from> <to> <msg_id> Forward one message\n"
+        "  upload <peer> <path> [caption] Upload a file (document)\n"
         "\n"
         "  help                         This help\n"
         "  quit, exit, :q               Leave the TUI\n"
@@ -475,6 +496,7 @@ static int repl(const ApiConfig *cfg, MtProtoSession *s, Transport *t,
             do_forward(cfg, s, t, arg); continue;
         }
         if (!strcmp(cmd, "read"))     { do_read(cfg, s, t, arg); continue; }
+        if (!strcmp(cmd, "upload"))   { do_upload(cfg, s, t, arg); continue; }
 
         printf("unknown command: %s  (try 'help')\n", cmd);
     }

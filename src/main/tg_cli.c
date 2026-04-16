@@ -27,6 +27,7 @@
 #include "domain/write/edit.h"
 #include "domain/write/delete.h"
 #include "domain/write/forward.h"
+#include "domain/write/upload.h"
 #include "fs_util.h"
 
 #include <stdio.h>
@@ -166,6 +167,33 @@ static int cmd_delete(const ArgResult *args) {
     return 0;
 }
 
+static int cmd_send_file(const ArgResult *args) {
+    if (!args->peer || !args->out_path) {
+        fprintf(stderr, "tg-cli send-file: <peer> <path> required\n");
+        return 1;
+    }
+    ApiConfig cfg; MtProtoSession s; Transport t;
+    int brc = session_bringup(args, &cfg, &s, &t);
+    if (brc != 0) return brc;
+
+    HistoryPeer peer = {0};
+    if (resolve_peer_arg(&cfg, &s, &t, args->peer, &peer) != 0) {
+        transport_close(&t); return 1;
+    }
+    RpcError err = {0};
+    int rc = domain_send_file(&cfg, &s, &t, &peer, args->out_path,
+                                args->message, NULL, &err);
+    transport_close(&t);
+    if (rc != 0) {
+        fprintf(stderr, "tg-cli send-file: failed (%d: %s)\n",
+                err.error_code, err.error_msg);
+        return 1;
+    }
+    if (args->json) printf("{\"uploaded\":\"%s\"}\n", args->out_path);
+    else if (!args->quiet) printf("uploaded %s\n", args->out_path);
+    return 0;
+}
+
 static int cmd_forward(const ArgResult *args) {
     if (!args->peer || !args->peer2 || args->msg_id <= 0) {
         fprintf(stderr,
@@ -295,6 +323,7 @@ static void print_usage(void) {
         "  edit <peer> <msg_id> <text>        Edit a message (P5-06)\n"
         "  delete <peer> <msg_id> [--revoke]  Delete (P5-06)\n"
         "  forward <from> <to> <msg_id>       Forward (P5-06)\n"
+        "  send-file <peer> <path> [--caption T]  Upload a file (P6-02)\n"
         "\n"
         "Batch-mode login flags:\n"
         "  --phone <number>    E.g. +15551234567\n"
@@ -339,6 +368,8 @@ int main(int argc, char **argv) {
             exit_code = cmd_delete(&args); break;
         case CMD_FORWARD:
             exit_code = cmd_forward(&args); break;
+        case CMD_SEND_FILE:
+            exit_code = cmd_send_file(&args); break;
         case CMD_NONE:
         default:
             print_usage(); break;

@@ -1,0 +1,194 @@
+/**
+ * @file domain/write/upload.c
+ * @brief upload.saveFilePart + messages.sendMedia (US-P6-02).
+ */
+
+#include "domain/write/upload.h"
+
+#include "tl_serial.h"
+#include "tl_registry.h"
+#include "mtproto_rpc.h"
+#include "crypto.h"
+#include "logger.h"
+#include "raii.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+
+#define CRC_upload_saveFilePart           0xb304a621u
+#define CRC_messages_sendMedia            0x7547c966u
+#define CRC_inputFile                     0xf52ff27fu
+#define CRC_inputMediaUploadedDocument    0x5b38c6c1u
+#define CRC_documentAttributeFilename     0x15590068u
+
+static int write_input_peer(TlWriter *w, const HistoryPeer *p) {
+    switch (p->kind) {
+    case HISTORY_PEER_SELF:
+        tl_write_uint32(w, TL_inputPeerSelf); return 0;
+    case HISTORY_PEER_USER:
+        tl_write_uint32(w, TL_inputPeerUser);
+        tl_write_int64 (w, p->peer_id);
+        tl_write_int64 (w, p->access_hash); return 0;
+    case HISTORY_PEER_CHAT:
+        tl_write_uint32(w, TL_inputPeerChat);
+        tl_write_int64 (w, p->peer_id); return 0;
+    case HISTORY_PEER_CHANNEL:
+        tl_write_uint32(w, TL_inputPeerChannel);
+        tl_write_int64 (w, p->peer_id);
+        tl_write_int64 (w, p->access_hash); return 0;
+    default: return -1;
+    }
+}
+
+/* Send one upload.saveFilePart, expecting boolTrue on success. */
+static int save_file_part(const ApiConfig *cfg,
+                           MtProtoSession *s, Transport *t,
+                           int64_t file_id, int32_t part_idx,
+                           const uint8_t *bytes, size_t len) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_upload_saveFilePart);
+    tl_write_int64 (&w, file_id);
+    tl_write_int32 (&w, part_idx);
+    tl_write_bytes (&w, bytes, len);
+
+    RAII_STRING uint8_t *query = (uint8_t *)malloc(w.len);
+    if (!query) { tl_writer_free(&w); return -1; }
+    memcpy(query, w.data, w.len);
+    size_t qlen = w.len;
+    tl_writer_free(&w);
+
+    uint8_t resp[256]; size_t resp_len = 0;
+    if (api_call(cfg, s, t, query, qlen, resp, sizeof(resp), &resp_len) != 0)
+        return -1;
+    if (resp_len < 4) return -1;
+    uint32_t top; memcpy(&top, resp, 4);
+    if (top == TL_rpc_error) return -1;
+    if (top != TL_boolTrue) {
+        logger_log(LOG_ERROR, "upload: unexpected saveFilePart reply 0x%08x",
+                   top);
+        return -1;
+    }
+    return 0;
+}
+
+/* Extract the basename of a path, e.g. "/a/b/c.jpg" → "c.jpg". */
+static const char *basename_of(const char *path) {
+    const char *slash = strrchr(path, '/');
+    return slash ? slash + 1 : path;
+}
+
+int domain_send_file(const ApiConfig *cfg,
+                      MtProtoSession *s, Transport *t,
+                      const HistoryPeer *peer,
+                      const char *file_path,
+                      const char *caption,
+                      const char *mime_type,
+                      RpcError *err) {
+    if (!cfg || !s || !t || !peer || !file_path) return -1;
+    if (!mime_type) mime_type = "application/octet-stream";
+    if (!caption)   caption   = "";
+
+    struct stat st;
+    if (stat(file_path, &st) != 0 || !S_ISREG(st.st_mode)) {
+        logger_log(LOG_ERROR, "upload: cannot stat %s", file_path);
+        return -1;
+    }
+    if ((size_t)st.st_size == 0 || (size_t)st.st_size > UPLOAD_MAX_SIZE) {
+        logger_log(LOG_ERROR,
+                   "upload: size %lld out of supported range (1..%d)",
+                   (long long)st.st_size, UPLOAD_MAX_SIZE);
+        return -1;
+    }
+
+    RAII_FILE FILE *fp = fopen(file_path, "rb");
+    if (!fp) {
+        logger_log(LOG_ERROR, "upload: cannot open %s", file_path);
+        return -1;
+    }
+
+    uint8_t id_buf[8] = {0};
+    int64_t file_id = 0;
+    if (crypto_rand_bytes(id_buf, 8) != 0) return -1;
+    memcpy(&file_id, id_buf, 8);
+
+    RAII_STRING uint8_t *chunk = (uint8_t *)malloc(UPLOAD_CHUNK_SIZE);
+    if (!chunk) return -1;
+
+    int32_t part_idx = 0;
+    size_t total = (size_t)st.st_size;
+    size_t done = 0;
+    while (done < total) {
+        size_t want = total - done;
+        if (want > UPLOAD_CHUNK_SIZE) want = UPLOAD_CHUNK_SIZE;
+        size_t got = fread(chunk, 1, want, fp);
+        if (got != want) {
+            logger_log(LOG_ERROR, "upload: short read at part %d", part_idx);
+            return -1;
+        }
+        if (save_file_part(cfg, s, t, file_id, part_idx, chunk, got) != 0) {
+            logger_log(LOG_ERROR, "upload: part %d failed", part_idx);
+            return -1;
+        }
+        done += got;
+        part_idx++;
+    }
+
+    /* Second phase: messages.sendMedia with InputMediaUploadedDocument. */
+    uint8_t rand_rnd[8] = {0};
+    int64_t random_id = 0;
+    if (crypto_rand_bytes(rand_rnd, 8) == 0) memcpy(&random_id, rand_rnd, 8);
+
+    const char *file_name = basename_of(file_path);
+
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messages_sendMedia);
+    tl_write_uint32(&w, 0);                       /* flags = 0 */
+    if (write_input_peer(&w, peer) != 0) {
+        tl_writer_free(&w);
+        return -1;
+    }
+    /* media: InputMediaUploadedDocument */
+    tl_write_uint32(&w, CRC_inputMediaUploadedDocument);
+    tl_write_uint32(&w, 0);                       /* inner flags */
+    /* file: InputFile (no md5 for v1 — empty string). */
+    tl_write_uint32(&w, CRC_inputFile);
+    tl_write_int64 (&w, file_id);
+    tl_write_int32 (&w, part_idx);                /* parts */
+    tl_write_string(&w, file_name);
+    tl_write_string(&w, "");                      /* md5_checksum */
+    tl_write_string(&w, mime_type);
+    /* attributes: Vector<DocumentAttribute> with a single filename. */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, CRC_documentAttributeFilename);
+    tl_write_string(&w, file_name);
+
+    tl_write_string(&w, caption);                 /* message */
+    tl_write_int64 (&w, random_id);
+
+    RAII_STRING uint8_t *query = (uint8_t *)malloc(w.len);
+    if (!query) { tl_writer_free(&w); return -1; }
+    memcpy(query, w.data, w.len);
+    size_t qlen = w.len;
+    tl_writer_free(&w);
+
+    uint8_t resp[4096]; size_t resp_len = 0;
+    if (api_call(cfg, s, t, query, qlen, resp, sizeof(resp), &resp_len) != 0) {
+        logger_log(LOG_ERROR, "upload: sendMedia api_call failed");
+        return -1;
+    }
+    if (resp_len < 4) return -1;
+    uint32_t top; memcpy(&top, resp, 4);
+    if (top == TL_rpc_error) {
+        if (err) rpc_parse_error(resp, resp_len, err);
+        return -1;
+    }
+    if (top == TL_updates || top == TL_updatesCombined
+        || top == TL_updateShort) {
+        return 0;
+    }
+    logger_log(LOG_WARN, "upload: unexpected sendMedia top 0x%08x", top);
+    return 0;
+}

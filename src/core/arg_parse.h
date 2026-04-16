@@ -32,6 +32,7 @@ typedef enum {
     CMD_EDIT,         /**< Edit an existing message (P5-06).           */
     CMD_DELETE,       /**< Delete one or more messages (P5-06).        */
     CMD_FORWARD,      /**< Forward messages from one peer to another.  */
+    CMD_SEND_FILE,    /**< Upload a file as a document (P6-02).        */
 } ArgCommand;
 
 /** @brief Extra fields for the P5-06 edit / delete / forward / reply
