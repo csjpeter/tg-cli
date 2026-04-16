@@ -8,6 +8,7 @@
 #include "tl_serial.h"
 #include "crypto.h"
 #include "tinf.h"
+#include "logger.h"
 #include "raii.h"
 
 #include <stdlib.h>
@@ -252,6 +253,17 @@ int rpc_parse_container(const uint8_t *data, size_t len,
         msgs[i].msg_id = tl_read_uint64(&r);
         msgs[i].seqno = tl_read_uint32(&r);
         msgs[i].body_len = tl_read_uint32(&r);
+
+        /* TL-serialized bodies are always 4-byte aligned. An unaligned
+         * body_len would misalign subsequent message reads in the container,
+         * silently producing garbage data. Reject malformed containers. */
+        if (msgs[i].body_len % 4 != 0) {
+            logger_log(LOG_WARN,
+                       "rpc_parse_container: unaligned body_len=%u "
+                       "at message %u (must be multiple of 4)",
+                       msgs[i].body_len, i);
+            return -1;
+        }
 
         if (msgs[i].body_len > len - r.pos) return -1;
 

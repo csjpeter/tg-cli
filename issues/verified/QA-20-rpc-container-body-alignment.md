@@ -22,3 +22,8 @@ MEDIUM — silent data corruption when parsing malformed containers.
 
 ## Dependencies
 None
+
+## Verified — 2026-04-16
+- Added 4-byte alignment check on `body_len` in `rpc_parse_container` with a `LOG_WARN` before returning -1.
+- Added `test_container_unaligned_body_len` regression test.
+- `./manage.sh test` passes: 1824 tests.

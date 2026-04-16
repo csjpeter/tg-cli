@@ -229,6 +229,28 @@ void test_container_null_args(void) {
     ASSERT(rpc_parse_container(data, 8, msgs, 2, NULL) == -1, "NULL count");
 }
 
+void test_container_unaligned_body_len(void) {
+    /* Regression: QA-20 — a container with body_len that is not a multiple
+     * of 4 must be rejected to prevent silent misalignment of subsequent
+     * message reads. */
+    TlWriter w;
+    tl_writer_init(&w);
+    tl_write_uint32(&w, 0x73f1f8dc); /* msg_container */
+    tl_write_uint32(&w, 1);          /* count = 1 */
+    tl_write_uint64(&w, 12345);      /* msg_id */
+    tl_write_uint32(&w, 1);          /* seqno */
+    tl_write_uint32(&w, 3);          /* body_len = 3 (odd, not 4-aligned) */
+    uint8_t body[4] = { 0xAA, 0xBB, 0xCC, 0x00 };
+    tl_write_raw(&w, body, 4);
+
+    RpcContainerMsg msgs[4];
+    size_t count = 0;
+    int rc = rpc_parse_container(w.data, w.len, msgs, 4, &count);
+    ASSERT(rc == -1, "container with unaligned body_len must be rejected");
+
+    tl_writer_free(&w);
+}
+
 /* ---- rpc_result / rpc_error tests ---- */
 
 void test_rpc_unwrap_result(void) {
@@ -368,6 +390,7 @@ void test_rpc(void) {
     RUN_TEST(test_container_multiple_msgs);
     RUN_TEST(test_container_too_many_msgs);
     RUN_TEST(test_container_null_args);
+    RUN_TEST(test_container_unaligned_body_len);
 
     /* rpc_result / rpc_error */
     RUN_TEST(test_rpc_unwrap_result);
