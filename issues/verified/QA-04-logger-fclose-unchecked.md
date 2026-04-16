@@ -17,3 +17,6 @@ None
 
 ## Reviewed — 2026-04-16
 Pass. Confirmed logger.c line 110-112: `if (fclose(g_log_fp) != 0) fprintf(stderr, "logger: fclose failed")`. Earlier fopen error path now handled by early-return (no leftover unchecked fclose).
+
+## QA — 2026-04-16
+Pass. logger.c line 110-112 now checks fclose return. Error written to stderr since the logger itself is closing. test_logger.c exercises close path; no regression.

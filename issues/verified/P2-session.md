@@ -24,3 +24,6 @@ src/core/mtproto_session.h/c
 
 ## Reviewed — 2026-04-16
 Pass. Confirmed RAII_FILE on fopen in save_auth_key (line 104) and load_auth_key (line 125). fs_ensure_permissions(path, 0600) called after open. All public functions have Doxygen. tests/unit/test_phase2.c covers missing-file, truncated-file, invalid-path, NULL-args edge cases (lines 386-432).
+
+## QA — 2026-04-16
+Pass. RAII_FILE on save/load, fs_ensure_permissions(path, 0600) after fopen — auth key not world-readable. Doxygen complete. tests/unit/test_session_store.c covers save/load roundtrip, missing file, truncated file, invalid path, NULL args (5 tests). Valgrind clean.

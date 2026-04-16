@@ -19,3 +19,6 @@ None
 
 ## Reviewed — 2026-04-16
 Pass. Confirmed all 64KB stack buffers in mtproto_rpc.c replaced with `RAII_STRING uint8_t *buf = malloc(RPC_BUF_SIZE)` (lines 49, 97, 126, 144). RPC_BUF_SIZE=65536 centralised as macro. Stack usage now O(1) per call.
+
+## QA — 2026-04-16
+Pass. All four 64KB stack buffers in mtproto_rpc.c replaced with RAII_STRING malloc (RPC_BUF_SIZE=65536). Valgrind confirms 0 leaks across test_rpc.c. Stack usage now O(1) per call — Android/embedded-safe.

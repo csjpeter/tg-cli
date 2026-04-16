@@ -19,3 +19,6 @@ None
 
 ## Reviewed — 2026-04-16
 Pass. Confirmed tl_serial.c writer_ensure (line 19-30) prints `fprintf(stderr, "OOM: tl_writer realloc failed (%zu bytes)", new_cap)` before abort() on realloc failure.
+
+## QA — 2026-04-16
+Pass. tl_serial.c line 25 emits `OOM: tl_writer realloc failed (%zu bytes)` to stderr before abort(). Diagnostic message makes OOM post-mortem possible. No test regression.

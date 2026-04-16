@@ -24,3 +24,6 @@ Nincs — önállóan végrehajtható.
 
 ## Reviewed — 2026-04-16
 Pass. Confirmed `#include "logger.h"` added to transport.c and logger_log(LOG_ERROR,...) on every -1 return (socket create, connect, marker send, length prefix send/recv, payload send/recv, frame-too-large). Every error path now carries diagnostic context.
+
+## QA — 2026-04-16
+Pass. Confirmed 10 logger_log(LOG_ERROR, ...) calls in transport.c on every -1 return path (lines 26, 31, 40, 59, 68, 78, 93, 104, 116, 125). Tests pass; no log-format issues in ASAN run. No change in test behaviour — logging is side-effect-free diagnostic addition.

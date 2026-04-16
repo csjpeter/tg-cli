@@ -18,3 +18,6 @@ None
 
 ## Reviewed — 2026-04-16
 Pass. Confirmed config_store.c line 85-89: `get_config_path()` result checked, logger_log(LOG_ERROR, "Failed to determine config directory") + return -1 on NULL. fopen error also logged.
+
+## QA — 2026-04-16
+Pass. config_store.c line 85-89 checks get_config_path() for NULL, logs LOG_ERROR, returns -1 early. test_config.c covers the save path; no silent NULL-to-fopen anymore.

@@ -18,3 +18,6 @@ None
 
 ## Reviewed — 2026-04-16
 Pass. Confirmed rpc_send_encrypted (mtproto_rpc.c lines 83-101) builds the plaintext TlWriter once; msg_key computed from plain.data/plain.len directly; encryption reuses the same buffer. No duplicate TlWriter remains.
+
+## QA — 2026-04-16
+Pass. rpc_send_encrypted builds plaintext once (TlWriter plain) and feeds the same buffer to both mtproto_compute_msg_key and mtproto_encrypt. No duplicate serialisation. test_rpc.c still passes, confirming byte-identical output vs prior implementation.

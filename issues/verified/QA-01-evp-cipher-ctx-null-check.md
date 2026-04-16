@@ -20,3 +20,6 @@ None
 
 ## Reviewed — 2026-04-16
 Pass. Confirmed EVP_CIPHER_CTX_new NULL check with OOM abort at crypto.c lines 47-48 (encrypt) and 61-62 (decrypt). Diagnostic stderr message before abort.
+
+## QA — 2026-04-16
+Pass. crypto.c lines 47-48 and 61-62: `if (!ctx) { fprintf(stderr, "OOM: EVP_CIPHER_CTX_new"); abort(); }` on both encrypt and decrypt. No NULL deref possible. Valgrind clean.

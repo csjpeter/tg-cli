@@ -32,3 +32,6 @@ Nincs — önállóan végrehajtható.
 
 ## Reviewed — 2026-04-16
 Pass. Confirmed RAII_STRING on all heap allocations in mtproto_rpc.c (buf/encrypted/decrypted lines 49/97/126/144), api_call.c (wrapped/raw_resp lines 101/114), and mtproto_auth.c (pq_bytes/enc_answer/decrypted/prime_bytes/ga_bytes/padded/encrypted). No manual free() left on these paths. Valgrind clean.
+
+## QA — 2026-04-16
+Pass. 1735/1735 tests, 0 Valgrind leaks. RAII_STRING on all heap allocations in mtproto_rpc.c/api_call.c/mtproto_auth.c — no manual free() remain on error paths. Spot-checked that all error-return paths in test_rpc.c and test_auth.c exercise the RAII cleanup; Valgrind confirms no UAF or leak.

@@ -22,3 +22,6 @@ None
 
 ## Reviewed — 2026-04-16
 Pass. Confirmed cache_store.c adds logger_log(LOG_ERROR,...) on mkdir_p failure (line 46), fopen failure (line 52), fwrite short-write (line 57), cache_load NULL path (line 84), cache_load missing data (line 90, DEBUG). Tests added for load-missing and save-mkdir-fails (test_cache.c lines 60-95).
+
+## QA — 2026-04-16
+Pass. cache_store.c emits logger_log on mkdir_p fail (L46), fopen fail (L52), short fwrite (L57), NULL cache_path (L84), missing data (L90 DEBUG). test_cache.c has regression tests for load-missing-file and save-mkdir-fails. Valgrind clean.

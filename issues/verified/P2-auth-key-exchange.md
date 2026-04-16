@@ -19,3 +19,6 @@ src/core/mtproto_auth.h/c — full 8-step DH exchange with tests
 
 ## Reviewed — 2026-04-16
 Pass. Confirmed module moved to src/infrastructure/mtproto_auth.{c,h} (layering correct — infra may depend on core+transport+rpc). RAII_STRING on pq_bytes, enc_answer, decrypted, prime_bytes, ga_bytes, padded, encrypted. auth_step_req_pq/req_dh/parse_dh/set_client_dh all have full Doxygen @param/@return.
+
+## QA — 2026-04-16
+Pass. Module relocated to src/infrastructure/mtproto_auth.c — layering correct (no core→infra violation). RAII_STRING on all heap buffers verified by Valgrind (0 leaks across test_auth.c and test_phase2.c). Public functions have full Doxygen @param/@return. All 8 DH handshake steps covered in tests/unit/test_auth.c.

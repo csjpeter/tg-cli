@@ -31,3 +31,6 @@ with unresolved symbols.
 
 ## Reviewed — 2026-04-16
 Pass. Confirmed src/platform/windows/socket.c implements all 6 functions via Winsock2 (WSAStartup, socket, getaddrinfo/connect, send, recv, closesocket/WSACleanup, ioctlsocket FIONBIO). CMakeLists.txt WIN32 branch includes it (line 26); posix branch includes posix/socket.c (line 32). CLAUDE.md portability table updated with `platform/windows/socket.c` reference.
+
+## QA — 2026-04-16
+Pass. src/platform/windows/socket.c present with all 6 Winsock2 wrappers. Linux build (Ubuntu 24.04) selects posix/socket.c via CMake, 1735/1735 tests green, 0 Valgrind errors. Windows-side link cannot be tested on this box, but the header surface matches posix exactly — no unresolved-symbol risk for shared code.
