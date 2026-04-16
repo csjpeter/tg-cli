@@ -233,6 +233,94 @@ static void test_skip_reply_header_minimal(void) {
     tl_writer_free(&w);
 }
 
+/* ---- Error / short-buffer coverage ---- */
+
+static void test_skip_bool_short(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, 0); /* only 4 bytes */
+    TlReader r = tl_reader_init(w.data, 2); /* truncated */
+    ASSERT(tl_skip_bool(&r) == -1, "short bool rejected");
+    tl_writer_free(&w);
+}
+
+static void test_skip_notification_sound_unknown(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, 0xDEADBEEF);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_notification_sound(&r) == -1, "unknown NS rejected");
+    tl_writer_free(&w);
+}
+
+static void test_skip_peer_notify_settings_wrong_crc(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, 0xBADF00D);
+    tl_write_uint32(&w, 0);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_peer_notify_settings(&r) == -1, "wrong CRC rejected");
+    tl_writer_free(&w);
+}
+
+static void test_skip_draft_message_nonempty(void) {
+    /* Non-empty draftMessage (0x3fccf7ef) is not parseable yet — must bail. */
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, 0x3fccf7efu);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_draft_message(&r) == -1, "non-empty draft bails");
+    tl_writer_free(&w);
+}
+
+static void test_skip_draft_message_unknown(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, 0xCAFEBABE);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_draft_message(&r) == -1, "unknown draft rejected");
+    tl_writer_free(&w);
+}
+
+static void test_skip_message_entity_unknown(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, 0xDEADCAFE);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_entity(&r) == -1, "unknown entity rejected");
+    tl_writer_free(&w);
+}
+
+static void test_skip_entities_vector_wrong_header(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, 0xBADBADBA); /* not TL_vector */
+    tl_write_uint32(&w, 0);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_entities_vector(&r) == -1, "non-vector rejected");
+    tl_writer_free(&w);
+}
+
+static void test_skip_fwd_header_wrong_crc(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, 0x12345678);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_fwd_header(&r) == -1, "bad fwd crc rejected");
+    tl_writer_free(&w);
+}
+
+static void test_skip_reply_header_wrong_crc(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, 0x87654321);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_reply_header(&r) == -1, "bad reply crc rejected");
+    tl_writer_free(&w);
+}
+
+static void test_skip_reply_header_reply_media_bail(void) {
+    /* flags.8 set → reply_media is present but we haven't implemented the
+     * MessageMedia skipper, so must bail. */
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, 0xafbc09dbu);
+    tl_write_uint32(&w, (1u << 8));
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_reply_header(&r) == -1, "reply_media bail");
+    tl_writer_free(&w);
+}
+
 void run_tl_skip_tests(void) {
     RUN_TEST(test_skip_bool);
     RUN_TEST(test_skip_string);
@@ -250,4 +338,14 @@ void run_tl_skip_tests(void) {
     RUN_TEST(test_skip_fwd_header_minimal);
     RUN_TEST(test_skip_fwd_header_with_channel);
     RUN_TEST(test_skip_reply_header_minimal);
+    RUN_TEST(test_skip_bool_short);
+    RUN_TEST(test_skip_notification_sound_unknown);
+    RUN_TEST(test_skip_peer_notify_settings_wrong_crc);
+    RUN_TEST(test_skip_draft_message_nonempty);
+    RUN_TEST(test_skip_draft_message_unknown);
+    RUN_TEST(test_skip_message_entity_unknown);
+    RUN_TEST(test_skip_entities_vector_wrong_header);
+    RUN_TEST(test_skip_fwd_header_wrong_crc);
+    RUN_TEST(test_skip_reply_header_wrong_crc);
+    RUN_TEST(test_skip_reply_header_reply_media_bail);
 }

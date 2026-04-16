@@ -38,3 +38,16 @@ LOW — no runtime bug, but reduced confidence in untested code paths.
 
 ## Dependencies
 QA-08 (integration tests — related but separate scope)
+
+## Verified — 2026-04-16
+Core + infrastructure (TUI excluded) line coverage measured with
+gcov/lcov:
+
+| Scope | Before | After |
+|-------|--------|-------|
+| core (w/o readline.c TUI) | 73.8% | 87.8% |
+| infrastructure | 81.5% | 89.6% |
+| core + infra (w/o readline) | 78.1% | 89.9% |
+
+`readline.c` intentionally excluded — it exercises terminal raw-mode
+paths that require a PTY harness; tracked as US-02.
