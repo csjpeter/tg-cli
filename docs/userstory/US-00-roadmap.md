@@ -5,35 +5,41 @@ Three binaries sharing one MTProto 2.0 codebase:
 `tg-cli-ro` (batch, read-only) · `tg-tui` (interactive) · `tg-cli` (batch r/w).
 See `docs/SPECIFICATION.md` and `docs/adr/0005-three-binary-architecture.md`.
 
-## Done (verified)
-- Phase 1: TL serialization, AES-256-IGE, MTProto crypto primitives
-- Phase 2: TCP transport (abridged), MTProto session, RPC framing
-- Phase 3-01: initConnection wrapper
-- Phase 4: gzip inflate, msg container, rpc_error, constructor registry
+## Working end-to-end (commit-level)
+- Phases 1–4 MTProto stack (verified)
+- ADR-0005 directory split · two binaries `tg-cli-ro`, `tg-tui`
+- US-05 `me` · US-04 `dialogs` (one per page) · US-06 `history` (self + @peer)
+- US-07 `watch` poll loop · US-09 `user-info` · US-10 `search` (peer + global)
+- US-11 tg-tui MVP REPL
+- Session persistence + `--logout` · `bad_server_salt` auto-retry
+- Message text extraction for simple-flag messages (no fwd/reply/media)
+- P4-04 DC migration (PHONE/USER/NETWORK_MIGRATE handling)
 
-## Ready for review
-- P3-02 auth.sendCode + auth.signIn
-- P8-01 argument parser · P9-01 readline
-- ARCH-01…04 · QA-01…09
+## Known v1 limitations
+- `dialogs` parses only the first Dialog entry (`PeerNotifySettings` skip
+  is schema-fragile). Tracked for v2.
+- `history` / `search` / `updates` stop after the first Message (same).
+- Messages with `fwd_from`, `reply_to`, `media`, `reply_markup`,
+  `via_bot_id` or `entities` flags are reported with `complex=1` and
+  no text extraction. v2 needs a schema-table skipper.
+- 2FA (P3-03) not yet implemented; accounts with 2FA will fail login.
+- Media download (US-08) not implemented.
+- Title join across `users`/`chats` vectors in dialog listings: deferred.
 
-## Active implementation order (tg-cli-ro first)
-1. ~~ADR-0005 directory split~~ · `src/app/`, `src/domain/read/`, binaries ✅
-2. ~~US-05 self info~~ · `domain_get_self()` + `tg-cli-ro me` ✅
-3. ~~P4-04 DC migration~~ · `auth_flow_login()` + PHONE/USER/NETWORK_MIGRATE ✅
-4. ~~US-04 list dialogs~~ · minimal parser + `tg-cli-ro dialogs` ✅
-5. ~~US-06 read history~~ · inputPeerSelf / Saved Messages ✅
-6. ~~US-07 watch~~ · 30s poll loop + SIGINT ✅
-7. ~~US-11 tg-tui MVP~~ · interactive readline shell ✅
-8. **P3-03 2FA password** — SRP flow (blocker for 2FA users)
-9. **US-09 resolve** — `contacts.resolveUsername` → unlocks non-self peers
-10. **US-10 search** · **US-08 media download**
-11. Full-text message parsing (v2 of US-06 / US-07)
-12. Future: `src/domain/write/` + `tg-cli` (US-12)
+## Backlog by priority
+1. **P3-03 2FA password (SRP)** — needed for 2FA accounts. Requires
+   crypto wrapper additions (PBKDF2-HMAC-SHA512).
+2. **Multi-entry parse v2** — iterate full vectors in history/search/
+   dialogs/updates using a small schema-table or field skipper.
+3. **Dialog title enrichment** — join dialog peer with users/chats vectors.
+4. **US-08 media download** — `upload.getFile` chunked.
+5. **Full-screen TUI** (US-11 v2) — panes, live redraw, kbd navigation.
+6. Future: `src/domain/write/` + `tg-cli` batch r/w (US-12).
 
 ## Quality gates
 zero warnings · zero ASAN · zero Valgrind leaks · core+infra ≥ 90% (TUI deferred)
 
 ## Current focus
-First vertical read-only slice (steps 1–7) is in place end-to-end. Next
-dependencies: **P3-03 2FA** and **US-09 resolve-username** widen the peer
-space beyond Saved Messages.
+v1 foundations are complete. Next impactful step: **P3-03 2FA** to unlock
+2FA-enabled accounts, or **multi-entry parse v2** to surface more than
+one message/dialog per call. Pick based on real-world testing feedback.
