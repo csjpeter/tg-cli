@@ -18,6 +18,7 @@
 #include "api_call.h"
 #include "mtproto_session.h"
 #include "transport.h"
+#include "tl_skip.h"           /* MediaKind + MediaInfo */
 
 #include <stddef.h>
 #include <stdint.h>
@@ -26,12 +27,15 @@
 #define HISTORY_TEXT_MAX 512
 
 typedef struct {
-    int32_t id;
-    int32_t date;       /**< Unix epoch seconds, 0 if unknown. */
-    int     out;        /**< Non-zero if message is outgoing. */
-    char    text[HISTORY_TEXT_MAX]; /**< Empty if complex/unparseable. */
-    int     truncated;  /**< Non-zero if text was cut at HISTORY_TEXT_MAX. */
-    int     complex;    /**< Non-zero if fwd_from / reply_to / media / etc. */
+    int32_t   id;
+    int32_t   date;     /**< Unix epoch seconds, 0 if unknown. */
+    int       out;      /**< Non-zero if message is outgoing. */
+    char      text[HISTORY_TEXT_MAX]; /**< Empty if complex/unparseable. */
+    int       truncated;
+    int       complex;  /**< Non-zero if a trailing unsupported flag bailed. */
+    MediaKind media;    /**< MEDIA_NONE when flags.9 absent. */
+    int64_t   media_id; /**< photo_id or document_id, 0 when N/A. */
+    int32_t   media_dc; /**< dc_id for photos; 0 otherwise. */
 } HistoryEntry;
 
 /** @brief InputPeer kind used when building the getHistory request. */

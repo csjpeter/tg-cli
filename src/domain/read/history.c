@@ -160,7 +160,16 @@ static int parse_message(TlReader *r, HistoryEntry *out) {
      * Media is attempted first; if it fails the Message is left
      * mid-parse but we have at least captured id/date/text. */
     if (flags & (1u << 9)) {
-        if (tl_skip_message_media(r) != 0) { out->complex = 1; return -1; }
+        MediaInfo mi = {0};
+        if (tl_skip_message_media_ex(r, &mi) != 0) {
+            out->media = mi.kind;
+            out->complex = 1;
+            return -1;
+        }
+        out->media    = mi.kind;
+        out->media_id = (mi.kind == MEDIA_PHOTO) ? mi.photo_id
+                      : (mi.kind == MEDIA_DOCUMENT) ? mi.document_id : 0;
+        out->media_dc = mi.dc_id;
     }
 
     /* reply_markup: still no skipper — stop iteration. */

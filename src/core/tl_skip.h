@@ -65,6 +65,32 @@ int tl_skip_document(TlReader *r);
  *  returns -1 so the caller stops iterating. */
 int tl_skip_message_media(TlReader *r);
 
+/** @brief Media kind observed while skipping. */
+typedef enum {
+    MEDIA_NONE = 0,
+    MEDIA_EMPTY,
+    MEDIA_UNSUPPORTED,
+    MEDIA_PHOTO,
+    MEDIA_DOCUMENT,
+    MEDIA_GEO,
+    MEDIA_CONTACT,
+    MEDIA_VENUE,
+    MEDIA_GEO_LIVE,
+    MEDIA_DICE,
+    MEDIA_OTHER,
+} MediaKind;
+
+/** @brief Minimal media metadata pulled while skipping. */
+typedef struct {
+    MediaKind kind;
+    int64_t   photo_id;    /**< set for MEDIA_PHOTO if non-empty */
+    int64_t   document_id; /**< set for MEDIA_DOCUMENT if non-empty */
+    int32_t   dc_id;       /**< set for photo (MEDIA_PHOTO) */
+} MediaInfo;
+
+/** @brief Like tl_skip_message_media but fills @p out with basic metadata. */
+int tl_skip_message_media_ex(TlReader *r, MediaInfo *out);
+
 /* ---- Chat / User support ---- */
 
 /** Skip a ChatPhoto (chatPhotoEmpty or chatPhoto). */

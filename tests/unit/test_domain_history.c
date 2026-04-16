@@ -322,6 +322,49 @@ static void test_history_iterates_with_entities(void) {
 }
 
 /* With the MessageMedia skipper, media-bearing messages now iterate. */
+/* Message with messageMediaPhoto carrying a photoEmpty — parser should
+ * populate media=MEDIA_PHOTO, media_id=photo_id. */
+static void test_history_media_photo_info(void) {
+    mock_socket_reset(); mock_crypto_reset();
+
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, TL_messages_messages);
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+
+    tl_write_uint32(&w, TL_message);
+    tl_write_uint32(&w, (1u << 9));
+    tl_write_uint32(&w, 0);
+    tl_write_int32 (&w, 77);
+    tl_write_uint32(&w, TL_peerUser);
+    tl_write_int64 (&w, 100LL);
+    tl_write_int32 (&w, 1700000000);
+    tl_write_string(&w, "check this");
+    /* messageMediaPhoto with flags=0x01 (photo present) → photoEmpty#2331b22d id:long */
+    tl_write_uint32(&w, 0x695150d7u);    /* messageMediaPhoto */
+    tl_write_uint32(&w, (1u << 0));
+    tl_write_uint32(&w, 0x2331b22du);    /* photoEmpty */
+    tl_write_int64 (&w, 99999999LL);
+
+    uint8_t payload[512]; memcpy(payload, w.data, w.len);
+    size_t plen = w.len; tl_writer_free(&w);
+
+    uint8_t resp[1024]; size_t rlen = 0;
+    build_fake_encrypted_response(payload, plen, resp, &rlen);
+    mock_socket_set_response(resp, rlen);
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    fix_session(&s); fix_transport(&t); fix_cfg(&cfg);
+
+    HistoryEntry e[3] = {0}; int n = 0;
+    int rc = domain_get_history_self(&cfg, &s, &t, 0, 3, e, &n);
+    ASSERT(rc == 0, "media photo info parsed");
+    ASSERT(n == 1, "one entry");
+    ASSERT(e[0].media == MEDIA_PHOTO, "kind=photo");
+    ASSERT(e[0].media_id == 99999999LL, "photo_id captured");
+    ASSERT(strcmp(e[0].text, "check this") == 0, "text preserved");
+}
+
 static void test_history_iterates_with_media_geo(void) {
     mock_socket_reset(); mock_crypto_reset();
 
@@ -429,6 +472,7 @@ void run_domain_history_tests(void) {
     RUN_TEST(test_history_iterates_multiple);
     RUN_TEST(test_history_iterates_with_entities);
     RUN_TEST(test_history_iterates_with_media_geo);
+    RUN_TEST(test_history_media_photo_info);
     RUN_TEST(test_history_stops_on_reply_markup);
     RUN_TEST(test_history_null_args);
 }

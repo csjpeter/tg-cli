@@ -460,13 +460,16 @@ int tl_skip_photo_size_vector(TlReader *r) {
  *                sizes:Vector<PhotoSize>
  *                video_sizes:flags.1?Vector<VideoSize>     <- BAIL
  *                dc_id:int
+ *
+ * Internal helper optionally exposes id and dc_id (for P6-03 media info).
  */
-int tl_skip_photo(TlReader *r) {
+static int photo_inner(TlReader *r, int64_t *id_out, int32_t *dc_id_out) {
     if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
     uint32_t crc = tl_read_uint32(r);
     if (crc == CRC_photoEmpty) {
         if (r->len - r->pos < 8) return -1;
-        tl_read_int64(r);
+        int64_t id = tl_read_int64(r);
+        if (id_out) *id_out = id;
         return 0;
     }
     if (crc != CRC_photo) {
@@ -475,25 +478,26 @@ int tl_skip_photo(TlReader *r) {
     }
     if (r->len - r->pos < 4) return -1;
     uint32_t flags = tl_read_uint32(r);
-    /* id:long + access_hash:long */
     if (r->len - r->pos < 16) return -1;
-    tl_read_int64(r); tl_read_int64(r);
-    /* file_reference:bytes */
-    if (tl_skip_string(r) != 0) return -1;
-    /* date:int */
+    int64_t id = tl_read_int64(r);
+    if (id_out) *id_out = id;
+    tl_read_int64(r); /* access_hash */
+    if (tl_skip_string(r) != 0) return -1; /* file_reference */
     if (r->len - r->pos < 4) return -1;
-    tl_read_int32(r);
-    /* sizes:Vector<PhotoSize> */
+    tl_read_int32(r); /* date */
     if (tl_skip_photo_size_vector(r) != 0) return -1;
     if (flags & (1u << 1)) {
-        /* video_sizes — we don't implement VideoSize yet. */
         logger_log(LOG_WARN, "tl_skip_photo: video_sizes not implemented");
         return -1;
     }
-    /* dc_id:int */
     if (r->len - r->pos < 4) return -1;
-    tl_read_int32(r);
+    int32_t dc = tl_read_int32(r);
+    if (dc_id_out) *dc_id_out = dc;
     return 0;
+}
+
+int tl_skip_photo(TlReader *r) {
+    return photo_inner(r, NULL, NULL);
 }
 
 /* ---- Document skipper ----
@@ -503,12 +507,13 @@ int tl_skip_photo(TlReader *r) {
  * reach us typically have Photo, not Document. Callers treating a
  * Document as complex+stop-iter is acceptable for v1.
  */
-int tl_skip_document(TlReader *r) {
+static int document_inner(TlReader *r, int64_t *id_out) {
     if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
     uint32_t crc = tl_read_uint32(r);
     if (crc == CRC_documentEmpty) {
         if (r->len - r->pos < 8) return -1;
-        tl_read_int64(r);
+        int64_t id = tl_read_int64(r);
+        if (id_out) *id_out = id;
         return 0;
     }
     if (crc == CRC_document) {
@@ -517,6 +522,10 @@ int tl_skip_document(TlReader *r) {
     }
     logger_log(LOG_WARN, "tl_skip_document: unknown 0x%08x", crc);
     return -1;
+}
+
+int tl_skip_document(TlReader *r) {
+    return document_inner(r, NULL);
 }
 
 /* Skip GeoPoint: empty → CRC-only; geoPoint → CRC + long lat + long long +
@@ -548,88 +557,101 @@ static int skip_geo_point(TlReader *r) {
  * Common variants supported; unusual ones (Poll, Story, Game, Invoice,
  * Giveaway, PaidMedia, WebPage, ...) bail with -1.
  */
-int tl_skip_message_media(TlReader *r) {
+int tl_skip_message_media_ex(TlReader *r, MediaInfo *out) {
+    if (out) memset(out, 0, sizeof(*out));
     if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
     uint32_t crc = tl_read_uint32(r);
     switch (crc) {
     case CRC_messageMediaEmpty:
+        if (out) out->kind = MEDIA_EMPTY;
+        return 0;
     case CRC_messageMediaUnsupported:
+        if (out) out->kind = MEDIA_UNSUPPORTED;
         return 0;
 
     case CRC_messageMediaGeo:
+        if (out) out->kind = MEDIA_GEO;
         return skip_geo_point(r);
 
     case CRC_messageMediaContact:
-        if (tl_skip_string(r) != 0) return -1; /* phone_number */
-        if (tl_skip_string(r) != 0) return -1; /* first_name */
-        if (tl_skip_string(r) != 0) return -1; /* last_name */
-        if (tl_skip_string(r) != 0) return -1; /* vcard */
+        if (out) out->kind = MEDIA_CONTACT;
+        if (tl_skip_string(r) != 0) return -1;
+        if (tl_skip_string(r) != 0) return -1;
+        if (tl_skip_string(r) != 0) return -1;
+        if (tl_skip_string(r) != 0) return -1;
         if (r->len - r->pos < 8) return -1;
-        tl_read_int64(r);                      /* user_id */
+        tl_read_int64(r);
         return 0;
 
     case CRC_messageMediaVenue:
+        if (out) out->kind = MEDIA_VENUE;
         if (skip_geo_point(r) != 0) return -1;
-        if (tl_skip_string(r) != 0) return -1; /* title */
-        if (tl_skip_string(r) != 0) return -1; /* address */
-        if (tl_skip_string(r) != 0) return -1; /* provider */
-        if (tl_skip_string(r) != 0) return -1; /* venue_id */
-        if (tl_skip_string(r) != 0) return -1; /* venue_type */
+        if (tl_skip_string(r) != 0) return -1;
+        if (tl_skip_string(r) != 0) return -1;
+        if (tl_skip_string(r) != 0) return -1;
+        if (tl_skip_string(r) != 0) return -1;
+        if (tl_skip_string(r) != 0) return -1;
         return 0;
 
     case CRC_messageMediaGeoLive: {
+        if (out) out->kind = MEDIA_GEO_LIVE;
         if (r->len - r->pos < 4) return -1;
         uint32_t flags = tl_read_uint32(r);
         if (skip_geo_point(r) != 0) return -1;
         if (flags & 1u) { if (r->len - r->pos < 4) return -1; tl_read_int32(r); }
         if (r->len - r->pos < 4) return -1;
-        tl_read_int32(r); /* period */
+        tl_read_int32(r);
         if (flags & (1u << 1)) { if (r->len - r->pos < 4) return -1; tl_read_int32(r); }
         return 0;
     }
 
     case CRC_messageMediaDice:
+        if (out) out->kind = MEDIA_DICE;
         if (r->len - r->pos < 4) return -1;
-        tl_read_int32(r);                      /* value */
-        return tl_skip_string(r);              /* emoticon */
+        tl_read_int32(r);
+        return tl_skip_string(r);
 
     case CRC_messageMediaPhoto: {
-        /* messageMediaPhoto flags:# spoiler:flags.3?true
-         *                   photo:flags.0?Photo ttl_seconds:flags.2?int */
+        if (out) out->kind = MEDIA_PHOTO;
         if (r->len - r->pos < 4) return -1;
         uint32_t flags = tl_read_uint32(r);
-        if (flags & (1u << 0)) if (tl_skip_photo(r) != 0) return -1;
+        if (flags & (1u << 0)) {
+            int64_t id = 0; int32_t dc = 0;
+            if (photo_inner(r, &id, &dc) != 0) return -1;
+            if (out) { out->photo_id = id; out->dc_id = dc; }
+        }
         if (flags & (1u << 2)) { if (r->len - r->pos < 4) return -1; tl_read_int32(r); }
         return 0;
     }
 
     case CRC_messageMediaDocument: {
-        /* messageMediaDocument flags:# nopremium:flags.3?true
-         *                      spoiler:flags.4?true video:flags.6?true
-         *                      round:flags.7?true voice:flags.8?true
-         *                      document:flags.0?Document
-         *                      alt_documents:flags.5?Vector<Document>
-         *                      ttl_seconds:flags.2?int
-         *                      (plus newer layer fields — bail if we see
-         *                       any unexpected bits above 8) */
+        if (out) out->kind = MEDIA_DOCUMENT;
         if (r->len - r->pos < 4) return -1;
         uint32_t flags = tl_read_uint32(r);
-        /* Unsupported flags that carry their own fields. */
         if (flags & ((1u << 5) | (1u << 9) | (1u << 10) | (1u << 11))) {
             logger_log(LOG_WARN,
                        "tl_skip_message_media: document with unsupported flags 0x%x",
                        flags);
             return -1;
         }
-        if (flags & (1u << 0)) if (tl_skip_document(r) != 0) return -1;
+        if (flags & (1u << 0)) {
+            int64_t id = 0;
+            if (document_inner(r, &id) != 0) return -1;
+            if (out) out->document_id = id;
+        }
         if (flags & (1u << 2)) { if (r->len - r->pos < 4) return -1; tl_read_int32(r); }
         return 0;
     }
 
     default:
+        if (out) out->kind = MEDIA_OTHER;
         logger_log(LOG_WARN, "tl_skip_message_media: unsupported 0x%08x", crc);
         return -1;
     }
+}
+
+int tl_skip_message_media(TlReader *r) {
+    return tl_skip_message_media_ex(r, NULL);
 }
 
 /* ---- Chat / User helpers ---- */

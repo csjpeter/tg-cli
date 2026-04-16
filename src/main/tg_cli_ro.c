@@ -414,27 +414,43 @@ static int cmd_history(const ArgResult *args) {
         return 1;
     }
 
+    static const char *media_label[] = {
+        [MEDIA_NONE] = "", [MEDIA_EMPTY] = "", [MEDIA_UNSUPPORTED] = "unsup",
+        [MEDIA_PHOTO] = "photo", [MEDIA_DOCUMENT] = "doc", [MEDIA_GEO] = "geo",
+        [MEDIA_CONTACT] = "contact", [MEDIA_VENUE] = "venue",
+        [MEDIA_GEO_LIVE] = "geo_live", [MEDIA_DICE] = "dice", [MEDIA_OTHER] = "other",
+    };
     if (args->json) {
         printf("[");
         for (int i = 0; i < count; i++) {
             if (i) printf(",");
-            printf("{\"id\":%d,\"out\":%s,\"date\":%d,"
-                   "\"text\":\"%s\",\"complex\":%s}",
+            printf("{\"id\":%d,\"out\":%s,\"date\":%d,\"text\":\"%s\","
+                   "\"complex\":%s,\"media\":\"%s\",\"media_id\":%lld}",
                    entries[i].id,
                    entries[i].out ? "true" : "false",
-                   entries[i].date,
-                   entries[i].text,
-                   entries[i].complex ? "true" : "false");
+                   entries[i].date, entries[i].text,
+                   entries[i].complex ? "true" : "false",
+                   media_label[entries[i].media],
+                   (long long)entries[i].media_id);
         }
         printf("]\n");
     } else {
         for (int i = 0; i < count; i++) {
-            printf("[%d] %s %d %s\n",
-                   entries[i].id,
-                   entries[i].out ? ">" : "<",
-                   entries[i].date,
-                   entries[i].complex ? "(complex — text not parsed)"
-                                       : entries[i].text);
+            const char *ml = media_label[entries[i].media];
+            if (entries[i].complex) {
+                printf("[%d] %s %d (complex — text not parsed)\n",
+                       entries[i].id, entries[i].out ? ">" : "<",
+                       entries[i].date);
+            } else if (ml[0]) {
+                printf("[%d] %s %d [%s:%lld] %s\n",
+                       entries[i].id, entries[i].out ? ">" : "<",
+                       entries[i].date, ml,
+                       (long long)entries[i].media_id, entries[i].text);
+            } else {
+                printf("[%d] %s %d %s\n",
+                       entries[i].id, entries[i].out ? ">" : "<",
+                       entries[i].date, entries[i].text);
+            }
         }
         if (count == 0) printf("(no messages)\n");
     }
