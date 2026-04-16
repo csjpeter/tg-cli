@@ -27,6 +27,8 @@ void run_arg_parse_tests(void);
 void run_readline_tests(void);
 void run_domain_self_tests(void);
 void run_domain_dialogs_tests(void);
+void run_domain_history_tests(void);
+void run_domain_updates_tests(void);
 void run_dc_config_tests(void);
 
 int main() {
@@ -54,6 +56,8 @@ int main() {
     RUN_TEST(run_readline_tests);
     RUN_TEST(run_domain_self_tests);
     RUN_TEST(run_domain_dialogs_tests);
+    RUN_TEST(run_domain_history_tests);
+    RUN_TEST(run_domain_updates_tests);
     RUN_TEST(run_dc_config_tests);
 
     printf("\n--- Test Results ---\n");

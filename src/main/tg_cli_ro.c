@@ -14,10 +14,14 @@
 
 #include "domain/read/self.h"
 #include "domain/read/dialogs.h"
+#include "domain/read/history.h"
+#include "domain/read/updates.h"
 
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 /* ---- Batch-mode input callbacks (values come from --phone/--code flags) ---- */
 
@@ -140,6 +144,109 @@ static const char *peer_kind_name(DialogPeerKind k) {
     }
 }
 
+static volatile sig_atomic_t g_stop = 0;
+static void on_sigint(int sig) { (void)sig; g_stop = 1; }
+
+static int cmd_watch(const ArgResult *args) {
+    ApiConfig cfg; MtProtoSession s; Transport t;
+    int brc = session_bringup(args, &cfg, &s, &t);
+    if (brc != 0) return brc;
+
+    signal(SIGINT, on_sigint);
+
+    UpdatesState state = {0};
+    if (domain_updates_state(&cfg, &s, &t, &state) != 0) {
+        fprintf(stderr, "tg-cli-ro watch: getState failed\n");
+        transport_close(&t);
+        return 1;
+    }
+    if (!args->quiet)
+        fprintf(stderr, "watch: seeded pts=%d qts=%d date=%d, "
+                        "polling every 30s (SIGINT to quit)\n",
+                        state.pts, state.qts, state.date);
+
+    while (!g_stop) {
+        UpdatesDifference diff = {0};
+        if (domain_updates_difference(&cfg, &s, &t, &state, &diff) != 0) {
+            fprintf(stderr, "watch: getDifference failed, retrying in 30s\n");
+        } else {
+            state = diff.next_state;
+            if (args->json) {
+                printf("{\"new_messages\":%d,\"empty\":%s,\"too_long\":%s,"
+                       "\"pts\":%d,\"date\":%d}\n",
+                       diff.new_messages_count,
+                       diff.is_empty ? "true" : "false",
+                       diff.is_too_long ? "true" : "false",
+                       state.pts, state.date);
+            } else {
+                printf("new_messages=%d empty=%d too_long=%d pts=%d date=%d\n",
+                       diff.new_messages_count,
+                       diff.is_empty, diff.is_too_long,
+                       state.pts, state.date);
+            }
+            fflush(stdout);
+        }
+        /* Sleep in 1-second chunks so SIGINT is responsive. */
+        for (int i = 0; i < 30 && !g_stop; i++) sleep(1);
+    }
+
+    transport_close(&t);
+    return 0;
+}
+
+static int cmd_history(const ArgResult *args) {
+    if (!args->peer || strcmp(args->peer, "self") != 0) {
+        fprintf(stderr,
+                "tg-cli-ro history: v1 only supports 'self' peer "
+                "(Saved Messages). Other peers require US-09 (resolve).\n");
+        return 2;
+    }
+
+    ApiConfig cfg; MtProtoSession s; Transport t;
+    int brc = session_bringup(args, &cfg, &s, &t);
+    if (brc != 0) return brc;
+
+    int limit = args->limit > 0 ? args->limit : 20;
+    if (limit > 100) limit = 100;
+    int offset = args->offset > 0 ? args->offset : 0;
+
+    HistoryEntry *entries = calloc((size_t)limit, sizeof(HistoryEntry));
+    if (!entries) { transport_close(&t); return 1; }
+
+    int count = 0;
+    int rc = domain_get_history_self(&cfg, &s, &t, offset, limit,
+                                      entries, &count);
+    transport_close(&t);
+    if (rc != 0) {
+        fprintf(stderr, "tg-cli-ro history: failed (see logs)\n");
+        free(entries);
+        return 1;
+    }
+
+    if (args->json) {
+        printf("[");
+        for (int i = 0; i < count; i++) {
+            if (i) printf(",");
+            printf("{\"id\":%d,\"out\":%s,\"date\":%d}",
+                   entries[i].id,
+                   entries[i].out ? "true" : "false",
+                   entries[i].date);
+        }
+        printf("]\n");
+    } else {
+        printf("%-8s %-4s %10s\n", "id", "out", "date");
+        for (int i = 0; i < count; i++) {
+            printf("%-8d %-4s %10d\n",
+                   entries[i].id,
+                   entries[i].out ? "yes" : "no",
+                   entries[i].date);
+        }
+        if (count == 0) printf("(no messages)\n");
+    }
+    free(entries);
+    return 0;
+}
+
 static int cmd_dialogs(const ArgResult *args) {
     ApiConfig cfg; MtProtoSession s; Transport t;
     int brc = session_bringup(args, &cfg, &s, &t);
@@ -234,8 +341,7 @@ int main(int argc, char **argv) {
         case CMD_DIALOGS:
             exit_code = cmd_dialogs(&args); break;
         case CMD_HISTORY:
-            fprintf(stderr, "tg-cli-ro history: not implemented yet (US-06)\n");
-            exit_code = 2; break;
+            exit_code = cmd_history(&args); break;
         case CMD_SEARCH:
             fprintf(stderr, "tg-cli-ro search: not implemented yet (US-10)\n");
             exit_code = 2; break;
@@ -244,8 +350,7 @@ int main(int argc, char **argv) {
             fprintf(stderr, "tg-cli-ro: not implemented yet (US-09)\n");
             exit_code = 2; break;
         case CMD_WATCH:
-            fprintf(stderr, "tg-cli-ro watch: not implemented yet (US-07)\n");
-            exit_code = 2; break;
+            exit_code = cmd_watch(&args); break;
         case CMD_SEND:
             fprintf(stderr, "tg-cli-ro: send is not available in read-only mode\n");
             exit_code = 2; break;
