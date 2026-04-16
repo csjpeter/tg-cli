@@ -50,6 +50,7 @@ add_library(tg-proto STATIC
     src/core/logger.c
     src/core/fs_util.c
     src/core/tl_serial.c
+    src/core/tl_skip.c
     src/core/ige_aes.c
     src/core/mtproto_crypto.c
     src/core/mtproto_session.c

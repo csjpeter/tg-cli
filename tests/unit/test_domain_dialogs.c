@@ -20,6 +20,7 @@
 #include <string.h>
 
 #define CRC_dialog 0xd58a08c6u
+#define CRC_peerNotifySettings 0xa83b0426u
 
 static void build_fake_encrypted_response(const uint8_t *payload, size_t plen,
                                           uint8_t *out, size_t *out_len) {
@@ -62,9 +63,27 @@ static void fix_cfg(ApiConfig *cfg) {
     cfg->api_id = 12345; cfg->api_hash = "deadbeef";
 }
 
-/* Build a messages.dialogsSlice with exactly ONE dialog so our v1 parser
- * can inspect it. Extra trailing fields of the Dialog are omitted because
- * the parser stops after the mandatory prefix. */
+/* Write a full Dialog record including the required trailer (counts +
+ * empty PeerNotifySettings). */
+static void write_dialog(TlWriter *w,
+                          uint32_t peer_crc, int64_t peer_id,
+                          int32_t top_msg, int32_t unread) {
+    tl_write_uint32(w, CRC_dialog);
+    tl_write_uint32(w, 0);          /* flags */
+    tl_write_uint32(w, peer_crc);
+    tl_write_int64 (w, peer_id);
+    tl_write_int32 (w, top_msg);    /* top_message */
+    tl_write_int32 (w, 0);          /* read_inbox_max_id */
+    tl_write_int32 (w, 0);          /* read_outbox_max_id */
+    tl_write_int32 (w, unread);     /* unread_count */
+    tl_write_int32 (w, 0);          /* unread_mentions_count */
+    tl_write_int32 (w, 0);          /* unread_reactions_count */
+    /* PeerNotifySettings with no flags. */
+    tl_write_uint32(w, CRC_peerNotifySettings);
+    tl_write_uint32(w, 0);
+}
+
+/* Build a messages.dialogsSlice with exactly ONE dialog. */
 static size_t make_one_dialog_payload(uint8_t *buf, size_t max,
                                        uint32_t peer_crc, int64_t peer_id,
                                        int32_t top_msg, int32_t unread) {
@@ -74,20 +93,52 @@ static size_t make_one_dialog_payload(uint8_t *buf, size_t max,
     tl_write_int32 (&w, 1);                  /* count */
     tl_write_uint32(&w, TL_vector);
     tl_write_uint32(&w, 1);                  /* dialogs count */
-
-    tl_write_uint32(&w, CRC_dialog);
-    tl_write_uint32(&w, 0);                  /* flags */
-    tl_write_uint32(&w, peer_crc);
-    tl_write_int64 (&w, peer_id);
-    tl_write_int32 (&w, top_msg);            /* top_message */
-    tl_write_int32 (&w, 0);                  /* read_inbox_max_id */
-    tl_write_int32 (&w, 0);                  /* read_outbox_max_id */
-    tl_write_int32 (&w, unread);             /* unread_count */
+    write_dialog(&w, peer_crc, peer_id, top_msg, unread);
 
     size_t n = w.len < max ? w.len : max;
     memcpy(buf, w.data, n);
     tl_writer_free(&w);
     return n;
+}
+
+/* Build a messages.dialogsSlice with N dialogs (for v2 iteration test). */
+static size_t make_multi_dialog_payload(uint8_t *buf, size_t max,
+                                         int n_dialogs) {
+    TlWriter w;
+    tl_writer_init(&w);
+    tl_write_uint32(&w, TL_messages_dialogsSlice);
+    tl_write_int32 (&w, n_dialogs);
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, (uint32_t)n_dialogs);
+    for (int i = 0; i < n_dialogs; i++) {
+        write_dialog(&w, TL_peerUser, 1000 + i, 100 + i, i);
+    }
+    size_t res = w.len < max ? w.len : max;
+    memcpy(buf, w.data, res);
+    tl_writer_free(&w);
+    return res;
+}
+
+static void test_dialogs_multi_entries(void) {
+    mock_socket_reset(); mock_crypto_reset();
+
+    uint8_t payload[1024];
+    size_t plen = make_multi_dialog_payload(payload, sizeof(payload), 5);
+    uint8_t resp[2048]; size_t rlen = 0;
+    build_fake_encrypted_response(payload, plen, resp, &rlen);
+    mock_socket_set_response(resp, rlen);
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    fix_session(&s); fix_transport(&t); fix_cfg(&cfg);
+
+    DialogEntry entries[10] = {0};
+    int count = 0;
+    int rc = domain_get_dialogs(&cfg, &s, &t, 10, entries, &count);
+    ASSERT(rc == 0, "multi-entry dialogs parsed");
+    ASSERT(count == 5, "all 5 dialogs iterated");
+    ASSERT(entries[0].peer_id == 1000, "first peer id");
+    ASSERT(entries[4].peer_id == 1004, "last peer id");
+    ASSERT(entries[2].top_message_id == 102, "middle top_msg");
 }
 
 static void test_dialogs_single_user(void) {
@@ -207,6 +258,7 @@ static void test_dialogs_null_args(void) {
 }
 
 void run_domain_dialogs_tests(void) {
+    RUN_TEST(test_dialogs_multi_entries);
     RUN_TEST(test_dialogs_single_user);
     RUN_TEST(test_dialogs_single_channel);
     RUN_TEST(test_dialogs_rpc_error);

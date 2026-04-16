@@ -11,6 +11,7 @@ set(TEST_SOURCES
     test_logger.c
     test_cache.c
     test_tl_serial.c
+    test_tl_skip.c
     test_ige_aes.c
     test_mtproto_crypto.c
     test_phase2.c

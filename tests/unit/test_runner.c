@@ -14,6 +14,7 @@ void test_logger(void);
 void test_cache_store(void);
 void test_platform(void);
 void test_tl_serial(void);
+void run_tl_skip_tests(void);
 void test_ige(void);
 void test_mtproto_crypto(void);
 void test_phase2(void);
@@ -46,6 +47,7 @@ int main() {
     RUN_TEST(test_cache_store);
     RUN_TEST(test_platform);
     RUN_TEST(test_tl_serial);
+    RUN_TEST(run_tl_skip_tests);
     RUN_TEST(test_ige);
     RUN_TEST(test_mtproto_crypto);
     RUN_TEST(test_phase2);

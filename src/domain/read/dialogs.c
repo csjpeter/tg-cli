@@ -7,6 +7,7 @@
 
 #include "tl_serial.h"
 #include "tl_registry.h"
+#include "tl_skip.h"
 #include "mtproto_rpc.h"
 #include "logger.h"
 #include "raii.h"
@@ -143,8 +144,8 @@ int domain_get_dialogs(const ApiConfig *cfg,
         if (!tl_reader_ok(&r)) break;
         uint32_t dcrc = tl_read_uint32(&r);
         if (dcrc == CRC_dialogFolder) {
-            /* Skip: a DialogFolder has a different layout we don't consume
-             * at v1. Breaking out conservatively. */
+            /* dialogFolder has a separate layout — skipping support is a
+             * follow-up. Stop iteration cleanly. */
             logger_log(LOG_DEBUG, "dialogs: folder entry — stopping parse");
             break;
         }
@@ -154,22 +155,37 @@ int domain_get_dialogs(const ApiConfig *cfg,
             break;
         }
 
-        tl_read_uint32(&r); /* flags — we don't read optionals */
+        uint32_t flags = tl_read_uint32(&r);
         DialogEntry e = {0};
         if (parse_peer(&r, &e) != 0) break;
         e.top_message_id = tl_read_int32(&r);
         tl_read_int32(&r); /* read_inbox_max_id */
         tl_read_int32(&r); /* read_outbox_max_id */
         e.unread_count = tl_read_int32(&r);
+        tl_read_int32(&r); /* unread_mentions_count */
+        tl_read_int32(&r); /* unread_reactions_count */
+
+        if (tl_skip_peer_notify_settings(&r) != 0) {
+            logger_log(LOG_WARN,
+                       "dialogs: failed to skip PeerNotifySettings");
+            out[written++] = e;
+            break;
+        }
+
+        if (flags & (1u << 0)) tl_read_int32(&r); /* pts */
+        if (flags & (1u << 1)) {
+            if (tl_skip_draft_message(&r) != 0) {
+                logger_log(LOG_WARN,
+                           "dialogs: complex draft — stopping after entry %u",
+                           i);
+                out[written++] = e;
+                break;
+            }
+        }
+        if (flags & (1u << 4)) tl_read_int32(&r); /* folder_id */
+        if (flags & (1u << 5)) tl_read_int32(&r); /* ttl_period */
 
         out[written++] = e;
-
-        /* Remaining fields of this Dialog are not consumed — our reader
-         * cursor is now mid-object. Since we only extract per-entry data
-         * and stop before the messages/chats/users vectors below, leaving
-         * the cursor here is fine: the caller does not need to read more.
-         * We just break to avoid alignment errors on the next iteration. */
-        break;
     }
 
     *out_count = written;

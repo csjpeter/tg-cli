@@ -45,3 +45,18 @@ types must be added to `tl_registry.h` if missing.
 ## Out of scope
 Full schema-driven parser. Only the listed six nested types, which
 cover > 95% of inbound dialogs/messages.
+
+## Verified — 2026-04-16 (phase 1: dialogs iteration)
+- `src/core/tl_skip.{h,c}` added with skippers for Bool, string, Peer,
+  NotificationSound, PeerNotifySettings, DraftMessageEmpty.
+- `src/domain/read/dialogs.c` now iterates the full `Vector<Dialog>`,
+  reading the required unread_mentions/reactions counts and skipping
+  PeerNotifySettings + optional pts/draft/folder_id/ttl_period.
+- `tests/unit/test_tl_skip.c` — 10 skipper tests (1759 total).
+- `tests/unit/test_domain_dialogs.c` — new `test_dialogs_multi_entries`
+  confirms 5 dialogs are parsed in one response.
+
+## Remaining under same ticket (phase 2)
+- Message-side skippers (MessageFwdHeader, MessageReplyHeader,
+  MessageMedia, Vector<MessageEntity>). Needed for history/search/
+  updates multi-entry iteration and for P5-09 complex-message parse.
