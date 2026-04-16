@@ -8,6 +8,8 @@
 
 #include <string.h>
 #include <stdlib.h>
+#include <unistd.h>
+#include <fcntl.h>
 
 /* ---- Test: no arguments → interactive mode (CMD_NONE) ---- */
 static void test_no_args(void) {
@@ -239,6 +241,113 @@ static void test_null_args(void) {
     ASSERT(arg_parse(1, (char *[]){NULL}, NULL)  == ARG_ERROR, "null out: must return ARG_ERROR");
 }
 
+/* ---- Test: dialogs --limit non-numeric value ---- */
+static void test_dialogs_limit_non_numeric(void) {
+    char *argv[] = {"tg-cli", "dialogs", "--limit", "abc", NULL};
+    ArgResult r;
+    ASSERT(arg_parse(4, argv, &r) == ARG_ERROR,
+           "dialogs --limit abc: must return ARG_ERROR");
+}
+
+/* ---- Test: dialogs unknown option ---- */
+static void test_dialogs_unknown_option(void) {
+    char *argv[] = {"tg-cli", "dialogs", "--bogus", NULL};
+    ArgResult r;
+    ASSERT(arg_parse(3, argv, &r) == ARG_ERROR,
+           "dialogs --bogus: must return ARG_ERROR");
+}
+
+/* ---- Test: history with peer starting with '-' ---- */
+static void test_history_dash_peer(void) {
+    char *argv[] = {"tg-cli", "history", "-notapeer", NULL};
+    ArgResult r;
+    ASSERT(arg_parse(3, argv, &r) == ARG_ERROR,
+           "history -peer: must return ARG_ERROR");
+}
+
+/* ---- Test: history --limit missing value ---- */
+static void test_history_limit_missing(void) {
+    char *argv[] = {"tg-cli", "history", "@u", "--limit", NULL};
+    ArgResult r;
+    ASSERT(arg_parse(4, argv, &r) == ARG_ERROR,
+           "history --limit w/o val: ARG_ERROR");
+}
+
+/* ---- Test: history --limit non-numeric ---- */
+static void test_history_limit_non_numeric(void) {
+    char *argv[] = {"tg-cli", "history", "@u", "--limit", "xyz", NULL};
+    ArgResult r;
+    ASSERT(arg_parse(5, argv, &r) == ARG_ERROR,
+           "history --limit xyz: ARG_ERROR");
+}
+
+/* ---- Test: history --offset missing value ---- */
+static void test_history_offset_missing(void) {
+    char *argv[] = {"tg-cli", "history", "@u", "--offset", NULL};
+    ArgResult r;
+    ASSERT(arg_parse(4, argv, &r) == ARG_ERROR,
+           "history --offset w/o val: ARG_ERROR");
+}
+
+/* ---- Test: history --offset non-numeric ---- */
+static void test_history_offset_non_numeric(void) {
+    char *argv[] = {"tg-cli", "history", "@u", "--offset", "nope", NULL};
+    ArgResult r;
+    ASSERT(arg_parse(5, argv, &r) == ARG_ERROR,
+           "history --offset nope: ARG_ERROR");
+}
+
+/* ---- Test: history unknown option ---- */
+static void test_history_unknown_option(void) {
+    char *argv[] = {"tg-cli", "history", "@u", "--weird", NULL};
+    ArgResult r;
+    ASSERT(arg_parse(4, argv, &r) == ARG_ERROR,
+           "history --weird: ARG_ERROR");
+}
+
+/* ---- Test: send with peer starting with '-' ---- */
+static void test_send_dash_peer(void) {
+    char *argv[] = {"tg-cli", "send", "-peer", "msg", NULL};
+    ArgResult r;
+    ASSERT(arg_parse(4, argv, &r) == ARG_ERROR,
+           "send -peer: must return ARG_ERROR");
+}
+
+/* ---- Test: search with all-dash args ---- */
+static void test_search_all_dash(void) {
+    char *argv[] = {"tg-cli", "search", "-flag", NULL};
+    ArgResult r;
+    ASSERT(arg_parse(3, argv, &r) == ARG_ERROR,
+           "search -flag: must return ARG_ERROR");
+}
+
+/* ---- Test: batch without subcommand → error ---- */
+static void test_batch_no_subcommand(void) {
+    char *argv[] = {"tg-cli", "--batch", NULL};
+    ArgResult r;
+    ASSERT(arg_parse(2, argv, &r) == ARG_ERROR,
+           "--batch w/o subcommand: ARG_ERROR");
+}
+
+/* ---- Test: help/version print functions don't crash ---- */
+static void test_print_helpers(void) {
+    /* Redirect stdout briefly to /dev/null so test output stays clean. */
+    fflush(stdout);
+    int saved = dup(1);
+    int devnull = open("/dev/null", 1); /* O_WRONLY = 1 */
+    dup2(devnull, 1);
+
+    arg_print_help();
+    arg_print_version();
+
+    fflush(stdout);
+    dup2(saved, 1);
+    close(saved); close(devnull);
+
+    /* No assertion failure means the calls returned normally. */
+    ASSERT(1, "print helpers don't crash");
+}
+
 /* ---- Test: --json before subcommand ---- */
 static void test_json_before_subcommand(void) {
     char *argv[] = {"tg-cli", "--json", "dialogs", NULL};
@@ -274,4 +383,16 @@ void run_arg_parse_tests(void) {
     RUN_TEST(test_unknown_subcommand);
     RUN_TEST(test_null_args);
     RUN_TEST(test_json_before_subcommand);
+    RUN_TEST(test_dialogs_limit_non_numeric);
+    RUN_TEST(test_dialogs_unknown_option);
+    RUN_TEST(test_history_dash_peer);
+    RUN_TEST(test_history_limit_missing);
+    RUN_TEST(test_history_limit_non_numeric);
+    RUN_TEST(test_history_offset_missing);
+    RUN_TEST(test_history_offset_non_numeric);
+    RUN_TEST(test_history_unknown_option);
+    RUN_TEST(test_send_dash_peer);
+    RUN_TEST(test_search_all_dash);
+    RUN_TEST(test_batch_no_subcommand);
+    RUN_TEST(test_print_helpers);
 }

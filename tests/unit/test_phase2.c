@@ -61,6 +61,233 @@ void test_mock_socket_close(void) {
     ASSERT(mock_socket_was_closed() == 1, "close count should be 1");
 }
 
+/* ---- Transport error-path tests ---- */
+
+void test_transport_connect_socket_create_fails(void) {
+    mock_socket_reset();
+    mock_socket_fail_create();
+    Transport t;
+    transport_init(&t);
+    int rc = transport_connect(&t, "host", 443);
+    ASSERT(rc == -1, "connect should fail when socket create fails");
+    ASSERT(t.fd == -1, "fd should stay -1");
+    ASSERT(t.connected == 0, "should not be connected");
+}
+
+void test_transport_connect_socket_connect_fails(void) {
+    mock_socket_reset();
+    mock_socket_fail_connect();
+    Transport t;
+    transport_init(&t);
+    int rc = transport_connect(&t, "host", 443);
+    ASSERT(rc == -1, "connect should fail when connect() fails");
+    ASSERT(t.fd == -1, "fd should be reset to -1 after failure");
+    ASSERT(mock_socket_was_closed() == 1, "socket should be closed on failure");
+}
+
+void test_transport_connect_marker_send_fails(void) {
+    mock_socket_reset();
+    mock_socket_fail_send_at(1); /* abridged marker */
+    Transport t;
+    transport_init(&t);
+    int rc = transport_connect(&t, "host", 443);
+    ASSERT(rc == -1, "connect should fail when marker send fails");
+    ASSERT(t.fd == -1, "fd should be reset");
+    ASSERT(t.connected == 0, "should not be connected");
+}
+
+void test_transport_connect_null_args(void) {
+    Transport t;
+    transport_init(&t);
+    ASSERT(transport_connect(NULL, "host", 443) == -1, "null transport");
+    ASSERT(transport_connect(&t, NULL, 443) == -1, "null host");
+}
+
+void test_transport_send_bad_args(void) {
+    Transport t;
+    transport_init(&t);
+    uint8_t data[4] = {0};
+    ASSERT(transport_send(NULL, data, 4) == -1, "null transport");
+    ASSERT(transport_send(&t, NULL, 4) == -1, "null data");
+    ASSERT(transport_send(&t, data, 0) == -1, "zero len");
+    /* fd < 0 path */
+    ASSERT(transport_send(&t, data, 4) == -1, "fd < 0");
+}
+
+void test_transport_send_prefix_fails(void) {
+    mock_socket_reset();
+    Transport t;
+    transport_init(&t);
+    transport_connect(&t, "host", 443);
+    /* After connect: send_call_n==1 used for marker. Next send (prefix) fails. */
+    mock_socket_fail_send_at(2);
+    uint8_t data[8] = {1,2,3,4,5,6,7,8};
+    int rc = transport_send(&t, data, 8);
+    ASSERT(rc == -1, "send should fail on prefix send failure");
+    transport_close(&t);
+}
+
+void test_transport_send_extended_prefix(void) {
+    mock_socket_reset();
+    Transport t;
+    transport_init(&t);
+    transport_connect(&t, "host", 443);
+    mock_socket_clear_sent();
+
+    /* Need wire_len >= 0x7F → len >= 0x7F*4 = 508 bytes */
+    uint8_t big[512];
+    for (int i = 0; i < 512; i++) big[i] = (uint8_t)i;
+    int rc = transport_send(&t, big, 512);
+    ASSERT(rc == 0, "extended prefix send should succeed");
+
+    size_t sent_len = 0;
+    const uint8_t *sent = mock_socket_get_sent(&sent_len);
+    ASSERT(sent_len == 3 + 512, "should send 3-byte prefix + 512 payload");
+    ASSERT(sent[0] == 0x7F, "extended prefix marker");
+    /* wire_len = 512/4 = 128 = 0x80 */
+    ASSERT(sent[1] == 0x80, "low byte of wire_len");
+    ASSERT(sent[2] == 0x00, "middle byte of wire_len");
+    transport_close(&t);
+}
+
+void test_transport_send_extended_prefix_send_fails(void) {
+    mock_socket_reset();
+    Transport t;
+    transport_init(&t);
+    transport_connect(&t, "host", 443);
+    mock_socket_fail_send_at(2); /* prefix send */
+    uint8_t big[512] = {0};
+    int rc = transport_send(&t, big, 512);
+    ASSERT(rc == -1, "extended prefix failure must propagate");
+    transport_close(&t);
+}
+
+void test_transport_send_payload_send_fails(void) {
+    mock_socket_reset();
+    Transport t;
+    transport_init(&t);
+    transport_connect(&t, "host", 443);
+    /* send_call_n: 1 marker, 2 prefix, 3 payload */
+    mock_socket_fail_send_at(3);
+    uint8_t data[16] = {0};
+    int rc = transport_send(&t, data, 16);
+    ASSERT(rc == -1, "payload send failure must propagate");
+    transport_close(&t);
+}
+
+void test_transport_recv_bad_args(void) {
+    Transport t;
+    transport_init(&t);
+    uint8_t buf[32];
+    size_t out_len = 0;
+    ASSERT(transport_recv(NULL, buf, 32, &out_len) == -1, "null transport");
+    ASSERT(transport_recv(&t, NULL, 32, &out_len) == -1, "null buf");
+    ASSERT(transport_recv(&t, buf, 32, NULL)     == -1, "null out_len");
+    /* fd < 0 */
+    ASSERT(transport_recv(&t, buf, 32, &out_len) == -1, "fd < 0");
+}
+
+void test_transport_recv_prefix_fails(void) {
+    mock_socket_reset();
+    Transport t;
+    transport_init(&t);
+    transport_connect(&t, "host", 443);
+    /* No response set → recv returns 0, not 1 */
+    uint8_t buf[32];
+    size_t out_len = 0;
+    int rc = transport_recv(&t, buf, 32, &out_len);
+    ASSERT(rc == -1, "recv should fail when prefix byte missing");
+    transport_close(&t);
+}
+
+void test_transport_recv_extended_prefix(void) {
+    mock_socket_reset();
+    Transport t;
+    transport_init(&t);
+    transport_connect(&t, "host", 443);
+
+    /* 3-byte prefix path: first=0x7F + 2 bytes wire_len little-endian */
+    /* wire_len = 3 → payload 12 bytes */
+    uint8_t wire[3 + 12];
+    wire[0] = 0x7F;
+    wire[1] = 0x03;
+    wire[2] = 0x00;
+    for (int i = 0; i < 12; i++) wire[3 + i] = (uint8_t)(i + 1);
+    mock_socket_set_response(wire, sizeof(wire));
+
+    uint8_t buf[64];
+    size_t out_len = 0;
+    int rc = transport_recv(&t, buf, sizeof(buf), &out_len);
+    ASSERT(rc == 0, "extended prefix recv must succeed");
+    ASSERT(out_len == 12, "payload length must be 12");
+    ASSERT(buf[0] == 1 && buf[11] == 12, "payload content must match");
+    transport_close(&t);
+}
+
+void test_transport_recv_extended_prefix_short(void) {
+    mock_socket_reset();
+    Transport t;
+    transport_init(&t);
+    transport_connect(&t, "host", 443);
+    /* Only 2 bytes (0x7F + 1 byte) — second recv returns <2 */
+    uint8_t wire[2] = {0x7F, 0x01};
+    mock_socket_set_response(wire, sizeof(wire));
+
+    uint8_t buf[32];
+    size_t out_len = 0;
+    int rc = transport_recv(&t, buf, sizeof(buf), &out_len);
+    ASSERT(rc == -1, "must fail on truncated extended prefix");
+    transport_close(&t);
+}
+
+void test_transport_recv_zero_payload(void) {
+    mock_socket_reset();
+    Transport t;
+    transport_init(&t);
+    transport_connect(&t, "host", 443);
+    /* wire_len = 0 → payload 0 */
+    uint8_t wire[1] = {0x00};
+    mock_socket_set_response(wire, 1);
+
+    uint8_t buf[32];
+    size_t out_len = 99;
+    int rc = transport_recv(&t, buf, sizeof(buf), &out_len);
+    ASSERT(rc == 0, "zero-length frame should succeed");
+    ASSERT(out_len == 0, "out_len should be 0");
+    transport_close(&t);
+}
+
+void test_transport_recv_frame_too_large(void) {
+    mock_socket_reset();
+    Transport t;
+    transport_init(&t);
+    transport_connect(&t, "host", 443);
+    /* wire_len = 5 → payload 20, but caller max 8 */
+    uint8_t wire[1] = {0x05};
+    mock_socket_set_response(wire, 1);
+
+    uint8_t buf[8];
+    size_t out_len = 0;
+    int rc = transport_recv(&t, buf, sizeof(buf), &out_len);
+    ASSERT(rc == -1, "must fail when frame exceeds max_len");
+    transport_close(&t);
+}
+
+void test_transport_recv_payload_fails(void) {
+    mock_socket_reset();
+    Transport t;
+    transport_init(&t);
+    transport_connect(&t, "host", 443);
+    /* wire_len = 1 → payload 4, but no payload bytes provided */
+    uint8_t wire[1] = {0x01};
+    mock_socket_set_response(wire, 1);
+    uint8_t buf[16];
+    size_t out_len = 0;
+    int rc = transport_recv(&t, buf, sizeof(buf), &out_len);
+    ASSERT(rc == -1, "must fail when payload recv returns 0");
+    transport_close(&t);
+}
+
 /* ---- Session tests ---- */
 
 void test_session_init(void) {
@@ -212,6 +439,22 @@ void test_phase2(void) {
     RUN_TEST(test_mock_socket_connect);
     RUN_TEST(test_mock_socket_send_recv);
     RUN_TEST(test_mock_socket_close);
+    RUN_TEST(test_transport_connect_socket_create_fails);
+    RUN_TEST(test_transport_connect_socket_connect_fails);
+    RUN_TEST(test_transport_connect_marker_send_fails);
+    RUN_TEST(test_transport_connect_null_args);
+    RUN_TEST(test_transport_send_bad_args);
+    RUN_TEST(test_transport_send_prefix_fails);
+    RUN_TEST(test_transport_send_extended_prefix);
+    RUN_TEST(test_transport_send_extended_prefix_send_fails);
+    RUN_TEST(test_transport_send_payload_send_fails);
+    RUN_TEST(test_transport_recv_bad_args);
+    RUN_TEST(test_transport_recv_prefix_fails);
+    RUN_TEST(test_transport_recv_extended_prefix);
+    RUN_TEST(test_transport_recv_extended_prefix_short);
+    RUN_TEST(test_transport_recv_zero_payload);
+    RUN_TEST(test_transport_recv_frame_too_large);
+    RUN_TEST(test_transport_recv_payload_fails);
     RUN_TEST(test_session_init);
     RUN_TEST(test_session_msg_id_monotonic);
     RUN_TEST(test_session_seq_no);

@@ -30,6 +30,15 @@ static struct {
     uint8_t *response;
     size_t   response_len;
     size_t   response_pos;
+
+    /* Failure injection */
+    int fail_create;
+    int fail_connect;
+    int fail_send_at;    /* 0 = never */
+    int fail_recv_at;
+    int short_send_at;
+    int send_call_n;     /* call counters */
+    int recv_call_n;
 } g_mock_socket;
 
 /* ---- Test accessor functions ---- */
@@ -69,15 +78,29 @@ void mock_socket_clear_sent(void) {
     g_mock_socket.sent_len = 0;
 }
 
+void mock_socket_fail_create(void)      { g_mock_socket.fail_create  = 1; }
+void mock_socket_fail_connect(void)     { g_mock_socket.fail_connect = 1; }
+void mock_socket_fail_send_at(int n)    { g_mock_socket.fail_send_at = n; }
+void mock_socket_fail_recv_at(int n)    { g_mock_socket.fail_recv_at = n; }
+void mock_socket_short_send_at(int n)   { g_mock_socket.short_send_at = n; }
+
 /* ---- socket.h interface implementation ---- */
 
 int sys_socket_create(void) {
+    if (g_mock_socket.fail_create) {
+        g_mock_socket.fail_create = 0;
+        return -1;
+    }
     g_mock_socket.created++;
     return 42; /* fake fd */
 }
 
 int sys_socket_connect(int fd, const char *host, int port) {
     (void)fd; (void)host; (void)port;
+    if (g_mock_socket.fail_connect) {
+        g_mock_socket.fail_connect = 0;
+        return -1;
+    }
     g_mock_socket.connected++;
     return 0;
 }
@@ -85,6 +108,13 @@ int sys_socket_connect(int fd, const char *host, int port) {
 ssize_t sys_socket_send(int fd, const void *buf, size_t len) {
     (void)fd;
     if (!buf || len == 0) return 0;
+
+    g_mock_socket.send_call_n++;
+    if (g_mock_socket.fail_send_at &&
+        g_mock_socket.send_call_n == g_mock_socket.fail_send_at) {
+        g_mock_socket.fail_send_at = 0;
+        return -1;
+    }
 
     /* Append to sent buffer */
     if (g_mock_socket.sent_len + len > g_mock_socket.sent_cap) {
@@ -96,12 +126,24 @@ ssize_t sys_socket_send(int fd, const void *buf, size_t len) {
     memcpy(g_mock_socket.sent + g_mock_socket.sent_len, buf, len);
     g_mock_socket.sent_len += len;
 
+    if (g_mock_socket.short_send_at &&
+        g_mock_socket.send_call_n == g_mock_socket.short_send_at && len > 1) {
+        g_mock_socket.short_send_at = 0;
+        return (ssize_t)(len - 1);
+    }
     return (ssize_t)len;
 }
 
 ssize_t sys_socket_recv(int fd, void *buf, size_t len) {
     (void)fd;
     if (!buf || len == 0) return 0;
+
+    g_mock_socket.recv_call_n++;
+    if (g_mock_socket.fail_recv_at &&
+        g_mock_socket.recv_call_n == g_mock_socket.fail_recv_at) {
+        g_mock_socket.fail_recv_at = 0;
+        return -1;
+    }
 
     size_t avail = g_mock_socket.response_len - g_mock_socket.response_pos;
     if (avail == 0) return 0; /* EOF */

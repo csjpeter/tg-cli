@@ -274,10 +274,195 @@ static void test_null_args_rejected(void) {
            "sign_in: null args must return -1");
 }
 
+/* ---- Helpers for additional error-path tests ---- */
+static void setup_session_and_transport(MtProtoSession *s, Transport *t,
+                                         ApiConfig *cfg) {
+    session_setup(s);
+    transport_init(t);
+    t->fd = 42; t->connected = 1; t->dc_id = 1;
+    api_config_init(cfg);
+    cfg->api_id = 12345; cfg->api_hash = "deadbeef";
+}
+
+/* ---- Test: send_code with unexpected top-level constructor ---- */
+static void test_send_code_unexpected_constructor(void) {
+    mock_socket_reset();
+    mock_crypto_reset();
+
+    uint8_t payload[64];
+    TlWriter w;
+    tl_writer_init(&w);
+    tl_write_uint32(&w, 0xDEADBEEF);         /* not auth.sentCode */
+    tl_write_uint32(&w, 0);
+    memcpy(payload, w.data, w.len);
+    size_t plen = w.len;
+    tl_writer_free(&w);
+
+    uint8_t resp_buf[256]; size_t resp_len = 0;
+    build_fake_encrypted_response(payload, plen, resp_buf, &resp_len);
+    mock_socket_set_response(resp_buf, resp_len);
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    setup_session_and_transport(&s, &t, &cfg);
+
+    AuthSentCode result = {0};
+    int rc = auth_send_code(&cfg, &s, &t, "+15551234567", &result);
+    ASSERT(rc != 0, "send_code: unexpected constructor must fail");
+}
+
+/* ---- Test: send_code hitting sentCodeTypeFlashCall ---- */
+static void test_send_code_flash_call_type(void) {
+    mock_socket_reset();
+    mock_crypto_reset();
+
+    uint8_t payload[256];
+    TlWriter w;
+    tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_auth_sentCode);
+    tl_write_uint32(&w, 1u << 2);            /* flags: timeout present */
+    tl_write_uint32(&w, CRC_auth_sentCodeTypeFlashCall);
+    tl_write_string(&w, "\\d{6}");           /* pattern */
+    tl_write_string(&w, "flash_hash");
+    tl_write_int32(&w, 120);                 /* timeout */
+    memcpy(payload, w.data, w.len);
+    size_t plen = w.len;
+    tl_writer_free(&w);
+
+    uint8_t resp_buf[512]; size_t resp_len = 0;
+    build_fake_encrypted_response(payload, plen, resp_buf, &resp_len);
+    mock_socket_set_response(resp_buf, resp_len);
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    setup_session_and_transport(&s, &t, &cfg);
+
+    AuthSentCode result = {0};
+    int rc = auth_send_code(&cfg, &s, &t, "+15551234567", &result);
+    ASSERT(rc == 0, "send_code: FlashCall path must succeed");
+    ASSERT(result.timeout == 120, "timeout must be parsed from flags.2");
+    ASSERT(strcmp(result.phone_code_hash, "flash_hash") == 0,
+           "phone_code_hash must match");
+}
+
+/* ---- Test: send_code with unknown sentCodeType constructor ---- */
+static void test_send_code_unknown_type(void) {
+    mock_socket_reset();
+    mock_crypto_reset();
+
+    uint8_t payload[128];
+    TlWriter w;
+    tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_auth_sentCode);
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, 0xBADCAFEE);         /* unknown sentCodeType */
+    memcpy(payload, w.data, w.len);
+    size_t plen = w.len;
+    tl_writer_free(&w);
+
+    uint8_t resp_buf[256]; size_t resp_len = 0;
+    build_fake_encrypted_response(payload, plen, resp_buf, &resp_len);
+    mock_socket_set_response(resp_buf, resp_len);
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    setup_session_and_transport(&s, &t, &cfg);
+
+    AuthSentCode result = {0};
+    int rc = auth_send_code(&cfg, &s, &t, "+15551234567", &result);
+    ASSERT(rc != 0, "send_code: unknown sentCodeType must fail");
+}
+
+/* ---- Test: send_code API-call failure (no response) ---- */
+static void test_send_code_api_call_fails(void) {
+    mock_socket_reset();
+    mock_crypto_reset();
+    /* No response queued → recv returns 0 → api_call fails. */
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    setup_session_and_transport(&s, &t, &cfg);
+
+    AuthSentCode result = {0};
+    int rc = auth_send_code(&cfg, &s, &t, "+15551234567", &result);
+    ASSERT(rc != 0, "send_code: api_call failure must propagate");
+}
+
+/* ---- Test: sign_in with unexpected top-level constructor ---- */
+static void test_sign_in_unexpected_constructor(void) {
+    mock_socket_reset();
+    mock_crypto_reset();
+
+    uint8_t payload[64];
+    TlWriter w;
+    tl_writer_init(&w);
+    tl_write_uint32(&w, 0xBADBADBA);
+    tl_write_uint32(&w, 0);
+    memcpy(payload, w.data, w.len);
+    size_t plen = w.len;
+    tl_writer_free(&w);
+
+    uint8_t resp_buf[256]; size_t resp_len = 0;
+    build_fake_encrypted_response(payload, plen, resp_buf, &resp_len);
+    mock_socket_set_response(resp_buf, resp_len);
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    setup_session_and_transport(&s, &t, &cfg);
+
+    int64_t uid = 0;
+    int rc = auth_sign_in(&cfg, &s, &t, "+1", "h", "12345", &uid);
+    ASSERT(rc != 0, "sign_in: unexpected constructor must fail");
+}
+
+/* ---- Test: sign_in with unexpected user constructor — still OK, uid=0 ---- */
+static void test_sign_in_unexpected_user_crc(void) {
+    mock_socket_reset();
+    mock_crypto_reset();
+
+    uint8_t payload[128];
+    TlWriter w;
+    tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_auth_authorization);
+    tl_write_uint32(&w, 0);          /* flags */
+    tl_write_uint32(&w, 0xCAFEBABE); /* unexpected user constructor */
+    memcpy(payload, w.data, w.len);
+    size_t plen = w.len;
+    tl_writer_free(&w);
+
+    uint8_t resp_buf[256]; size_t resp_len = 0;
+    build_fake_encrypted_response(payload, plen, resp_buf, &resp_len);
+    mock_socket_set_response(resp_buf, resp_len);
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    setup_session_and_transport(&s, &t, &cfg);
+
+    int64_t uid = 77;
+    int rc = auth_sign_in(&cfg, &s, &t, "+1", "h", "12345", &uid);
+    ASSERT(rc == 0, "sign_in: unexpected user constructor still OK");
+    ASSERT(uid == 0, "sign_in: uid must be reset to 0");
+}
+
+/* ---- Test: sign_in api_call fails ---- */
+static void test_sign_in_api_call_fails(void) {
+    mock_socket_reset();
+    mock_crypto_reset();
+    /* No response queued */
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    setup_session_and_transport(&s, &t, &cfg);
+
+    int64_t uid = 0;
+    int rc = auth_sign_in(&cfg, &s, &t, "+1", "h", "12345", &uid);
+    ASSERT(rc != 0, "sign_in: api_call failure must propagate");
+}
+
 void run_auth_session_tests(void) {
     RUN_TEST(test_send_code_request_structure);
     RUN_TEST(test_send_code_rpc_error);
     RUN_TEST(test_sign_in_success);
     RUN_TEST(test_sign_in_rpc_error);
     RUN_TEST(test_null_args_rejected);
+    RUN_TEST(test_send_code_unexpected_constructor);
+    RUN_TEST(test_send_code_flash_call_type);
+    RUN_TEST(test_send_code_unknown_type);
+    RUN_TEST(test_send_code_api_call_fails);
+    RUN_TEST(test_sign_in_unexpected_constructor);
+    RUN_TEST(test_sign_in_unexpected_user_crc);
+    RUN_TEST(test_sign_in_api_call_fails);
 }
