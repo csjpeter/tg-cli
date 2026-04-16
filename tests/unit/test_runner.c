@@ -30,6 +30,7 @@ void run_domain_dialogs_tests(void);
 void run_domain_history_tests(void);
 void run_domain_updates_tests(void);
 void run_domain_user_info_tests(void);
+void run_domain_search_tests(void);
 void run_dc_config_tests(void);
 
 int main() {
@@ -60,6 +61,7 @@ int main() {
     RUN_TEST(run_domain_history_tests);
     RUN_TEST(run_domain_updates_tests);
     RUN_TEST(run_domain_user_info_tests);
+    RUN_TEST(run_domain_search_tests);
     RUN_TEST(run_dc_config_tests);
 
     printf("\n--- Test Results ---\n");

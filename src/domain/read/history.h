@@ -28,19 +28,40 @@ typedef struct {
     int     out;        /**< Non-zero if message is outgoing. */
 } HistoryEntry;
 
+/** @brief InputPeer kind used when building the getHistory request. */
+typedef enum {
+    HISTORY_PEER_SELF = 0,  /**< inputPeerSelf — no id/hash required. */
+    HISTORY_PEER_USER,      /**< inputPeerUser — requires peer_id + access_hash. */
+    HISTORY_PEER_CHAT,      /**< inputPeerChat — legacy small group, no hash. */
+    HISTORY_PEER_CHANNEL,   /**< inputPeerChannel — requires peer_id + access_hash. */
+} HistoryPeerKind;
+
+typedef struct {
+    HistoryPeerKind kind;
+    int64_t         peer_id;
+    int64_t         access_hash;
+} HistoryPeer;
+
 /**
- * @brief Fetch up to @p limit messages from the Saved Messages peer
- *        (inputPeerSelf) starting from @p offset_id.
+ * @brief Fetch up to @p limit messages from the given peer.
  *
  * @param cfg       API config.
  * @param s         Session.
  * @param t         Connected transport.
+ * @param peer      Peer descriptor (use HISTORY_PEER_SELF for Saved Messages).
  * @param offset_id Start before this message id (0 = latest).
  * @param limit     Max messages to request (1..100 typical).
  * @param out       Output array of length >= @p limit.
  * @param out_count Receives entries actually written.
  * @return 0 on success, -1 on error.
  */
+int domain_get_history(const ApiConfig *cfg,
+                        MtProtoSession *s, Transport *t,
+                        const HistoryPeer *peer,
+                        int32_t offset_id, int limit,
+                        HistoryEntry *out, int *out_count);
+
+/** @brief Backwards-compatible helper: Saved Messages only. */
 int domain_get_history_self(const ApiConfig *cfg,
                              MtProtoSession *s, Transport *t,
                              int32_t offset_id, int limit,

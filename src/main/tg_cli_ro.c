@@ -17,6 +17,7 @@
 #include "domain/read/history.h"
 #include "domain/read/updates.h"
 #include "domain/read/user_info.h"
+#include "domain/read/search.h"
 
 #include <signal.h>
 #include <stdio.h>
@@ -195,6 +196,64 @@ static int cmd_watch(const ArgResult *args) {
     return 0;
 }
 
+static int resolve_peer_arg(const ApiConfig *cfg, MtProtoSession *s,
+                             Transport *t, const char *peer_arg,
+                             HistoryPeer *out);
+
+static int cmd_search(const ArgResult *args) {
+    if (!args->query) {
+        fprintf(stderr, "tg-cli-ro search: <query> required\n");
+        return 1;
+    }
+    ApiConfig cfg; MtProtoSession s; Transport t;
+    int brc = session_bringup(args, &cfg, &s, &t);
+    if (brc != 0) return brc;
+
+    int limit = args->limit > 0 ? args->limit : 20;
+    if (limit > 100) limit = 100;
+
+    HistoryEntry *entries = calloc((size_t)limit, sizeof(HistoryEntry));
+    if (!entries) { transport_close(&t); return 1; }
+    int count = 0, rc;
+
+    if (args->peer) {
+        HistoryPeer peer = {0};
+        if (resolve_peer_arg(&cfg, &s, &t, args->peer, &peer) != 0) {
+            transport_close(&t); free(entries); return 1;
+        }
+        rc = domain_search_peer(&cfg, &s, &t, &peer, args->query, limit,
+                                entries, &count);
+    } else {
+        rc = domain_search_global(&cfg, &s, &t, args->query, limit,
+                                   entries, &count);
+    }
+    transport_close(&t);
+    if (rc != 0) {
+        fprintf(stderr, "tg-cli-ro search: failed (see logs)\n");
+        free(entries);
+        return 1;
+    }
+
+    if (args->json) {
+        printf("[");
+        for (int i = 0; i < count; i++) {
+            if (i) printf(",");
+            printf("{\"id\":%d,\"out\":%s}",
+                   entries[i].id, entries[i].out ? "true" : "false");
+        }
+        printf("]\n");
+    } else {
+        printf("%-8s %-4s\n", "id", "out");
+        for (int i = 0; i < count; i++) {
+            printf("%-8d %-4s\n",
+                   entries[i].id, entries[i].out ? "yes" : "no");
+        }
+        if (count == 0) printf("(no matches)\n");
+    }
+    free(entries);
+    return 0;
+}
+
 static const char *resolved_kind_name(ResolvedKind k) {
     switch (k) {
     case RESOLVED_KIND_USER:    return "user";
@@ -237,17 +296,51 @@ static int cmd_user_info(const ArgResult *args) {
     return 0;
 }
 
-static int cmd_history(const ArgResult *args) {
-    if (!args->peer || strcmp(args->peer, "self") != 0) {
-        fprintf(stderr,
-                "tg-cli-ro history: v1 only supports 'self' peer "
-                "(Saved Messages). Other peers require US-09 (resolve).\n");
-        return 2;
+/* Resolve @peer or "self" into a HistoryPeer while the transport is up. */
+static int resolve_peer_arg(const ApiConfig *cfg, MtProtoSession *s,
+                             Transport *t, const char *peer_arg,
+                             HistoryPeer *out) {
+    if (!peer_arg || strcmp(peer_arg, "self") == 0) {
+        out->kind = HISTORY_PEER_SELF;
+        out->peer_id = 0;
+        out->access_hash = 0;
+        return 0;
     }
+    ResolvedPeer rp = {0};
+    if (domain_resolve_username(cfg, s, t, peer_arg, &rp) != 0) return -1;
 
+    switch (rp.kind) {
+    case RESOLVED_KIND_USER:    out->kind = HISTORY_PEER_USER;    break;
+    case RESOLVED_KIND_CHANNEL: out->kind = HISTORY_PEER_CHANNEL; break;
+    case RESOLVED_KIND_CHAT:    out->kind = HISTORY_PEER_CHAT;    break;
+    default:
+        fprintf(stderr, "tg-cli-ro history: unknown peer type for %s\n",
+                peer_arg);
+        return -1;
+    }
+    out->peer_id = rp.id;
+    out->access_hash = rp.access_hash;
+    if ((out->kind == HISTORY_PEER_USER || out->kind == HISTORY_PEER_CHANNEL)
+        && !rp.have_hash) {
+        fprintf(stderr,
+                "tg-cli-ro history: %s resolved but no access_hash was "
+                "exposed by the server — cannot fetch history\n",
+                peer_arg);
+        return -1;
+    }
+    return 0;
+}
+
+static int cmd_history(const ArgResult *args) {
     ApiConfig cfg; MtProtoSession s; Transport t;
     int brc = session_bringup(args, &cfg, &s, &t);
     if (brc != 0) return brc;
+
+    HistoryPeer peer = {0};
+    if (resolve_peer_arg(&cfg, &s, &t, args->peer, &peer) != 0) {
+        transport_close(&t);
+        return 1;
+    }
 
     int limit = args->limit > 0 ? args->limit : 20;
     if (limit > 100) limit = 100;
@@ -257,8 +350,8 @@ static int cmd_history(const ArgResult *args) {
     if (!entries) { transport_close(&t); return 1; }
 
     int count = 0;
-    int rc = domain_get_history_self(&cfg, &s, &t, offset, limit,
-                                      entries, &count);
+    int rc = domain_get_history(&cfg, &s, &t, &peer, offset, limit,
+                                 entries, &count);
     transport_close(&t);
     if (rc != 0) {
         fprintf(stderr, "tg-cli-ro history: failed (see logs)\n");
@@ -386,8 +479,7 @@ int main(int argc, char **argv) {
         case CMD_HISTORY:
             exit_code = cmd_history(&args); break;
         case CMD_SEARCH:
-            fprintf(stderr, "tg-cli-ro search: not implemented yet (US-10)\n");
-            exit_code = 2; break;
+            exit_code = cmd_search(&args); break;
         case CMD_USER_INFO:
             exit_code = cmd_user_info(&args); break;
         case CMD_CONTACTS:

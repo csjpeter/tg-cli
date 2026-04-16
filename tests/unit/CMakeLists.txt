@@ -27,6 +27,7 @@ set(TEST_SOURCES
     test_domain_history.c
     test_domain_updates.c
     test_domain_user_info.c
+    test_domain_search.c
     test_dc_config.c
     ../../tests/mocks/crypto.c
     ../../tests/mocks/socket.c

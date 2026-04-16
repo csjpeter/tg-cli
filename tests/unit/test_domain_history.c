@@ -108,6 +108,49 @@ static void test_history_rpc_error(void) {
     ASSERT(rc != 0, "RPC error must propagate");
 }
 
+/* Build a messages.channelMessages response with one messageEmpty. */
+static size_t make_channel_messages(uint8_t *buf, size_t max, int32_t id) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, TL_messages_channelMessages);
+    tl_write_uint32(&w, 0);   /* flags */
+    tl_write_int32 (&w, 100); /* pts */
+    tl_write_int32 (&w, 1);   /* count */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, TL_messageEmpty);
+    tl_write_uint32(&w, 0);   /* flags */
+    tl_write_int32 (&w, id);
+    size_t n = w.len < max ? w.len : max;
+    memcpy(buf, w.data, n);
+    tl_writer_free(&w);
+    return n;
+}
+
+static void test_history_channel_peer(void) {
+    mock_socket_reset(); mock_crypto_reset();
+
+    uint8_t payload[256];
+    size_t plen = make_channel_messages(payload, sizeof(payload), 9999);
+
+    uint8_t resp[1024]; size_t rlen = 0;
+    build_fake_encrypted_response(payload, plen, resp, &rlen);
+    mock_socket_set_response(resp, rlen);
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    fix_session(&s); fix_transport(&t); fix_cfg(&cfg);
+
+    HistoryPeer peer = {
+        .kind = HISTORY_PEER_CHANNEL,
+        .peer_id = 1001234567890LL,
+        .access_hash = 0xABCDEF1234567890LL,
+    };
+    HistoryEntry entries[3] = {0}; int n = 0;
+    int rc = domain_get_history(&cfg, &s, &t, &peer, 0, 3, entries, &n);
+    ASSERT(rc == 0, "channel history parsed");
+    ASSERT(n == 1, "one entry");
+    ASSERT(entries[0].id == 9999, "id matches");
+}
+
 static void test_history_null_args(void) {
     HistoryEntry e[1]; int n = 0;
     ASSERT(domain_get_history_self(NULL, NULL, NULL, 0, 5, e, &n) == -1,
@@ -122,5 +165,6 @@ static void test_history_null_args(void) {
 void run_domain_history_tests(void) {
     RUN_TEST(test_history_one_empty);
     RUN_TEST(test_history_rpc_error);
+    RUN_TEST(test_history_channel_peer);
     RUN_TEST(test_history_null_args);
 }

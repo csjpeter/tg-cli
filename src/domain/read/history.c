@@ -17,18 +17,45 @@
 #define CRC_messages_getHistory 0x4423e6c5u
 #define CRC_inputPeerSelf_local TL_inputPeerSelf /* alias for readability */
 
+static int write_input_peer(TlWriter *w, const HistoryPeer *p) {
+    switch (p->kind) {
+    case HISTORY_PEER_SELF:
+        tl_write_uint32(w, TL_inputPeerSelf);
+        return 0;
+    case HISTORY_PEER_USER:
+        tl_write_uint32(w, TL_inputPeerUser);
+        tl_write_int64 (w, p->peer_id);
+        tl_write_int64 (w, p->access_hash);
+        return 0;
+    case HISTORY_PEER_CHAT:
+        tl_write_uint32(w, TL_inputPeerChat);
+        tl_write_int64 (w, p->peer_id);
+        return 0;
+    case HISTORY_PEER_CHANNEL:
+        tl_write_uint32(w, TL_inputPeerChannel);
+        tl_write_int64 (w, p->peer_id);
+        tl_write_int64 (w, p->access_hash);
+        return 0;
+    default:
+        return -1;
+    }
+}
+
 /* Field bit positions used to decide whether to skip the first-stage
  * Message prefix (before we abort and move on to the next message).
  * These correspond to layer 170+ but are stable across recent layers. */
 #define MSG_FLAG_OUT              (1u << 1)
 #define MSG_FLAG_HAS_FROM_ID      (1u << 8)
 
-static int build_request(int32_t offset_id, int limit,
+static int build_request(const HistoryPeer *peer, int32_t offset_id, int limit,
                           uint8_t *buf, size_t cap, size_t *out_len) {
     TlWriter w;
     tl_writer_init(&w);
     tl_write_uint32(&w, CRC_messages_getHistory);
-    tl_write_uint32(&w, CRC_inputPeerSelf_local); /* peer = inputPeerSelf */
+    if (write_input_peer(&w, peer) != 0) {
+        tl_writer_free(&w);
+        return -1;
+    }
     tl_write_int32 (&w, offset_id);
     tl_write_int32 (&w, 0);  /* offset_date */
     tl_write_int32 (&w, 0);  /* add_offset */
@@ -85,16 +112,17 @@ static int parse_message_prefix(TlReader *r, HistoryEntry *out) {
     return 0;
 }
 
-int domain_get_history_self(const ApiConfig *cfg,
-                             MtProtoSession *s, Transport *t,
-                             int32_t offset_id, int limit,
-                             HistoryEntry *out, int *out_count) {
-    if (!cfg || !s || !t || !out || !out_count || limit <= 0) return -1;
+int domain_get_history(const ApiConfig *cfg,
+                        MtProtoSession *s, Transport *t,
+                        const HistoryPeer *peer,
+                        int32_t offset_id, int limit,
+                        HistoryEntry *out, int *out_count) {
+    if (!cfg || !s || !t || !peer || !out || !out_count || limit <= 0) return -1;
     *out_count = 0;
 
     uint8_t query[128];
     size_t qlen = 0;
-    if (build_request(offset_id, limit, query, sizeof(query), &qlen) != 0) {
+    if (build_request(peer, offset_id, limit, query, sizeof(query), &qlen) != 0) {
         logger_log(LOG_ERROR, "history: build_request overflow");
         return -1;
     }
@@ -161,4 +189,12 @@ int domain_get_history_self(const ApiConfig *cfg,
     }
     *out_count = written;
     return 0;
+}
+
+int domain_get_history_self(const ApiConfig *cfg,
+                             MtProtoSession *s, Transport *t,
+                             int32_t offset_id, int limit,
+                             HistoryEntry *out, int *out_count) {
+    HistoryPeer self = { .kind = HISTORY_PEER_SELF };
+    return domain_get_history(cfg, s, t, &self, offset_id, limit, out, out_count);
 }
