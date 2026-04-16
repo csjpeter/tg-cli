@@ -48,12 +48,11 @@ static int write_input_peer(TlWriter *w, const HistoryPeer *p) {
 #define MSG_FLAG_OUT              (1u << 1)
 #define MSG_FLAG_HAS_FROM_ID      (1u << 8)
 
-/* Flags that block full Message iteration because the corresponding nested
- * type has no skipper yet. If any is set we still return id/out/date but
- * must stop walking the vector. */
+/* Flags that still block full Message iteration because the corresponding
+ * nested type has no skipper yet. Media (flags.9) is handled separately
+ * after the text via tl_skip_message_media(). */
 #define MSG_FLAGS_STOP_ITER       ( \
       (1u << 6)   /* reply_markup */ \
-    | (1u << 9)   /* media */        \
     | (1u << 20)  /* reactions */    \
     | (1u << 22)  /* restriction_reason */ \
     | (1u << 23)  /* replies */      \
@@ -151,14 +150,25 @@ static int parse_message(TlReader *r, HistoryEntry *out) {
         out->text[n] = '\0';
     }
 
-    /* If anything blocking iteration is set, return success-with-complex so
-     * the caller records this entry but stops iterating the vector. */
+    /* Skippable optionals after `message` — in schema order:
+     *   flags.9  media
+     *   flags.6  reply_markup (BAIL — no skipper yet)
+     *   flags.7  entities
+     *   flags.10 views + forwards
+     *   ... (more scalars below)
+     *
+     * Media is attempted first; if it fails the Message is left
+     * mid-parse but we have at least captured id/date/text. */
+    if (flags & (1u << 9)) {
+        if (tl_skip_message_media(r) != 0) { out->complex = 1; return -1; }
+    }
+
+    /* reply_markup: still no skipper — stop iteration. */
     if (flags & MSG_FLAGS_STOP_ITER) {
         out->complex = 1;
         return -1;
     }
 
-    /* Skippable optionals after `message` (in the order they appear on the wire). */
     if (flags & (1u << 7))  { /* entities */
         if (tl_skip_message_entities_vector(r) != 0) { out->complex = 1; return -1; }
     }

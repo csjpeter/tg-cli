@@ -48,6 +48,40 @@
 #define CRC_messageReplyHeader          0xafbc09dbu
 #define CRC_messageReplyStoryHeader     0xe5af939u
 
+/* PhotoSize variants (layer 170+). */
+#define CRC_photoSizeEmpty              0x0e17e23cu
+#define CRC_photoSize                   0x75c78e60u
+#define CRC_photoCachedSize             0x021e1ad6u
+#define CRC_photoStrippedSize           0xe0b0bc2eu
+#define CRC_photoSizeProgressive        0xfa3efb95u
+#define CRC_photoPathSize               0xd8214d41u
+
+/* Photo variants. */
+#define CRC_photo                       0xfb197a65u
+#define CRC_photoEmpty                  0x2331b22du
+
+/* Document variants. */
+#define CRC_document                    0x8fd4c4d8u
+#define CRC_documentEmpty               0x36f8c871u
+
+/* DocumentAttribute — present inside document.attributes. We don't walk
+ * them; we just skip via Vector count by bailing when document is set. */
+
+/* GeoPoint. */
+#define CRC_geoPointEmpty               0x1117dd5fu
+#define CRC_geoPoint                    0xb2a2f663u
+
+/* MessageMedia variants. */
+#define CRC_messageMediaEmpty           0x3ded6320u
+#define CRC_messageMediaPhoto           0x695150d7u
+#define CRC_messageMediaDocument        0x4cf4d72du
+#define CRC_messageMediaGeo             0x56e0d474u
+#define CRC_messageMediaContact         0x70322949u
+#define CRC_messageMediaUnsupported     0x9f84f49eu
+#define CRC_messageMediaVenue           0x2ec0533fu
+#define CRC_messageMediaGeoLive         0xb940c666u
+#define CRC_messageMediaDice            0x3f7ee58bu
+
 int tl_skip_bool(TlReader *r) {
     if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
     tl_read_uint32(r);
@@ -323,4 +357,242 @@ int tl_skip_message_reply_header(TlReader *r) {
     if (flags & (1u << 7)) if (tl_skip_message_entities_vector(r) != 0) return -1;
     if (flags & (1u << 10)) { if (r->len - r->pos < 4) return -1; tl_read_int32(r); }
     return 0;
+}
+
+/* ---- PhotoSize skipper ----
+ * Variants:
+ *   photoSizeEmpty#0e17e23c type:string
+ *   photoSize#75c78e60 type:string w:int h:int size:int
+ *   photoCachedSize#021e1ad6 type:string w:int h:int bytes:bytes
+ *   photoStrippedSize#e0b0bc2e type:string bytes:bytes
+ *   photoSizeProgressive#fa3efb95 type:string w:int h:int sizes:Vector<int>
+ *   photoPathSize#d8214d41 type:string bytes:bytes
+ */
+int tl_skip_photo_size(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    switch (crc) {
+    case CRC_photoSizeEmpty:
+        return tl_skip_string(r);
+    case CRC_photoSize:
+        if (tl_skip_string(r) != 0) return -1;
+        if (r->len - r->pos < 12) return -1;
+        tl_read_int32(r); tl_read_int32(r); tl_read_int32(r);
+        return 0;
+    case CRC_photoCachedSize:
+        if (tl_skip_string(r) != 0) return -1;
+        if (r->len - r->pos < 8) return -1;
+        tl_read_int32(r); tl_read_int32(r);
+        return tl_skip_string(r); /* bytes */
+    case CRC_photoStrippedSize:
+    case CRC_photoPathSize:
+        if (tl_skip_string(r) != 0) return -1;
+        return tl_skip_string(r); /* bytes */
+    case CRC_photoSizeProgressive: {
+        if (tl_skip_string(r) != 0) return -1;
+        if (r->len - r->pos < 8) return -1;
+        tl_read_int32(r); tl_read_int32(r);
+        /* sizes:Vector<int> */
+        if (r->len - r->pos < 8) return -1;
+        uint32_t vec_crc = tl_read_uint32(r);
+        if (vec_crc != TL_vector) return -1;
+        uint32_t count = tl_read_uint32(r);
+        if (r->len - r->pos < count * 4ULL) return -1;
+        for (uint32_t i = 0; i < count; i++) tl_read_int32(r);
+        return 0;
+    }
+    default:
+        logger_log(LOG_WARN, "tl_skip_photo_size: unknown 0x%08x", crc);
+        return -1;
+    }
+}
+
+int tl_skip_photo_size_vector(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 8) return -1;
+    uint32_t vec_crc = tl_read_uint32(r);
+    if (vec_crc != TL_vector) return -1;
+    uint32_t count = tl_read_uint32(r);
+    for (uint32_t i = 0; i < count; i++) {
+        if (tl_skip_photo_size(r) != 0) return -1;
+    }
+    return 0;
+}
+
+/* ---- Photo skipper ----
+ * photoEmpty#2331b22d id:long
+ * photo#fb197a65 flags:# has_stickers:flags.0?true id:long access_hash:long
+ *                file_reference:bytes date:int
+ *                sizes:Vector<PhotoSize>
+ *                video_sizes:flags.1?Vector<VideoSize>     <- BAIL
+ *                dc_id:int
+ */
+int tl_skip_photo(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    if (crc == CRC_photoEmpty) {
+        if (r->len - r->pos < 8) return -1;
+        tl_read_int64(r);
+        return 0;
+    }
+    if (crc != CRC_photo) {
+        logger_log(LOG_WARN, "tl_skip_photo: unknown 0x%08x", crc);
+        return -1;
+    }
+    if (r->len - r->pos < 4) return -1;
+    uint32_t flags = tl_read_uint32(r);
+    /* id:long + access_hash:long */
+    if (r->len - r->pos < 16) return -1;
+    tl_read_int64(r); tl_read_int64(r);
+    /* file_reference:bytes */
+    if (tl_skip_string(r) != 0) return -1;
+    /* date:int */
+    if (r->len - r->pos < 4) return -1;
+    tl_read_int32(r);
+    /* sizes:Vector<PhotoSize> */
+    if (tl_skip_photo_size_vector(r) != 0) return -1;
+    if (flags & (1u << 1)) {
+        /* video_sizes — we don't implement VideoSize yet. */
+        logger_log(LOG_WARN, "tl_skip_photo: video_sizes not implemented");
+        return -1;
+    }
+    /* dc_id:int */
+    if (r->len - r->pos < 4) return -1;
+    tl_read_int32(r);
+    return 0;
+}
+
+/* ---- Document skipper ----
+ * documentEmpty#36f8c871 id:long
+ * document — flag-heavy; bail out without implementing for now. The layer-
+ * specific layout changes frequently, and ordinary chat messages that
+ * reach us typically have Photo, not Document. Callers treating a
+ * Document as complex+stop-iter is acceptable for v1.
+ */
+int tl_skip_document(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    if (crc == CRC_documentEmpty) {
+        if (r->len - r->pos < 8) return -1;
+        tl_read_int64(r);
+        return 0;
+    }
+    if (crc == CRC_document) {
+        logger_log(LOG_WARN, "tl_skip_document: non-empty Document not implemented");
+        return -1;
+    }
+    logger_log(LOG_WARN, "tl_skip_document: unknown 0x%08x", crc);
+    return -1;
+}
+
+/* Skip GeoPoint: empty → CRC-only; geoPoint → CRC + long lat + long long +
+ * long access_hash + flags:# + optional accuracy_radius:flags.0?int.
+ * Actually:
+ *   geoPointEmpty#1117dd5f
+ *   geoPoint#b2a2f663 flags:# long:double lat:double access_hash:long
+ *                    accuracy_radius:flags.0?int
+ */
+static int skip_geo_point(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    if (crc == CRC_geoPointEmpty) return 0;
+    if (crc != CRC_geoPoint) {
+        logger_log(LOG_WARN, "skip_geo_point: unknown 0x%08x", crc);
+        return -1;
+    }
+    if (r->len - r->pos < 28) return -1;
+    uint32_t flags = tl_read_uint32(r);
+    tl_read_double(r); tl_read_double(r); tl_read_int64(r);
+    if (flags & 1u) {
+        if (r->len - r->pos < 4) return -1;
+        tl_read_int32(r);
+    }
+    return 0;
+}
+
+/* ---- MessageMedia skipper ----
+ * Common variants supported; unusual ones (Poll, Story, Game, Invoice,
+ * Giveaway, PaidMedia, WebPage, ...) bail with -1.
+ */
+int tl_skip_message_media(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    switch (crc) {
+    case CRC_messageMediaEmpty:
+    case CRC_messageMediaUnsupported:
+        return 0;
+
+    case CRC_messageMediaGeo:
+        return skip_geo_point(r);
+
+    case CRC_messageMediaContact:
+        if (tl_skip_string(r) != 0) return -1; /* phone_number */
+        if (tl_skip_string(r) != 0) return -1; /* first_name */
+        if (tl_skip_string(r) != 0) return -1; /* last_name */
+        if (tl_skip_string(r) != 0) return -1; /* vcard */
+        if (r->len - r->pos < 8) return -1;
+        tl_read_int64(r);                      /* user_id */
+        return 0;
+
+    case CRC_messageMediaVenue:
+        if (skip_geo_point(r) != 0) return -1;
+        if (tl_skip_string(r) != 0) return -1; /* title */
+        if (tl_skip_string(r) != 0) return -1; /* address */
+        if (tl_skip_string(r) != 0) return -1; /* provider */
+        if (tl_skip_string(r) != 0) return -1; /* venue_id */
+        if (tl_skip_string(r) != 0) return -1; /* venue_type */
+        return 0;
+
+    case CRC_messageMediaGeoLive: {
+        if (r->len - r->pos < 4) return -1;
+        uint32_t flags = tl_read_uint32(r);
+        if (skip_geo_point(r) != 0) return -1;
+        if (flags & 1u) { if (r->len - r->pos < 4) return -1; tl_read_int32(r); }
+        if (r->len - r->pos < 4) return -1;
+        tl_read_int32(r); /* period */
+        if (flags & (1u << 1)) { if (r->len - r->pos < 4) return -1; tl_read_int32(r); }
+        return 0;
+    }
+
+    case CRC_messageMediaDice:
+        if (r->len - r->pos < 4) return -1;
+        tl_read_int32(r);                      /* value */
+        return tl_skip_string(r);              /* emoticon */
+
+    case CRC_messageMediaPhoto: {
+        /* messageMediaPhoto flags:# spoiler:flags.3?true
+         *                   photo:flags.0?Photo ttl_seconds:flags.2?int */
+        if (r->len - r->pos < 4) return -1;
+        uint32_t flags = tl_read_uint32(r);
+        if (flags & (1u << 0)) if (tl_skip_photo(r) != 0) return -1;
+        if (flags & (1u << 2)) { if (r->len - r->pos < 4) return -1; tl_read_int32(r); }
+        return 0;
+    }
+
+    case CRC_messageMediaDocument: {
+        /* messageMediaDocument flags:# nopremium:flags.3?true
+         *                      spoiler:flags.4?true video:flags.6?true
+         *                      round:flags.7?true voice:flags.8?true
+         *                      document:flags.0?Document
+         *                      alt_documents:flags.5?Vector<Document>
+         *                      ttl_seconds:flags.2?int
+         *                      (plus newer layer fields — bail if we see
+         *                       any unexpected bits above 8) */
+        if (r->len - r->pos < 4) return -1;
+        uint32_t flags = tl_read_uint32(r);
+        /* Unsupported flags that carry their own fields. */
+        if (flags & ((1u << 5) | (1u << 9) | (1u << 10) | (1u << 11))) {
+            logger_log(LOG_WARN,
+                       "tl_skip_message_media: document with unsupported flags 0x%x",
+                       flags);
+            return -1;
+        }
+        if (flags & (1u << 0)) if (tl_skip_document(r) != 0) return -1;
+        if (flags & (1u << 2)) { if (r->len - r->pos < 4) return -1; tl_read_int32(r); }
+        return 0;
+    }
+
+    default:
+        logger_log(LOG_WARN, "tl_skip_message_media: unsupported 0x%08x", crc);
+        return -1;
+    }
 }

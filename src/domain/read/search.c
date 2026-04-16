@@ -43,9 +43,10 @@ static int write_input_peer(TlWriter *w, const HistoryPeer *p) {
     }
 }
 
-/* Stop-iteration mask — must match history.c. */
+/* Stop-iteration mask — must match history.c. flag.9 (media) no longer
+ * stops iteration since tl_skip_message_media handles it. */
 #define MSG_FLAGS_STOP_ITER ( \
-      (1u << 6) | (1u << 9) | (1u << 20) | (1u << 22) | (1u << 23) )
+      (1u << 6) | (1u << 20) | (1u << 22) | (1u << 23) )
 
 /* Message parser — identical semantics to history.c::parse_message. */
 static int parse_message(TlReader *r, HistoryEntry *out) {
@@ -84,6 +85,9 @@ static int parse_message(TlReader *r, HistoryEntry *out) {
         free(msg);
     }
 
+    if (flags & (1u << 9)) {
+        if (tl_skip_message_media(r) != 0) { out->complex=1; return -1; }
+    }
     if (flags & MSG_FLAGS_STOP_ITER) { out->complex = 1; return -1; }
 
     if (flags & (1u << 7))   if (tl_skip_message_entities_vector(r) != 0) { out->complex=1; return -1; }

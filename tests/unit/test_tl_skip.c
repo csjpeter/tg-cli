@@ -22,6 +22,20 @@
 #define CRC_messageEntityTextUrl      0x76a6d327u
 #define CRC_messageFwdHeader          0x4e4df4bbu
 #define CRC_messageReplyHeader        0xafbc09dbu
+#define CRC_messageMediaEmpty         0x3ded6320u
+#define CRC_messageMediaUnsupported   0x9f84f49eu
+#define CRC_messageMediaGeo           0x56e0d474u
+#define CRC_messageMediaContact       0x70322949u
+#define CRC_messageMediaDice          0x3f7ee58bu
+#define CRC_messageMediaVenue         0x2ec0533fu
+#define CRC_messageMediaPhoto         0x695150d7u
+#define CRC_messageMediaDocument      0x4cf4d72du
+#define CRC_geoPointEmpty             0x1117dd5fu
+#define CRC_geoPoint                  0xb2a2f663u
+#define CRC_photo                     0xfb197a65u
+#define CRC_photoEmpty                0x2331b22du
+#define CRC_documentEmpty             0x36f8c871u
+#define CRC_photoSize                 0x75c78e60u
 
 static void test_skip_bool(void) {
     TlWriter w; tl_writer_init(&w);
@@ -321,6 +335,150 @@ static void test_skip_reply_header_reply_media_bail(void) {
     tl_writer_free(&w);
 }
 
+/* ---- MessageMedia skipper tests ---- */
+
+static void test_skip_media_empty(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaEmpty);
+    tl_write_int32(&w, 101);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media(&r) == 0, "media empty");
+    ASSERT(tl_read_int32(&r) == 101, "cursor past media empty");
+    tl_writer_free(&w);
+}
+
+static void test_skip_media_unsupported(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaUnsupported);
+    tl_write_int32(&w, 202);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media(&r) == 0, "media unsupported");
+    ASSERT(tl_read_int32(&r) == 202, "cursor past media unsupported");
+    tl_writer_free(&w);
+}
+
+static void test_skip_media_geo_empty_point(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaGeo);
+    tl_write_uint32(&w, CRC_geoPointEmpty);
+    tl_write_int32(&w, 303);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media(&r) == 0, "geo empty");
+    ASSERT(tl_read_int32(&r) == 303, "cursor past");
+    tl_writer_free(&w);
+}
+
+static void test_skip_media_geo(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaGeo);
+    tl_write_uint32(&w, CRC_geoPoint);
+    tl_write_uint32(&w, 0);        /* flags */
+    tl_write_double(&w, 19.12);    /* long */
+    tl_write_double(&w, 47.49);    /* lat */
+    tl_write_int64(&w, 0xCAFE);    /* access_hash */
+    tl_write_int32(&w, 404);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media(&r) == 0, "geo full");
+    ASSERT(tl_read_int32(&r) == 404, "cursor past");
+    tl_writer_free(&w);
+}
+
+static void test_skip_media_contact(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaContact);
+    tl_write_string(&w, "+15551234567");
+    tl_write_string(&w, "Alice");
+    tl_write_string(&w, "Smith");
+    tl_write_string(&w, "");      /* vcard */
+    tl_write_int64(&w, 42LL);
+    tl_write_int32(&w, 505);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media(&r) == 0, "contact");
+    ASSERT(tl_read_int32(&r) == 505, "cursor past");
+    tl_writer_free(&w);
+}
+
+static void test_skip_media_dice(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaDice);
+    tl_write_int32(&w, 6);
+    tl_write_string(&w, "🎲");
+    tl_write_int32(&w, 606);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media(&r) == 0, "dice");
+    ASSERT(tl_read_int32(&r) == 606, "cursor past");
+    tl_writer_free(&w);
+}
+
+static void test_skip_media_venue(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaVenue);
+    tl_write_uint32(&w, CRC_geoPointEmpty);
+    tl_write_string(&w, "Title");
+    tl_write_string(&w, "Address");
+    tl_write_string(&w, "Provider");
+    tl_write_string(&w, "VenueID");
+    tl_write_string(&w, "Type");
+    tl_write_int32(&w, 707);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media(&r) == 0, "venue");
+    ASSERT(tl_read_int32(&r) == 707, "cursor past");
+    tl_writer_free(&w);
+}
+
+static void test_skip_media_photo_empty_photo(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaPhoto);
+    tl_write_uint32(&w, (1u << 0));   /* flags: photo present */
+    tl_write_uint32(&w, CRC_photoEmpty);
+    tl_write_int64(&w, 1234567890LL);
+    tl_write_int32(&w, 808);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media(&r) == 0, "media-photo with photoEmpty");
+    ASSERT(tl_read_int32(&r) == 808, "cursor past");
+    tl_writer_free(&w);
+}
+
+static void test_skip_media_photo_with_sizes(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaPhoto);
+    tl_write_uint32(&w, (1u << 0));        /* photo flag */
+    /* photo#fb197a65 flags:# id:long access_hash:long file_reference:bytes
+     *                date:int sizes:Vector<PhotoSize> dc_id:int */
+    tl_write_uint32(&w, CRC_photo);
+    tl_write_uint32(&w, 0);                 /* photo flags */
+    tl_write_int64(&w, 111LL);              /* id */
+    tl_write_int64(&w, 222LL);              /* access_hash */
+    uint8_t fr[8] = {1,2,3,4,5,6,7,8};
+    tl_write_bytes(&w, fr, 8);              /* file_reference */
+    tl_write_int32(&w, 1700000000);         /* date */
+    /* sizes vector: one photoSize */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, CRC_photoSize);
+    tl_write_string(&w, "x");
+    tl_write_int32(&w, 640); tl_write_int32(&w, 480); tl_write_int32(&w, 12345);
+    tl_write_int32(&w, 2);                  /* dc_id */
+    tl_write_int32(&w, 909);                /* sentinel */
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media(&r) == 0, "media-photo with photoSize");
+    ASSERT(tl_read_int32(&r) == 909, "cursor past");
+    tl_writer_free(&w);
+}
+
+static void test_skip_media_document_empty(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaDocument);
+    tl_write_uint32(&w, (1u << 0));        /* document present */
+    tl_write_uint32(&w, CRC_documentEmpty);
+    tl_write_int64(&w, 99999LL);
+    tl_write_int32(&w, 1010);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media(&r) == 0, "media-document empty");
+    ASSERT(tl_read_int32(&r) == 1010, "cursor past");
+    tl_writer_free(&w);
+}
+
 void run_tl_skip_tests(void) {
     RUN_TEST(test_skip_bool);
     RUN_TEST(test_skip_string);
@@ -348,4 +506,14 @@ void run_tl_skip_tests(void) {
     RUN_TEST(test_skip_fwd_header_wrong_crc);
     RUN_TEST(test_skip_reply_header_wrong_crc);
     RUN_TEST(test_skip_reply_header_reply_media_bail);
+    RUN_TEST(test_skip_media_empty);
+    RUN_TEST(test_skip_media_unsupported);
+    RUN_TEST(test_skip_media_geo_empty_point);
+    RUN_TEST(test_skip_media_geo);
+    RUN_TEST(test_skip_media_contact);
+    RUN_TEST(test_skip_media_dice);
+    RUN_TEST(test_skip_media_venue);
+    RUN_TEST(test_skip_media_photo_empty_photo);
+    RUN_TEST(test_skip_media_photo_with_sizes);
+    RUN_TEST(test_skip_media_document_empty);
 }

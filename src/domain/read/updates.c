@@ -21,7 +21,7 @@
 
 /* Stop-iteration flag mask (must match history.c). */
 #define MSG_FLAGS_STOP_ITER ( \
-      (1u << 6) | (1u << 9) | (1u << 20) | (1u << 22) | (1u << 23) )
+      (1u << 6) | (1u << 20) | (1u << 22) | (1u << 23) )
 
 /* Parse one Message, advance the cursor past it. Populates entry with
  * id/out/date/text; sets complex=1 if we had to bail on a trailing
@@ -63,6 +63,9 @@ static int parse_message(TlReader *r, HistoryEntry *out) {
         free(msg);
     }
 
+    if (flags & (1u << 9)) {
+        if (tl_skip_message_media(r) != 0) { out->complex=1; return -1; }
+    }
     if (flags & MSG_FLAGS_STOP_ITER) { out->complex = 1; return -1; }
 
     if (flags & (1u << 7))   if (tl_skip_message_entities_vector(r) != 0) { out->complex=1; return -1; }

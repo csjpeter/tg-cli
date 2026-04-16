@@ -321,7 +321,57 @@ static void test_history_iterates_with_entities(void) {
     ASSERT(strcmp(entries[1].text, "plain") == 0, "text1");
 }
 
-static void test_history_stops_on_media(void) {
+/* With the MessageMedia skipper, media-bearing messages now iterate. */
+static void test_history_iterates_with_media_geo(void) {
+    mock_socket_reset(); mock_crypto_reset();
+
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, TL_messages_messages);
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 2);
+
+    /* Msg 1: flags.9 set + messageMediaGeo (empty geoPoint). */
+    tl_write_uint32(&w, TL_message);
+    tl_write_uint32(&w, (1u << 9));
+    tl_write_uint32(&w, 0);
+    tl_write_int32 (&w, 42);
+    tl_write_uint32(&w, TL_peerUser);
+    tl_write_int64 (&w, 100LL);
+    tl_write_int32 (&w, 1700000000);
+    tl_write_string(&w, "here");
+    tl_write_uint32(&w, 0x56e0d474u); /* messageMediaGeo */
+    tl_write_uint32(&w, 0x1117dd5fu); /* geoPointEmpty */
+
+    /* Msg 2: plain */
+    tl_write_uint32(&w, TL_message);
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, 0);
+    tl_write_int32 (&w, 43);
+    tl_write_uint32(&w, TL_peerUser);
+    tl_write_int64 (&w, 100LL);
+    tl_write_int32 (&w, 1700000001);
+    tl_write_string(&w, "there");
+
+    uint8_t payload[1024]; memcpy(payload, w.data, w.len);
+    size_t plen = w.len; tl_writer_free(&w);
+
+    uint8_t resp[2048]; size_t rlen = 0;
+    build_fake_encrypted_response(payload, plen, resp, &rlen);
+    mock_socket_set_response(resp, rlen);
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    fix_session(&s); fix_transport(&t); fix_cfg(&cfg);
+
+    HistoryEntry e[5] = {0}; int n = 0;
+    int rc = domain_get_history_self(&cfg, &s, &t, 0, 5, e, &n);
+    ASSERT(rc == 0, "iter with geo media");
+    ASSERT(n == 2, "both messages iterate past media");
+    ASSERT(e[0].id == 42 && strcmp(e[0].text, "here") == 0, "msg0");
+    ASSERT(e[1].id == 43 && strcmp(e[1].text, "there") == 0, "msg1");
+    ASSERT(e[0].complex == 0, "msg0 NOT complex after media skip");
+}
+
+static void test_history_stops_on_reply_markup(void) {
     mock_socket_reset(); mock_crypto_reset();
 
     TlWriter w; tl_writer_init(&w);
@@ -329,15 +379,15 @@ static void test_history_stops_on_media(void) {
     tl_write_uint32(&w, TL_vector);
     tl_write_uint32(&w, 3);
 
-    /* Msg 1: with media (flags.9) — should capture text but stop iteration. */
+    /* Msg 1: flags.6 (reply_markup) set — still no skipper, must bail. */
     tl_write_uint32(&w, TL_message);
-    tl_write_uint32(&w, (1u << 9));
+    tl_write_uint32(&w, (1u << 6));
     tl_write_uint32(&w, 0);
     tl_write_int32 (&w, 21);
     tl_write_uint32(&w, TL_peerUser);
     tl_write_int64 (&w, 100LL);
     tl_write_int32 (&w, 1700000000);
-    tl_write_string(&w, "has media");
+    tl_write_string(&w, "has reply_markup");
 
     /* Msg 2 & 3 would be here but unreachable. */
 
@@ -353,10 +403,10 @@ static void test_history_stops_on_media(void) {
 
     HistoryEntry entries[5] = {0}; int n = 0;
     int rc = domain_get_history_self(&cfg, &s, &t, 0, 5, entries, &n);
-    ASSERT(rc == 0, "media entry still returned");
+    ASSERT(rc == 0, "reply_markup entry still returned");
     ASSERT(n == 1, "only first captured before iteration stop");
     ASSERT(entries[0].complex == 1, "flagged complex");
-    ASSERT(strcmp(entries[0].text, "has media") == 0, "text before bail");
+    ASSERT(strcmp(entries[0].text, "has reply_markup") == 0, "text before bail");
 }
 
 static void test_history_null_args(void) {
@@ -378,6 +428,7 @@ void run_domain_history_tests(void) {
     RUN_TEST(test_history_complex_flag);
     RUN_TEST(test_history_iterates_multiple);
     RUN_TEST(test_history_iterates_with_entities);
-    RUN_TEST(test_history_stops_on_media);
+    RUN_TEST(test_history_iterates_with_media_geo);
+    RUN_TEST(test_history_stops_on_reply_markup);
     RUN_TEST(test_history_null_args);
 }

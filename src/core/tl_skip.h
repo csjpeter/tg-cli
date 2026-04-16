@@ -47,4 +47,20 @@ int tl_skip_message_fwd_header(TlReader *r);
 /** Skip a MessageReplyHeader (conservative — bails on reply_media). */
 int tl_skip_message_reply_header(TlReader *r);
 
+/** Skip a PhotoSize variant. */
+int tl_skip_photo_size(TlReader *r);
+
+/** Skip a Vector<PhotoSize>. */
+int tl_skip_photo_size_vector(TlReader *r);
+
+/** Skip a Photo variant (photo or photoEmpty). */
+int tl_skip_photo(TlReader *r);
+
+/** Skip a Document variant (document or documentEmpty). */
+int tl_skip_document(TlReader *r);
+
+/** Skip a MessageMedia variant. Handles the common ones; on the rest
+ *  returns -1 so the caller stops iterating. */
+int tl_skip_message_media(TlReader *r);
+
 #endif /* TL_SKIP_H */
