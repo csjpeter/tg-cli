@@ -38,3 +38,24 @@ Requires further tl_skip work before the users/chats vectors in the
 
 Estimated ~400 LoC of skippers before a join can land. Parked until
 phase 3 of P5-07 (Chat/User/Media skippers) completes.
+
+## Verified — 2026-04-16
+- `src/core/tl_skip.{h,c}`: added `tl_skip_message` (required to walk
+  the messages vector between dialogs and chats in the response).
+- `src/domain/read/dialogs.{h,c}`:
+  - `DialogEntry` gains `title[128]` + `username[64]`.
+  - After the dialogs vector the parser now iterates the messages
+    vector (via tl_skip_message), collects chats via
+    tl_extract_chat and users via tl_extract_user into temporary
+    arrays, then back-fills title/username on each DialogEntry by
+    matching peer_id.
+  - Graceful degrade: any failure mid-join leaves titles empty and
+    returns the dialog list that was already populated.
+- `src/main/tg_cli_ro.c` + `src/main/tg_tui.c`: `dialogs` output
+  now shows title and @username (plain + JSON).
+- `tests/unit/test_domain_dialogs.c::test_dialogs_title_join_user`
+  validates the join end-to-end: a user with first_name=Alice,
+  last_name=Smith, username=alice_s surfaces in the DialogEntry
+  as title="Alice Smith", username="alice_s".
+
+Tests: 1882 -> 1887. Valgrind: 0 leaks. Zero warnings.

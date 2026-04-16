@@ -12,6 +12,8 @@
 #include "logger.h"
 #include "raii.h"
 
+#include <stddef.h>
+
 #include <stdlib.h>
 #include <string.h>
 
@@ -189,5 +191,80 @@ int domain_get_dialogs(const ApiConfig *cfg,
     }
 
     *out_count = written;
+
+    /* ---- Title join ----
+     *
+     * messages.dialogs / dialogsSlice continues with:
+     *   messages:Vector<Message>
+     *   chats:Vector<Chat>
+     *   users:Vector<User>
+     *
+     * If we consumed every Dialog above, the cursor is positioned at the
+     * start of the messages vector. Walk it using tl_skip_message, then
+     * build id→title maps from the chats and users vectors and back-fill
+     * titles on the returned DialogEntry rows.
+     *
+     * If ANY step fails (unsupported flag etc.) we stop gracefully and
+     * leave whatever titles we collected so far — the caller already has
+     * ids and counts, so the feature degrades instead of failing. */
+    if (written < (int)count) return 0;              /* partial parse — skip join */
+    if (!tl_reader_ok(&r))    return 0;
+
+    uint32_t mvec = tl_read_uint32(&r);
+    if (mvec != TL_vector) return 0;
+    uint32_t mcount = tl_read_uint32(&r);
+    for (uint32_t i = 0; i < mcount; i++) {
+        if (tl_skip_message(&r) != 0) return 0;
+    }
+
+    uint32_t cvec = tl_read_uint32(&r);
+    if (cvec != TL_vector) return 0;
+    uint32_t ccount = tl_read_uint32(&r);
+    ChatSummary *chats = (ccount > 0)
+        ? (ChatSummary *)calloc(ccount, sizeof(ChatSummary))
+        : NULL;
+    uint32_t chats_written = 0;
+    for (uint32_t i = 0; i < ccount; i++) {
+        ChatSummary cs = {0};
+        if (tl_extract_chat(&r, &cs) != 0) { free(chats); chats = NULL; goto join_done; }
+        if (chats) chats[chats_written++] = cs;
+    }
+
+    uint32_t uvec = tl_read_uint32(&r);
+    if (uvec != TL_vector) { free(chats); goto join_done; }
+    uint32_t ucount = tl_read_uint32(&r);
+    UserSummary *users = (ucount > 0)
+        ? (UserSummary *)calloc(ucount, sizeof(UserSummary))
+        : NULL;
+    uint32_t users_written = 0;
+    for (uint32_t i = 0; i < ucount; i++) {
+        UserSummary us = {0};
+        if (tl_extract_user(&r, &us) != 0) { free(chats); free(users); goto join_done; }
+        if (users) users[users_written++] = us;
+    }
+
+    /* Fill DialogEntry title/username by looking up peer_id. */
+    for (int i = 0; i < *out_count; i++) {
+        DialogEntry *e = &out[i];
+        if (e->kind == DIALOG_PEER_USER) {
+            for (uint32_t j = 0; j < users_written; j++) {
+                if (users[j].id == e->peer_id) {
+                    memcpy(e->title,    users[j].name,     sizeof(e->title));
+                    memcpy(e->username, users[j].username, sizeof(e->username));
+                    break;
+                }
+            }
+        } else { /* CHAT / CHANNEL */
+            for (uint32_t j = 0; j < chats_written; j++) {
+                if (chats[j].id == e->peer_id) {
+                    memcpy(e->title, chats[j].title, sizeof(e->title));
+                    break;
+                }
+            }
+        }
+    }
+    free(chats);
+    free(users);
+join_done:
     return 0;
 }

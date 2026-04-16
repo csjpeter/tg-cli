@@ -85,12 +85,19 @@ static void do_dialogs(const ApiConfig *cfg, MtProtoSession *s, Transport *t,
         puts("dialogs: request failed");
         return;
     }
-    printf("%-8s %-18s %6s %6s\n", "type", "id", "top", "unread");
+    printf("%-8s %6s %-32s %s\n", "type", "unread", "title", "@username / id");
     for (int i = 0; i < count; i++) {
-        printf("%-8s %-18lld %6d %6d\n",
-               kind_label(entries[i].kind),
-               (long long)entries[i].peer_id,
-               entries[i].top_message_id, entries[i].unread_count);
+        const char *title = entries[i].title[0] ? entries[i].title : "(no title)";
+        if (entries[i].username[0]) {
+            printf("%-8s %6d %-32s @%s\n",
+                   kind_label(entries[i].kind),
+                   entries[i].unread_count, title, entries[i].username);
+        } else {
+            printf("%-8s %6d %-32s %lld\n",
+                   kind_label(entries[i].kind),
+                   entries[i].unread_count, title,
+                   (long long)entries[i].peer_id);
+        }
     }
 }
 

@@ -1186,3 +1186,68 @@ int tl_extract_user(TlReader *r, UserSummary *out) {
     if (!out) return extract_user_inner(r, NULL);
     return extract_user_inner(r, out);
 }
+
+/* ---- tl_skip_message ----
+ * Mirrors the parser in domain/read/history.c but discards all output.
+ * Returns 0 if the cursor is safely past the whole Message, -1 if we
+ * had to bail (cursor possibly mid-object).
+ */
+int tl_skip_message(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+
+    if (crc == TL_messageEmpty) {
+        /* flags:# id:int peer_id:flags.0?Peer */
+        if (r->len - r->pos < 8) return -1;
+        uint32_t flags = tl_read_uint32(r);
+        tl_read_int32(r); /* id */
+        if (flags & 1u) {
+            if (tl_skip_peer(r) != 0) return -1;
+        }
+        return 0;
+    }
+
+    if (crc == TL_messageService) {
+        /* action-heavy; we do not implement skipping yet. */
+        return -1;
+    }
+
+    if (crc != TL_message) {
+        logger_log(LOG_WARN, "tl_skip_message: unknown 0x%08x", crc);
+        return -1;
+    }
+
+    if (r->len - r->pos < 12) return -1;
+    uint32_t flags  = tl_read_uint32(r);
+    uint32_t flags2 = tl_read_uint32(r);
+    tl_read_int32(r); /* id */
+
+    if (flags & (1u << 8)) if (tl_skip_peer(r) != 0) return -1; /* from_id */
+    if (tl_skip_peer(r) != 0) return -1;                         /* peer_id */
+    if (flags & (1u << 28)) if (tl_skip_peer(r) != 0) return -1; /* saved_peer_id */
+    if (flags & (1u << 2))  if (tl_skip_message_fwd_header(r) != 0) return -1;
+    if (flags & (1u << 11)) { if (r->len - r->pos < 8) return -1; tl_read_int64(r); }
+    if (flags2 & (1u << 0)) { if (r->len - r->pos < 8) return -1; tl_read_int64(r); }
+    if (flags & (1u << 3))  if (tl_skip_message_reply_header(r) != 0) return -1;
+
+    if (r->len - r->pos < 4) return -1;
+    tl_read_int32(r); /* date */
+    if (tl_skip_string(r) != 0) return -1; /* message */
+
+    if (flags & (1u << 9)) if (tl_skip_message_media(r) != 0) return -1;
+
+    /* reply_markup (flags.6), reactions (flags.20), replies (flags.23),
+     * restriction_reason (flags.22), factcheck (flags2.3) — no skipper. */
+    if (flags & ((1u << 6) | (1u << 20) | (1u << 22) | (1u << 23))) return -1;
+    if (flags2 & (1u << 3)) return -1;
+
+    if (flags & (1u << 7))  if (tl_skip_message_entities_vector(r) != 0) return -1;
+    if (flags & (1u << 10)) { if (r->len - r->pos < 8) return -1; tl_read_int32(r); tl_read_int32(r); }
+    if (flags & (1u << 15)) { if (r->len - r->pos < 4) return -1; tl_read_int32(r); }
+    if (flags & (1u << 16)) if (tl_skip_string(r) != 0) return -1;
+    if (flags & (1u << 17)) { if (r->len - r->pos < 8) return -1; tl_read_int64(r); }
+    if (flags & (1u << 25)) { if (r->len - r->pos < 4) return -1; tl_read_int32(r); }
+    if (flags2 & (1u << 30)) { if (r->len - r->pos < 4) return -1; tl_read_int32(r); }
+    if (flags2 & (1u << 2))  { if (r->len - r->pos < 8) return -1; tl_read_int64(r); }
+    return 0;
+}

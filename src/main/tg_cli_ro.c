@@ -466,21 +466,31 @@ static int cmd_dialogs(const ArgResult *args) {
         printf("[");
         for (int i = 0; i < count; i++) {
             if (i) printf(",");
-            printf("{\"type\":\"%s\",\"id\":%lld,\"top\":%d,\"unread\":%d}",
+            printf("{\"type\":\"%s\",\"id\":%lld,\"title\":\"%s\","
+                   "\"username\":\"%s\",\"top\":%d,\"unread\":%d}",
                    peer_kind_name(entries[i].kind),
                    (long long)entries[i].peer_id,
+                   entries[i].title, entries[i].username,
                    entries[i].top_message_id,
                    entries[i].unread_count);
         }
         printf("]\n");
     } else {
-        printf("%-8s %-18s %6s %6s\n", "type", "id", "top", "unread");
+        printf("%-8s %6s %-32s %s\n",
+               "type", "unread", "title", "@username / id");
         for (int i = 0; i < count; i++) {
-            printf("%-8s %-18lld %6d %6d\n",
-                   peer_kind_name(entries[i].kind),
-                   (long long)entries[i].peer_id,
-                   entries[i].top_message_id,
-                   entries[i].unread_count);
+            const char *title = entries[i].title[0] ? entries[i].title : "(no title)";
+            if (entries[i].username[0]) {
+                printf("%-8s %6d %-32s @%s\n",
+                       peer_kind_name(entries[i].kind),
+                       entries[i].unread_count, title,
+                       entries[i].username);
+            } else {
+                printf("%-8s %6d %-32s %lld\n",
+                       peer_kind_name(entries[i].kind),
+                       entries[i].unread_count, title,
+                       (long long)entries[i].peer_id);
+            }
         }
     }
     free(entries);

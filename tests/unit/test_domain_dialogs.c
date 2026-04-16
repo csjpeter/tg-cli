@@ -119,6 +119,67 @@ static size_t make_multi_dialog_payload(uint8_t *buf, size_t max,
     return res;
 }
 
+/* P5-08: build a full messages.dialogsSlice with 1 dialog (user peer),
+ * 1 message, 0 chats, 1 user with first_name+last_name+username, and
+ * verify the DialogEntry gets the user's name + username populated. */
+static void test_dialogs_title_join_user(void) {
+    mock_socket_reset(); mock_crypto_reset();
+
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, TL_messages_dialogsSlice);
+    tl_write_int32 (&w, 1);
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    write_dialog(&w, TL_peerUser, 7777LL, 42, 3);
+
+    /* messages vector: 1 simple message for peer_id=7777 */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, TL_message);
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, 0);
+    tl_write_int32 (&w, 42);
+    tl_write_uint32(&w, TL_peerUser);
+    tl_write_int64 (&w, 7777LL);
+    tl_write_int32 (&w, 1700000000);
+    tl_write_string(&w, "msg");
+
+    /* chats vector: empty */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 0);
+
+    /* users vector: one user with first_name + last_name + username */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, TL_user);
+    uint32_t uflags = (1u << 1) | (1u << 2) | (1u << 3);
+    tl_write_uint32(&w, uflags);
+    tl_write_uint32(&w, 0);            /* flags2 */
+    tl_write_int64 (&w, 7777LL);
+    tl_write_string(&w, "Alice");
+    tl_write_string(&w, "Smith");
+    tl_write_string(&w, "alice_s");
+
+    uint8_t payload[1024]; memcpy(payload, w.data, w.len);
+    size_t plen = w.len; tl_writer_free(&w);
+
+    uint8_t resp[2048]; size_t rlen = 0;
+    build_fake_encrypted_response(payload, plen, resp, &rlen);
+    mock_socket_set_response(resp, rlen);
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    fix_session(&s); fix_transport(&t); fix_cfg(&cfg);
+
+    DialogEntry entries[5] = {0};
+    int count = 0;
+    int rc = domain_get_dialogs(&cfg, &s, &t, 5, entries, &count);
+    ASSERT(rc == 0, "title join ok");
+    ASSERT(count == 1, "one dialog");
+    ASSERT(entries[0].peer_id == 7777LL, "peer_id");
+    ASSERT(strcmp(entries[0].title, "Alice Smith") == 0, "joined name");
+    ASSERT(strcmp(entries[0].username, "alice_s") == 0, "username");
+}
+
 static void test_dialogs_multi_entries(void) {
     mock_socket_reset(); mock_crypto_reset();
 
@@ -258,6 +319,7 @@ static void test_dialogs_null_args(void) {
 }
 
 void run_domain_dialogs_tests(void) {
+    RUN_TEST(test_dialogs_title_join_user);
     RUN_TEST(test_dialogs_multi_entries);
     RUN_TEST(test_dialogs_single_user);
     RUN_TEST(test_dialogs_single_channel);

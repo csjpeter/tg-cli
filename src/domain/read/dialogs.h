@@ -31,6 +31,8 @@ typedef struct {
     int64_t        peer_id;
     int32_t        unread_count;
     int32_t        top_message_id;
+    char           title[128];     /**< Chat/channel title or user name. */
+    char           username[64];   /**< Public username without '@' (users/channels). */
 } DialogEntry;
 
 /**

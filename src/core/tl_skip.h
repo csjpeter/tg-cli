@@ -94,6 +94,17 @@ int tl_skip_chat(TlReader *r);
 /** Skip a User (userEmpty / user). */
 int tl_skip_user(TlReader *r);
 
+/**
+ * @brief Skip a Message object (any of message / messageEmpty /
+ *        messageService) past its trailer.
+ *
+ * Same contract as tl_skip_chat/tl_skip_user: advances past the whole
+ * object on success, returns -1 on fail (cursor may be mid-object).
+ * Bails on flags that have no skipper yet (reply_markup, reactions,
+ * replies, restriction_reason, factcheck, unsupported MessageMedia).
+ */
+int tl_skip_message(TlReader *r);
+
 /** Summary fields extracted from a Chat object. */
 typedef struct {
     int64_t id;
