@@ -25,3 +25,8 @@ HIGH — silent partial initialization of random buffer in crypto wrapper.
 
 ## Dependencies
 None
+
+## Verified — 2026-04-16
+- Added `len > INT_MAX` guard in `crypto_rand_bytes` that logs to stderr and aborts, matching the project's abort-on-impossible policy.
+- Included `<limits.h>`; no new test per ticket (unreachable in normal operation).
+- Unit test count: 1819 (ASAN clean). Valgrind: 0 bytes definitely lost.

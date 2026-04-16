@@ -12,6 +12,7 @@
 #include <openssl/rand.h>
 #include <openssl/bn.h>
 #include <openssl/pem.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -88,6 +89,14 @@ void crypto_aes_decrypt_block(const unsigned char *in, unsigned char *out,
 }
 
 int crypto_rand_bytes(unsigned char *buf, size_t len) {
+    /* QA-18: guard against size_t → int truncation that would leave the
+     * tail of `buf` uninitialized. The project never asks for > INT_MAX
+     * bytes in practice, so treat it as an impossible condition and abort,
+     * matching the project's abort-on-impossible policy. */
+    if (len > INT_MAX) {
+        fprintf(stderr, "crypto_rand_bytes: len too large\n");
+        abort();
+    }
     return RAND_bytes(buf, (int)len) == 1 ? 0 : -1;
 }
 
