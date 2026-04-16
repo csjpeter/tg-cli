@@ -20,6 +20,9 @@
 #include "domain/read/dialogs.h"
 #include "domain/read/history.h"
 #include "domain/read/updates.h"
+#include "domain/read/user_info.h"
+#include "domain/read/contacts.h"
+#include "domain/read/search.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -52,6 +55,11 @@ static int cb_get_password(void *u, char *out, size_t cap) {
     return tui_read_line("2FA password", out, cap, c->hist);
 }
 
+/* ---- Forward label helpers ---- */
+
+static const char *kind_label(DialogPeerKind k);
+static const char *resolved_label(ResolvedKind k);
+
 /* ---- Commands dispatched from the interactive loop ---- */
 
 static void do_me(const ApiConfig *cfg, MtProtoSession *s, Transport *t) {
@@ -79,25 +87,64 @@ static void do_dialogs(const ApiConfig *cfg, MtProtoSession *s, Transport *t,
     }
     printf("%-8s %-18s %6s %6s\n", "type", "id", "top", "unread");
     for (int i = 0; i < count; i++) {
-        const char *kind = "unknown";
-        switch (entries[i].kind) {
-        case DIALOG_PEER_USER:    kind = "user";    break;
-        case DIALOG_PEER_CHAT:    kind = "chat";    break;
-        case DIALOG_PEER_CHANNEL: kind = "channel"; break;
-        default: break;
-        }
         printf("%-8s %-18lld %6d %6d\n",
-               kind, (long long)entries[i].peer_id,
+               kind_label(entries[i].kind),
+               (long long)entries[i].peer_id,
                entries[i].top_message_id, entries[i].unread_count);
     }
 }
 
-static void do_history_self(const ApiConfig *cfg, MtProtoSession *s,
-                             Transport *t, int limit) {
+static const char *kind_label(DialogPeerKind k) {
+    switch (k) {
+    case DIALOG_PEER_USER:    return "user";
+    case DIALOG_PEER_CHAT:    return "chat";
+    case DIALOG_PEER_CHANNEL: return "channel";
+    default:                  return "unknown";
+    }
+}
+
+static const char *resolved_label(ResolvedKind k) {
+    switch (k) {
+    case RESOLVED_KIND_USER:    return "user";
+    case RESOLVED_KIND_CHAT:    return "chat";
+    case RESOLVED_KIND_CHANNEL: return "channel";
+    default:                    return "unknown";
+    }
+}
+
+static int resolve_history_peer(const ApiConfig *cfg, MtProtoSession *s,
+                                 Transport *t, const char *arg,
+                                 HistoryPeer *out) {
+    if (!arg || !*arg || !strcmp(arg, "self")) {
+        out->kind = HISTORY_PEER_SELF; out->peer_id = 0; out->access_hash = 0;
+        return 0;
+    }
+    ResolvedPeer rp = {0};
+    if (domain_resolve_username(cfg, s, t, arg, &rp) != 0) return -1;
+    switch (rp.kind) {
+    case RESOLVED_KIND_USER:    out->kind = HISTORY_PEER_USER;    break;
+    case RESOLVED_KIND_CHANNEL: out->kind = HISTORY_PEER_CHANNEL; break;
+    case RESOLVED_KIND_CHAT:    out->kind = HISTORY_PEER_CHAT;    break;
+    default: return -1;
+    }
+    out->peer_id = rp.id;
+    out->access_hash = rp.access_hash;
+    if ((out->kind == HISTORY_PEER_USER || out->kind == HISTORY_PEER_CHANNEL)
+        && !rp.have_hash) return -1;
+    return 0;
+}
+
+static void do_history_any(const ApiConfig *cfg, MtProtoSession *s,
+                            Transport *t, const char *arg, int limit) {
     if (limit <= 0 || limit > 100) limit = 20;
+    HistoryPeer peer = {0};
+    if (resolve_history_peer(cfg, s, t, arg, &peer) != 0) {
+        printf("history: could not resolve '%s'\n", arg ? arg : "self");
+        return;
+    }
     HistoryEntry entries[100] = {0};
     int count = 0;
-    if (domain_get_history_self(cfg, s, t, 0, limit, entries, &count) != 0) {
+    if (domain_get_history(cfg, s, t, &peer, 0, limit, entries, &count) != 0) {
         puts("history: request failed");
         return;
     }
@@ -110,6 +157,54 @@ static void do_history_self(const ApiConfig *cfg, MtProtoSession *s,
                                    : entries[i].text);
     }
     if (count == 0) puts("(no messages)");
+}
+
+static void do_contacts(const ApiConfig *cfg, MtProtoSession *s, Transport *t) {
+    ContactEntry entries[64] = {0};
+    int count = 0;
+    if (domain_get_contacts(cfg, s, t, entries, 64, &count) != 0) {
+        puts("contacts: request failed");
+        return;
+    }
+    printf("%-18s %s\n", "user_id", "mutual");
+    for (int i = 0; i < count; i++) {
+        printf("%-18lld %s\n",
+               (long long)entries[i].user_id,
+               entries[i].mutual ? "yes" : "no");
+    }
+    if (count == 0) puts("(no contacts)");
+}
+
+static void do_info(const ApiConfig *cfg, MtProtoSession *s, Transport *t,
+                    const char *peer) {
+    if (!peer || !*peer) { puts("usage: info <@name>"); return; }
+    ResolvedPeer r = {0};
+    if (domain_resolve_username(cfg, s, t, peer, &r) != 0) {
+        puts("info: resolve failed");
+        return;
+    }
+    printf("type:         %s\nid:           %lld\nusername:     @%s\n"
+           "access_hash:  %s\n",
+           resolved_label(r.kind),
+           (long long)r.id,
+           r.username[0] ? r.username : "",
+           r.have_hash ? "present" : "none");
+}
+
+static void do_search(const ApiConfig *cfg, MtProtoSession *s, Transport *t,
+                      const char *query) {
+    if (!query || !*query) { puts("usage: search <query>"); return; }
+    HistoryEntry e[20] = {0};
+    int n = 0;
+    if (domain_search_global(cfg, s, t, query, 20, e, &n) != 0) {
+        puts("search: request failed");
+        return;
+    }
+    for (int i = 0; i < n; i++) {
+        printf("[%d] %s\n", e[i].id,
+               e[i].complex ? "(complex)" : e[i].text);
+    }
+    if (n == 0) puts("(no matches)");
 }
 
 static void do_poll(const ApiConfig *cfg, MtProtoSession *s, Transport *t) {
@@ -131,10 +226,13 @@ static void do_poll(const ApiConfig *cfg, MtProtoSession *s, Transport *t) {
 
 static void print_help(void) {
     puts(
-        "Commands (read-only v1):\n"
+        "Commands (read-only v1, accept '/' prefix too):\n"
         "  me                    Show own profile\n"
         "  dialogs [N]           List up to N dialogs (default 20)\n"
-        "  history [N]           Saved Messages, last N (default 20)\n"
+        "  history [<peer>] [N]  Saved Messages by default, or <peer>\n"
+        "  contacts              List my contacts\n"
+        "  info <@peer>          Resolve peer info\n"
+        "  search <query>        Global message search (top 20)\n"
         "  poll                  One-shot updates.getDifference\n"
         "  help                  This help\n"
         "  quit, exit, :q        Leave the TUI\n"
@@ -164,17 +262,53 @@ static int repl(const ApiConfig *cfg, MtProtoSession *s, Transport *t,
         while (*arg && *arg != ' ' && *arg != '\t') arg++;
         if (*arg) { *arg++ = '\0'; while (*arg == ' ') arg++; }
 
+        /* Allow an optional leading '/' for IRC-style commands. */
+        if (*cmd == '/') cmd++;
+
         if (!strcmp(cmd, "quit") || !strcmp(cmd, "exit") ||
             !strcmp(cmd, ":q")) return 0;
         if (!strcmp(cmd, "help") || !strcmp(cmd, "?")) { print_help(); continue; }
-        if (!strcmp(cmd, "me"))      { do_me(cfg, s, t); continue; }
-        if (!strcmp(cmd, "dialogs")) { do_dialogs(cfg, s, t, atoi(arg)); continue; }
-        if (!strcmp(cmd, "history")) { do_history_self(cfg, s, t, atoi(arg)); continue; }
-        if (!strcmp(cmd, "poll"))    { do_poll(cfg, s, t); continue; }
+        if (!strcmp(cmd, "me"))       { do_me(cfg, s, t); continue; }
+        if (!strcmp(cmd, "dialogs") || !strcmp(cmd, "list")) {
+            do_dialogs(cfg, s, t, atoi(arg));
+            continue;
+        }
+        if (!strcmp(cmd, "history")) {
+            /* Accept "history <peer> <N>" or "history <N>" or "history". */
+            char peer[128] = "";
+            int lim = 0;
+            if (*arg) {
+                char *space = strpbrk(arg, " \t");
+                if (space) {
+                    size_t pn = (size_t)(space - arg);
+                    if (pn >= sizeof(peer)) pn = sizeof(peer) - 1;
+                    memcpy(peer, arg, pn);
+                    peer[pn] = '\0';
+                    while (*space == ' ' || *space == '\t') space++;
+                    lim = atoi(space);
+                } else {
+                    if (*arg >= '0' && *arg <= '9') {
+                        lim = atoi(arg);
+                    } else {
+                        size_t an = strlen(arg);
+                        if (an >= sizeof(peer)) an = sizeof(peer) - 1;
+                        memcpy(peer, arg, an);
+                        peer[an] = '\0';
+                    }
+                }
+            }
+            do_history_any(cfg, s, t, peer[0] ? peer : NULL, lim);
+            continue;
+        }
+        if (!strcmp(cmd, "contacts")) { do_contacts(cfg, s, t); continue; }
+        if (!strcmp(cmd, "info"))     { do_info(cfg, s, t, arg); continue; }
+        if (!strcmp(cmd, "search"))   { do_search(cfg, s, t, arg); continue; }
+        if (!strcmp(cmd, "poll"))     { do_poll(cfg, s, t); continue; }
 
         printf("unknown command: %s  (try 'help')\n", cmd);
     }
 }
+
 
 int main(int argc, char **argv) {
     (void)argc; (void)argv;

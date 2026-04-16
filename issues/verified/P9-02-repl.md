@@ -22,3 +22,17 @@ Interactive shell: command prompt, room switching, send/receive messages.
 - P5-03 (pending) — /send (üzenet küldés)
 - P7-01 (pending) — /contacts (névjegyzék)
 - P3-02 (pending) — bejelentkezés szükséges
+
+## Verified — 2026-04-16 (v1, read-only)
+- `src/main/tg_tui.c` REPL now covers the spec's read-only commands:
+  `me`, `dialogs`/`list`, `history [<peer>] [N]`, `contacts`,
+  `info <@peer>`, `search <query>`, `poll`, `help`, `quit`.
+- Leading `/` is accepted (IRC-style: `/list`, `/history`).
+- `history` accepts `<peer>` (resolves @username through
+  contacts.resolveUsername), `<peer> N`, `N`, or nothing (→ Saved
+  Messages).
+- Write commands (`/send`, etc.) still deferred to US-12 / `tg-cli`.
+
+## Remaining for v2
+- Full-screen TUI (ncurses-style panes) is a larger piece — tracked
+  separately once needed.
