@@ -25,3 +25,8 @@ LOW — log cleanup silently fails on some filesystems; no data corruption.
 
 ## Dependencies
 None
+
+## Verified — 2026-04-16
+- Replaced the `d_type == DT_REG` branch with an unconditional `stat()` + `S_ISREG` check in `logger_clean_logs`.
+- `<sys/stat.h>` was already included; no new headers needed.
+- Existing `test_logger.c` coverage still passes; `./manage.sh test` reports 1824 tests.

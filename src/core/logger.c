@@ -140,11 +140,19 @@ int logger_clean_logs(const char *log_dir) {
 
     struct dirent *entry;
     while ((entry = readdir(dir)) != NULL) {
-        if (entry->d_type == DT_REG && strstr(entry->d_name, "session.log")) {
-            char path[1024];
-            snprintf(path, sizeof(path), "%s/%s", log_dir, entry->d_name);
-            unlink(path);
-        }
+        if (!strstr(entry->d_name, "session.log")) continue;
+
+        char path[1024];
+        snprintf(path, sizeof(path), "%s/%s", log_dir, entry->d_name);
+
+        /* struct dirent::d_type is not guaranteed by POSIX; many
+         * filesystems (NFS, some FUSE mounts, ext2 without feature flags)
+         * report DT_UNKNOWN. Use stat() unconditionally for portability. */
+        struct stat st;
+        if (stat(path, &st) != 0) continue;
+        if (!S_ISREG(st.st_mode)) continue;
+
+        unlink(path);
     }
     return 0;
 }
