@@ -39,9 +39,13 @@ void mtproto_session_init(MtProtoSession *s) {
 uint64_t mtproto_session_next_msg_id(MtProtoSession *s) {
     if (!s) return 0;
 
-    /* msg_id ≈ unix_time * 2^32, must be even and monotonically increasing */
+    /* msg_id ≈ unix_time * 2^32 with cryptographic randomness in the
+     * lower 32 bits. Must be monotonically increasing and divisible by
+     * 4 for client→server. */
     uint64_t now = (uint64_t)time(NULL);
-    uint64_t msg_id = (now << 32) | ((uint64_t)rand() & 0xFFFFFFFC);
+    uint32_t low = 0;
+    crypto_rand_bytes((unsigned char *)&low, sizeof(low));
+    uint64_t msg_id = (now << 32) | ((uint64_t)low & 0xFFFFFFFC);
 
     /* Ensure monotonic increase */
     if (msg_id <= s->last_msg_id) {

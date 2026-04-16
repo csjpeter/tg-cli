@@ -25,3 +25,13 @@ MEDIUM — weak randomness in protocol-critical identifier.
 
 ## Dependencies
 None
+
+## Verified — 2026-04-16
+- `src/core/mtproto_session.c::mtproto_session_next_msg_id` now
+  draws the low-32 bits from `crypto_rand_bytes()` (OpenSSL
+  `RAND_bytes` in production, the mock in unit tests) instead of
+  `rand()`, which was trivially predictable once the libc seed
+  was compromised.
+- No new tests: existing
+  `tests/unit/test_phase2.c::test_session_msg_id_monotonic`
+  exercises monotonicity + divisibility by 4. All 1803 pass.
