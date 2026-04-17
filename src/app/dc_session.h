@@ -16,6 +16,7 @@
 #ifndef APP_DC_SESSION_H
 #define APP_DC_SESSION_H
 
+#include "api_call.h"
 #include "mtproto_session.h"
 #include "transport.h"
 
@@ -40,6 +41,25 @@ typedef struct {
  * @return 0 on success, -1 on connect / handshake / DC-lookup failure.
  */
 int dc_session_open(int dc_id, DcSession *out);
+
+/**
+ * @brief Ensure @p sess is authorized for the home user.
+ *
+ * If @p sess was just handshaked (fast path found no cached key), runs
+ * `auth.exportAuthorization` on the home session and
+ * `auth.importAuthorization` on @p sess. On success @p sess->authorized
+ * is set to 1 and the function is a no-op on subsequent calls.
+ *
+ * @param sess    Foreign-DC session returned by dc_session_open().
+ * @param cfg     Api config.
+ * @param home_s  Session on the home DC (must be authorized).
+ * @param home_t  Transport on the home DC.
+ * @return 0 on success (or already authorized), -1 on export/import failure.
+ */
+int dc_session_ensure_authorized(DcSession *sess,
+                                  const ApiConfig *cfg,
+                                  MtProtoSession *home_s,
+                                  Transport *home_t);
 
 /**
  * @brief Close the transport; session state stays in memory + on disk.

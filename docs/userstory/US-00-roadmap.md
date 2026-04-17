@@ -73,7 +73,7 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
 `pq_factorize` UINT32_MAX guard.
 
 ## Quality
-- **2110 unit tests** passing (ASAN)
+- **2121 unit tests** passing (ASAN)
 - **150 functional tests** passing (real OpenSSL; SHA-512, PBKDF2,
   BN primitives, IGE, MTProto crypto round-trips, full SRP
   client↔server math roundtrip, kitchen-sink Message iteration)
@@ -108,10 +108,12 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
    - P10-02 ✅ DcSession primitive (fast/slow handshake path)
    - P10-03 ✅ FILE_MIGRATE_X → open DcSession → retry on `upload.getFile`
      download path (photo + document)
-   - P10-04 ⏳ `auth.exportAuthorization` / `auth.importAuthorization`
-     so the foreign-DC session can service authorized RPCs
-     (`upload.saveFilePart`, `saveBigFilePart`) — required for
-     NETWORK_MIGRATE_X during send-file/upload
+   - P10-04 ✅ `auth.exportAuthorization` / `auth.importAuthorization`
+     — freshly handshaked foreign sessions now import authorization
+     from the home DC before the retry; cached sessions skip this
+     (server-side authorization stays bound to the auth_key). Wired
+     into `domain_download_media_cross_dc`, available as a primitive
+     (`dc_session_ensure_authorized`) for the upload path too.
 2. **Remaining MessageMedia skippers** — Invoice-with-photo
    (WebDocument), Story inline StoryItem.
 3. **Curses TUI (US-11 v2)** — pane-based live redraw.

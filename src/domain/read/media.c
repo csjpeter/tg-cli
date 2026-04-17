@@ -219,13 +219,22 @@ int domain_download_media_cross_dc(const ApiConfig *cfg,
         return -1;
     }
 
+    /* Freshly handshaked foreign sessions are not yet authorized.
+     * dc_session_ensure_authorized() runs export/import; on a cached
+     * session it is a no-op. */
+    if (dc_session_ensure_authorized(&xdc, cfg, home_s, home_t) != 0) {
+        logger_log(LOG_ERROR,
+                   "media: cross-DC authorization setup failed for DC%d",
+                   wrong_dc);
+        dc_session_close(&xdc);
+        return -1;
+    }
+
     int dummy = 0;
     int rc = download_any(cfg, &xdc.session, &xdc.transport,
                           info, out_path, &dummy);
     if (rc != 0) {
-        logger_log(LOG_ERROR,
-                   "media: retry on DC%d still failed (likely needs "
-                   "auth.importAuthorization — P10-04)", wrong_dc);
+        logger_log(LOG_ERROR, "media: retry on DC%d still failed", wrong_dc);
     }
     dc_session_close(&xdc);
     return rc;

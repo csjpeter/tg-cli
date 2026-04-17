@@ -52,7 +52,8 @@ static void test_fast_path_reuses_cached_key(void) {
     ASSERT(memcmp(out.session.auth_key, key, 256) == 0,
            "reused auth_key matches persisted copy");
     ASSERT(out.session.server_salt == 0xF00DULL, "salt restored");
-    ASSERT(out.authorized == 0, "authorized flag is still 0");
+    ASSERT(out.authorized == 1,
+           "cached key is treated as already authorized");
     ASSERT(mock_socket_was_connected() == 1, "transport connected");
 
     size_t sent_len = 0;
