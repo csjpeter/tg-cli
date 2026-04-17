@@ -149,7 +149,7 @@ add_executable(tg-cli-ro src/main/tg_cli_ro.c)
 target_link_libraries(tg-cli-ro PRIVATE tg-domain-read)
 
 add_executable(tg-tui src/main/tg_tui.c)
-target_link_libraries(tg-tui PRIVATE tg-domain-read tg-domain-write)
+target_link_libraries(tg-tui PRIVATE tg-domain-read tg-domain-write tg-tui-lib)
 
 add_executable(tg-cli src/main/tg_cli.c)
 target_link_libraries(tg-cli PRIVATE tg-domain-read tg-domain-write)

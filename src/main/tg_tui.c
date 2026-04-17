@@ -13,6 +13,7 @@
 #include "app/credentials.h"
 
 #include "readline.h"
+#include "platform/terminal.h"
 
 #include "domain/read/self.h"
 #include "domain/read/dialogs.h"
@@ -28,6 +29,8 @@
 #include "domain/write/forward.h"
 #include "domain/write/read_history.h"
 #include "domain/write/upload.h"
+
+#include "tui/app.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -503,8 +506,122 @@ static int repl(const ApiConfig *cfg, MtProtoSession *s, Transport *t,
 }
 
 
+/* Map a DialogEntry to a HistoryPeer. Returns 0 when the entry is
+ * directly loadable (self / chat). For users and channels the
+ * access_hash is not carried in the v1 DialogEntry, so this currently
+ * returns -1 and the caller shows a "cannot open" message; US-09-style
+ * access_hash caching is a follow-up. */
+static int dialog_to_history_peer(const DialogEntry *d, HistoryPeer *out) {
+    memset(out, 0, sizeof(*out));
+    switch (d->kind) {
+    case DIALOG_PEER_CHAT:
+        out->kind = HISTORY_PEER_CHAT;
+        out->peer_id = d->peer_id;
+        return 0;
+    case DIALOG_PEER_USER:
+    case DIALOG_PEER_CHANNEL:
+        /* TODO: thread access_hash through messages.getDialogs so these
+         * dialogs can also be opened. For now only the Saved Messages
+         * + group-chat paths are reachable from the TUI. */
+        return -1;
+    default:
+        return -1;
+    }
+}
+
+/* Curses-style TUI loop (US-11 v2). Returns 0 on clean exit. */
+static int run_tui_loop(const ApiConfig *cfg,
+                         MtProtoSession *s, Transport *t) {
+    int rows = terminal_rows(); if (rows < 3)  rows = 24;
+    int cols = terminal_cols(); if (cols < 40) cols = 80;
+
+    TuiApp app;
+    if (tui_app_init(&app, rows, cols) != 0) {
+        fprintf(stderr, "tg-tui: cannot initialize TUI (size %dx%d)\n",
+                rows, cols);
+        return 1;
+    }
+
+    /* Prime the dialog list. Failure is non-fatal; the user sees the
+     * empty-placeholder and can still quit. */
+    if (dialog_pane_refresh(&app.dialogs, cfg, s, t) != 0) {
+        status_row_set_message(&app.status, "dialogs: load failed");
+    }
+    /* dialog_pane_set_entries resets the list_view but forgets the
+     * viewport height set in tui_app_init; restore it. */
+    app.dialogs.lv.rows_visible = app.layout.dialogs.rows;
+
+    RAII_TERM_RAW TermRawState *raw = terminal_raw_enter();
+    if (!raw) {
+        fprintf(stderr, "tg-tui: cannot enter raw mode\n");
+        tui_app_free(&app);
+        return 1;
+    }
+    screen_cursor_visible(&app.screen, 0);
+
+    tui_app_paint(&app);
+    screen_flip(&app.screen);
+
+    int rc = 0;
+    for (;;) {
+        TermKey key = terminal_read_key();
+        TuiEvent ev;
+        if (key == TERM_KEY_IGNORE) {
+            ev = tui_app_handle_char(&app, terminal_last_printable());
+        } else {
+            ev = tui_app_handle_key(&app, key);
+        }
+
+        if (ev == TUI_EVENT_QUIT) break;
+
+        if (ev == TUI_EVENT_OPEN_DIALOG) {
+            const DialogEntry *d = dialog_pane_selected(&app.dialogs);
+            if (d) {
+                HistoryPeer peer;
+                if (dialog_to_history_peer(d, &peer) == 0) {
+                    status_row_set_message(&app.status, "loading…");
+                    tui_app_paint(&app);
+                    screen_flip(&app.screen);
+                    if (history_pane_load(&app.history, cfg, s, t, &peer) == 0) {
+                        /* Restore the viewport height lost to the
+                         * history_pane_set_entries reset. */
+                        app.history.lv.rows_visible = app.layout.history.rows;
+                        status_row_set_message(&app.status, NULL);
+                    } else {
+                        status_row_set_message(&app.status, "history: load failed");
+                    }
+                } else {
+                    status_row_set_message(&app.status,
+                                           "cannot open (access_hash missing)");
+                }
+            }
+        }
+
+        if (ev != TUI_EVENT_NONE) {
+            tui_app_paint(&app);
+            screen_flip(&app.screen);
+        }
+    }
+
+    /* Reset the terminal for the shell prompt. */
+    screen_cursor_visible(&app.screen, 1);
+    screen_cursor(&app.screen, app.rows, 1);
+    fputs("\r\n", stdout);
+    fflush(stdout);
+    tui_app_free(&app);
+    return rc;
+}
+
+/* Parse argv for the `--tui` flag. Returns 1 if present. */
+static int has_tui_flag(int argc, char **argv) {
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--tui") == 0) return 1;
+    }
+    return 0;
+}
+
 int main(int argc, char **argv) {
-    (void)argc; (void)argv;
+    int tui_mode = has_tui_flag(argc, argv);
 
     AppContext ctx;
     if (app_bootstrap(&ctx, "tg-tui") != 0) {
@@ -534,8 +651,11 @@ int main(int argc, char **argv) {
     transport_init(&t);
     mtproto_session_init(&s);
 
-    fputs("tg-tui — read-only interactive Telegram client. "
-          "Type 'help' for commands.\n", stdout);
+    if (!tui_mode) {
+        fputs("tg-tui — interactive Telegram client. "
+              "Type 'help' for commands (or run with --tui for pane view).\n",
+              stdout);
+    }
 
     if (auth_flow_login(&cfg, &cb, &t, &s, NULL) != 0) {
         fprintf(stderr, "tg-tui: login failed\n");
@@ -544,7 +664,8 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    int rc = repl(&cfg, &s, &t, &hist);
+    int rc = tui_mode ? run_tui_loop(&cfg, &s, &t)
+                      : repl(&cfg, &s, &t, &hist);
     transport_close(&t);
     app_shutdown(&ctx);
     return rc;

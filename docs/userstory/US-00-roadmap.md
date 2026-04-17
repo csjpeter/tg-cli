@@ -179,6 +179,18 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
      before the network call. `tui_app_paint` stages the current UI
      state into the back buffer without flipping — the event loop
      (still to land in tg_tui.c) drives the actual terminal IO.
+   - TUI-07 ✅ tg-tui integration: new `--tui` CLI flag enters the
+     curses-style loop built on TuiApp. Reads one keypress per
+     iteration via `terminal_read_key` / `terminal_last_printable`,
+     hands it to the state machine, and on OPEN_DIALOG fetches the
+     selected dialog's history with a "loading…" status message.
+     Without `--tui` the existing REPL is preserved, so no user
+     workflow regresses. Known limitation: only Saved Messages
+     (HISTORY_PEER_SELF) and legacy group chats (HISTORY_PEER_CHAT)
+     are reachable — the v1 DialogEntry does not carry access_hash,
+     so user/channel dialogs show "cannot open (access_hash missing)"
+     for now. Threading access_hash through messages.getDialogs is a
+     follow-up.
 
 ## Current focus
 MVP feature set is complete; any further work is polish and
