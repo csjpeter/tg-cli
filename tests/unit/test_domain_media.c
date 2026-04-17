@@ -277,6 +277,91 @@ static void test_download_document_rejects_non_document(void) {
     ASSERT(rc != 0, "photo rejected for document download");
 }
 
+/* ---- Cross-DC wrapper ---- */
+
+static void test_cross_dc_null_args(void) {
+    ApiConfig cfg; MtProtoSession s; Transport t;
+    fix_session(&s); fix_transport(&t); fix_cfg(&cfg);
+    MediaInfo info = fake_photo_info();
+    ASSERT(domain_download_media_cross_dc(NULL, &s, &t, &info, "/tmp/x") == -1,
+           "null cfg rejected");
+    ASSERT(domain_download_media_cross_dc(&cfg, NULL, &t, &info, "/tmp/x") == -1,
+           "null session rejected");
+    ASSERT(domain_download_media_cross_dc(&cfg, &s, NULL, &info, "/tmp/x") == -1,
+           "null transport rejected");
+    ASSERT(domain_download_media_cross_dc(&cfg, &s, &t, NULL, "/tmp/x") == -1,
+           "null info rejected");
+    ASSERT(domain_download_media_cross_dc(&cfg, &s, &t, &info, NULL) == -1,
+           "null path rejected");
+}
+
+/* Happy path: home DC succeeds on the first attempt, no DcSession ever
+ * gets opened. */
+static void test_cross_dc_happy_path_no_migration(void) {
+    mock_socket_reset(); mock_crypto_reset();
+
+    const char *path = "/tmp/tg-cli-media-xdc-happy.jpg";
+    unlink(path);
+
+    uint8_t body[64];
+    for (size_t i = 0; i < sizeof(body); i++) body[i] = (uint8_t)(0xA0 + i);
+
+    uint8_t payload[256];
+    size_t plen = make_upload_file(payload, sizeof(payload),
+                                    body, sizeof(body));
+    uint8_t resp[512]; size_t rlen = 0;
+    build_fake_encrypted_response(payload, plen, resp, &rlen);
+    mock_socket_set_response(resp, rlen);
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    fix_session(&s); fix_transport(&t); fix_cfg(&cfg);
+
+    MediaInfo info = fake_photo_info();
+    int rc = domain_download_media_cross_dc(&cfg, &s, &t, &info, path);
+    ASSERT(rc == 0, "cross-dc wrapper succeeds on home DC");
+
+    FILE *fp = fopen(path, "rb");
+    ASSERT(fp != NULL, "file created on disk");
+    if (fp) fclose(fp);
+    unlink(path);
+}
+
+/* Non-migrate failure (e.g. FLOOD_WAIT) must NOT trigger a secondary DC
+ * open — the wrapper just returns -1. */
+static void test_cross_dc_non_migrate_failure_bails(void) {
+    mock_socket_reset(); mock_crypto_reset();
+
+    const char *path = "/tmp/tg-cli-media-xdc-bail.jpg";
+    unlink(path);
+
+    uint8_t payload[128];
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, TL_rpc_error);
+    tl_write_int32 (&w, 420);
+    tl_write_string(&w, "FLOOD_WAIT_10");
+    memcpy(payload, w.data, w.len);
+    size_t plen = w.len;
+    tl_writer_free(&w);
+
+    uint8_t resp[512]; size_t rlen = 0;
+    build_fake_encrypted_response(payload, plen, resp, &rlen);
+    mock_socket_set_response(resp, rlen);
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    fix_session(&s); fix_transport(&t); fix_cfg(&cfg);
+    int creates_before = mock_socket_was_created();
+
+    MediaInfo info = fake_photo_info();
+    int rc = domain_download_media_cross_dc(&cfg, &s, &t, &info, path);
+    ASSERT(rc == -1, "non-migrate failure returns -1");
+
+    /* dc_session_open would create a new socket; for FLOOD_WAIT we must
+     * not. The mock exposes a cumulative creation counter. */
+    ASSERT(mock_socket_was_created() == creates_before,
+           "no new socket created for non-migrate error");
+    unlink(path);
+}
+
 void run_domain_media_tests(void) {
     RUN_TEST(test_download_photo_single_chunk);
     RUN_TEST(test_download_photo_rpc_error_migrate);
@@ -286,4 +371,7 @@ void run_domain_media_tests(void) {
     RUN_TEST(test_download_document_single_chunk);
     RUN_TEST(test_download_document_wire_has_doc_location_crc);
     RUN_TEST(test_download_document_rejects_non_document);
+    RUN_TEST(test_cross_dc_null_args);
+    RUN_TEST(test_cross_dc_happy_path_no_migration);
+    RUN_TEST(test_cross_dc_non_migrate_failure_bails);
 }

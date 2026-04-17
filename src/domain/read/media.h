@@ -61,4 +61,28 @@ int domain_download_document(const ApiConfig *cfg,
                               const char *out_path,
                               int *wrong_dc);
 
+/**
+ * @brief Download a photo or document, transparently following
+ *        FILE_MIGRATE_X to a secondary DC if required.
+ *
+ * Thin wrapper over domain_download_photo / domain_download_document
+ * that inspects the @p wrong_dc hint on the first attempt, opens a
+ * DcSession on the target DC via dc_session_open(), and retries the
+ * download there. The secondary session is closed before return.
+ *
+ * The caller's @p home_s / @p home_t are untouched; the retry uses
+ * a fresh transport internally.
+ *
+ * @param cfg       API config.
+ * @param home_s    Session pinned to the home DC.
+ * @param home_t    Transport for the home DC.
+ * @param info      MediaInfo (MEDIA_PHOTO or MEDIA_DOCUMENT).
+ * @param out_path  Destination path.
+ * @return 0 on success, -1 if home and secondary both failed.
+ */
+int domain_download_media_cross_dc(const ApiConfig *cfg,
+                                    MtProtoSession *home_s, Transport *home_t,
+                                    const MediaInfo *info,
+                                    const char *out_path);
+
 #endif /* DOMAIN_READ_MEDIA_H */

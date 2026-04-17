@@ -5,6 +5,7 @@
 
 #include "domain/read/media.h"
 
+#include "app/dc_session.h"
 #include "tl_serial.h"
 #include "tl_registry.h"
 #include "mtproto_rpc.h"
@@ -180,4 +181,52 @@ int domain_download_document(const ApiConfig *cfg,
         return -1;
     }
     return download_loop(cfg, s, t, info, out_path, wrong_dc);
+}
+
+/* Dispatch on MediaKind and call the right per-type entry point so the
+ * cross-DC wrapper does not need to know the argument validation rules. */
+static int download_any(const ApiConfig *cfg,
+                         MtProtoSession *s, Transport *t,
+                         const MediaInfo *info,
+                         const char *out_path,
+                         int *wrong_dc) {
+    if (info->kind == MEDIA_PHOTO)
+        return domain_download_photo(cfg, s, t, info, out_path, wrong_dc);
+    if (info->kind == MEDIA_DOCUMENT)
+        return domain_download_document(cfg, s, t, info, out_path, wrong_dc);
+    logger_log(LOG_ERROR, "media: download_any unsupported kind=%d", info->kind);
+    return -1;
+}
+
+int domain_download_media_cross_dc(const ApiConfig *cfg,
+                                    MtProtoSession *home_s, Transport *home_t,
+                                    const MediaInfo *info,
+                                    const char *out_path) {
+    if (!cfg || !home_s || !home_t || !info || !out_path) return -1;
+
+    int wrong_dc = 0;
+    if (download_any(cfg, home_s, home_t, info, out_path, &wrong_dc) == 0) {
+        return 0;                                /* home DC had the file */
+    }
+    if (wrong_dc <= 0) return -1;                /* not a migration — hard fail */
+
+    logger_log(LOG_INFO, "media: FILE_MIGRATE_%d, retrying on DC%d",
+               wrong_dc, wrong_dc);
+
+    DcSession xdc;
+    if (dc_session_open(wrong_dc, &xdc) != 0) {
+        logger_log(LOG_ERROR, "media: cannot open DC%d session", wrong_dc);
+        return -1;
+    }
+
+    int dummy = 0;
+    int rc = download_any(cfg, &xdc.session, &xdc.transport,
+                          info, out_path, &dummy);
+    if (rc != 0) {
+        logger_log(LOG_ERROR,
+                   "media: retry on DC%d still failed (likely needs "
+                   "auth.importAuthorization — P10-04)", wrong_dc);
+    }
+    dc_session_close(&xdc);
+    return rc;
 }

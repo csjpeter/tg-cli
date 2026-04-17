@@ -531,21 +531,11 @@ static int cmd_download(const ArgResult *args, const AppContext *ctx) {
         out_path = path_buf;
     }
 
-    int wrong_dc = 0;
-    rc = (entry.media == MEDIA_DOCUMENT)
-       ? domain_download_document(&cfg, &s, &t, &entry.media_info,
-                                    out_path, &wrong_dc)
-       : domain_download_photo(&cfg, &s, &t, &entry.media_info,
-                                 out_path, &wrong_dc);
+    rc = domain_download_media_cross_dc(&cfg, &s, &t,
+                                          &entry.media_info, out_path);
     transport_close(&t);
     if (rc != 0) {
-        if (wrong_dc > 0) {
-            fprintf(stderr,
-                    "tg-cli-ro download: file is on DC %d — cross-DC "
-                    "download is not supported yet\n", wrong_dc);
-        } else {
-            fprintf(stderr, "tg-cli-ro download: failed (see logs)\n");
-        }
+        fprintf(stderr, "tg-cli-ro download: failed (see logs)\n");
         return 1;
     }
     if (args->json) {
