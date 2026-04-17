@@ -420,7 +420,8 @@ static int cmd_history(const ArgResult *args) {
         [MEDIA_NONE] = "", [MEDIA_EMPTY] = "", [MEDIA_UNSUPPORTED] = "unsup",
         [MEDIA_PHOTO] = "photo", [MEDIA_DOCUMENT] = "doc", [MEDIA_GEO] = "geo",
         [MEDIA_CONTACT] = "contact", [MEDIA_VENUE] = "venue",
-        [MEDIA_GEO_LIVE] = "geo_live", [MEDIA_DICE] = "dice", [MEDIA_OTHER] = "other",
+        [MEDIA_GEO_LIVE] = "geo_live", [MEDIA_DICE] = "dice",
+        [MEDIA_WEBPAGE] = "webpage", [MEDIA_OTHER] = "other",
     };
     if (args->json) {
         printf("[");

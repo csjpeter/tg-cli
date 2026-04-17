@@ -82,6 +82,13 @@
 #define CRC_messageMediaVenue           0x2ec0533fu
 #define CRC_messageMediaGeoLive         0xb940c666u
 #define CRC_messageMediaDice            0x3f7ee58bu
+#define CRC_messageMediaWebPage         0xddf8c26eu
+
+/* WebPage variants (inside messageMediaWebPage). */
+#define CRC_webPage                     0xe89c45b2u
+#define CRC_webPageEmpty                0xeb1477e8u
+#define CRC_webPagePending              0xb0d13e47u
+#define CRC_webPageNotModified          0x7311ca11u
 
 /* ChatPhoto. */
 #define CRC_chatPhotoEmpty              0x37c1011cu
@@ -989,9 +996,104 @@ static int skip_geo_point(TlReader *r) {
     return 0;
 }
 
+/* Skip a WebPage variant. Returns -1 on rich-content variants we don't
+ * support yet (embedded Photo / Document / cached_page / attributes). */
+static int skip_webpage(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    switch (crc) {
+    case CRC_webPageEmpty: {
+        if (r->len - r->pos < 12) return -1;
+        uint32_t flags = tl_read_uint32(r);
+        tl_read_int64(r);                        /* id */
+        if (flags & (1u << 0))
+            if (tl_skip_string(r) != 0) return -1;
+        return 0;
+    }
+    case CRC_webPagePending: {
+        if (r->len - r->pos < 12) return -1;
+        uint32_t flags = tl_read_uint32(r);
+        tl_read_int64(r);
+        if (flags & (1u << 0))
+            if (tl_skip_string(r) != 0) return -1;
+        if (r->len - r->pos < 4) return -1;
+        tl_read_int32(r);                        /* date */
+        return 0;
+    }
+    case CRC_webPageNotModified: {
+        if (r->len - r->pos < 4) return -1;
+        uint32_t flags = tl_read_uint32(r);
+        if (flags & (1u << 0)) {
+            if (r->len - r->pos < 4) return -1;
+            tl_read_int32(r);                    /* cached_page_views */
+        }
+        return 0;
+    }
+    case CRC_webPage: {
+        /* webPage#e89c45b2 flags:# id:long url:string display_url:string
+         *   hash:int type:flags.0?string site_name:flags.1?string
+         *   title:flags.2?string description:flags.3?string
+         *   photo:flags.4?Photo embed_url:flags.5?string
+         *   embed_type:flags.5?string embed_width/height:flags.6?int
+         *   duration:flags.7?int author:flags.8?string
+         *   document:flags.9?Document cached_page:flags.10?Page
+         *   attributes:flags.12?Vector<WebPageAttribute>
+         */
+        if (r->len - r->pos < 16) return -1;
+        uint32_t flags = tl_read_uint32(r);
+        tl_read_int64(r);                        /* id */
+        if (tl_skip_string(r) != 0) return -1;   /* url */
+        if (tl_skip_string(r) != 0) return -1;   /* display_url */
+        if (r->len - r->pos < 4) return -1;
+        tl_read_int32(r);                        /* hash */
+        if (flags & (1u << 0))
+            if (tl_skip_string(r) != 0) return -1;
+        if (flags & (1u << 1))
+            if (tl_skip_string(r) != 0) return -1;
+        if (flags & (1u << 2))
+            if (tl_skip_string(r) != 0) return -1;
+        if (flags & (1u << 3))
+            if (tl_skip_string(r) != 0) return -1;
+        if (flags & (1u << 4)) {
+            if (photo_full(r, NULL) != 0) return -1;
+        }
+        if (flags & (1u << 5)) {
+            if (tl_skip_string(r) != 0) return -1;
+            if (tl_skip_string(r) != 0) return -1;
+        }
+        if (flags & (1u << 6)) {
+            if (r->len - r->pos < 8) return -1;
+            tl_read_int32(r); tl_read_int32(r);
+        }
+        if (flags & (1u << 7)) {
+            if (r->len - r->pos < 4) return -1;
+            tl_read_int32(r);
+        }
+        if (flags & (1u << 8))
+            if (tl_skip_string(r) != 0) return -1;
+        if (flags & (1u << 9)) {
+            /* document:Document — reuse tl_skip_document. */
+            if (tl_skip_document(r) != 0) return -1;
+        }
+        if (flags & (1u << 10)) {
+            logger_log(LOG_WARN, "skip_webpage: cached_page not supported");
+            return -1;
+        }
+        if (flags & (1u << 12)) {
+            logger_log(LOG_WARN, "skip_webpage: attributes not supported");
+            return -1;
+        }
+        return 0;
+    }
+    default:
+        logger_log(LOG_WARN, "skip_webpage: unknown 0x%08x", crc);
+        return -1;
+    }
+}
+
 /* ---- MessageMedia skipper ----
  * Common variants supported; unusual ones (Poll, Story, Game, Invoice,
- * Giveaway, PaidMedia, WebPage, ...) bail with -1.
+ * Giveaway, PaidMedia, ...) bail with -1.
  */
 int tl_skip_message_media_ex(TlReader *r, MediaInfo *out) {
     if (out) memset(out, 0, sizeof(*out));
@@ -1056,6 +1158,14 @@ int tl_skip_message_media_ex(TlReader *r, MediaInfo *out) {
         }
         if (flags & (1u << 2)) { if (r->len - r->pos < 4) return -1; tl_read_int32(r); }
         return 0;
+    }
+
+    case CRC_messageMediaWebPage: {
+        if (out) out->kind = MEDIA_WEBPAGE;
+        if (r->len - r->pos < 4) return -1;
+        uint32_t flags = tl_read_uint32(r);
+        (void)flags;                              /* only boolean previews */
+        return skip_webpage(r);
     }
 
     case CRC_messageMediaDocument: {

@@ -818,6 +818,85 @@ static void test_skip_factcheck_with_text(void) {
     tl_writer_free(&w);
 }
 
+/* ---- MessageMediaWebPage ---- */
+
+#define CRC_messageMediaWebPage_test 0xddf8c26eu
+#define CRC_webPage_test             0xe89c45b2u
+#define CRC_webPageEmpty_test        0xeb1477e8u
+#define CRC_webPagePending_test      0xb0d13e47u
+
+static void test_skip_media_webpage_empty(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaWebPage_test);
+    tl_write_uint32(&w, 0);                     /* outer flags */
+    tl_write_uint32(&w, CRC_webPageEmpty_test);
+    tl_write_uint32(&w, (1u << 0));             /* url flag */
+    tl_write_int64 (&w, 0x123LL);
+    tl_write_string(&w, "https://example.com");
+    tl_write_int32 (&w, 42);
+    TlReader r = tl_reader_init(w.data, w.len);
+    MediaInfo mi = {0};
+    ASSERT(tl_skip_message_media_ex(&r, &mi) == 0, "webpage empty ok");
+    ASSERT(mi.kind == MEDIA_WEBPAGE, "kind == webpage");
+    ASSERT(tl_read_int32(&r) == 42, "cursor past webpage");
+    tl_writer_free(&w);
+}
+
+static void test_skip_media_webpage_rich(void) {
+    /* webPage with url + display_url + hash + site_name + title. */
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaWebPage_test);
+    tl_write_uint32(&w, 0);                     /* outer flags */
+    tl_write_uint32(&w, CRC_webPage_test);
+    tl_write_uint32(&w, (1u << 1) | (1u << 2)); /* site_name + title */
+    tl_write_int64 (&w, 0xABC);
+    tl_write_string(&w, "https://example.com/page");
+    tl_write_string(&w, "example.com/page");
+    tl_write_int32 (&w, 12345);                 /* hash */
+    tl_write_string(&w, "Example");             /* site_name */
+    tl_write_string(&w, "A Title");             /* title */
+    tl_write_int32 (&w, 0xdead);                /* trailer */
+    TlReader r = tl_reader_init(w.data, w.len);
+    MediaInfo mi = {0};
+    ASSERT(tl_skip_message_media_ex(&r, &mi) == 0, "webpage rich ok");
+    ASSERT(mi.kind == MEDIA_WEBPAGE, "kind == webpage");
+    ASSERT(tl_read_int32(&r) == 0xdead, "cursor past webpage");
+    tl_writer_free(&w);
+}
+
+static void test_skip_media_webpage_pending(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaWebPage_test);
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, CRC_webPagePending_test);
+    tl_write_uint32(&w, (1u << 0));             /* url */
+    tl_write_int64 (&w, 0x999);
+    tl_write_string(&w, "https://pending.example");
+    tl_write_int32 (&w, 1700000000);
+    tl_write_int32 (&w, 0xCAFE);
+    TlReader r = tl_reader_init(w.data, w.len);
+    MediaInfo mi = {0};
+    ASSERT(tl_skip_message_media_ex(&r, &mi) == 0, "webpage pending ok");
+    ASSERT(tl_read_int32(&r) == 0xCAFE, "cursor past pending");
+    tl_writer_free(&w);
+}
+
+static void test_skip_media_webpage_cached_page_bails(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaWebPage_test);
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, CRC_webPage_test);
+    tl_write_uint32(&w, (1u << 10));            /* cached_page flag */
+    tl_write_int64 (&w, 0x111);
+    tl_write_string(&w, "u");
+    tl_write_string(&w, "u");
+    tl_write_int32 (&w, 1);
+    /* cached_page body would follow — we bail before it. */
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r, NULL) == -1, "cached_page bails");
+    tl_writer_free(&w);
+}
+
 static void test_skip_factcheck_unknown_crc_bails(void) {
     TlWriter w; tl_writer_init(&w);
     tl_write_uint32(&w, 0xdeadbeefu);
@@ -897,4 +976,8 @@ void run_tl_skip_tests(void) {
     RUN_TEST(test_skip_factcheck_need_check_only);
     RUN_TEST(test_skip_factcheck_with_text);
     RUN_TEST(test_skip_factcheck_unknown_crc_bails);
+    RUN_TEST(test_skip_media_webpage_empty);
+    RUN_TEST(test_skip_media_webpage_rich);
+    RUN_TEST(test_skip_media_webpage_pending);
+    RUN_TEST(test_skip_media_webpage_cached_page_bails);
 }

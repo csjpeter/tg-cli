@@ -116,6 +116,7 @@ typedef enum {
     MEDIA_VENUE,
     MEDIA_GEO_LIVE,
     MEDIA_DICE,
+    MEDIA_WEBPAGE,
     MEDIA_OTHER,
 } MediaKind;
 

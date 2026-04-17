@@ -73,7 +73,7 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
 `pq_factorize` UINT32_MAX guard.
 
 ## Quality
-- **2003 unit tests** passing (ASAN)
+- **2012 unit tests** passing (ASAN)
 - **131 functional tests** passing (real OpenSSL; SHA-512, PBKDF2,
   BN primitives, IGE, MTProto crypto round-trips)
 - Valgrind: 0 leaks, 0 errors
@@ -82,8 +82,9 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
 
 ## Known v1 limitations (follow-ups, not blockers)
 - Rare MessageMedia variants (Poll, Story, Game, Invoice, Giveaway,
-  WebPage, PaidMedia) still halt iteration — needs per-variant
-  skippers.
+  PaidMedia) still halt iteration — needs per-variant skippers.
+  WebPage (URL previews) now parses through for the common
+  text-only case; cached_page and attributes flags still bail.
 - File upload capped at `UPLOAD_MAX_SIZE = 10 MiB` — the
   `upload.saveBigFilePart` path (>10 MiB, media DCs) and
   cross-DC download of photos on other DCs are follow-ups
