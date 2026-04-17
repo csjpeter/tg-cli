@@ -279,6 +279,44 @@ static void test_upload_rejects_oversized_file(void) {
     unlink(path);
 }
 
+/* saveFilePart returns a non-migrate RPC error — domain_send_file must
+ * bail out rather than entering the cross-DC retry path. */
+static void test_upload_non_migrate_error_bails(void) {
+    mock_crypto_reset();
+
+    const char *path = "/tmp/tg-cli-upload-err.bin";
+    unlink(path);
+    uint8_t body[64];
+    for (size_t i = 0; i < sizeof(body); i++) body[i] = (uint8_t)i;
+    write_temp(path, body, sizeof(body));
+
+    /* Prime one frame with an FLOOD_WAIT_10 RPC error (no migrate_dc). */
+    uint8_t payload[128];
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, TL_rpc_error);
+    tl_write_int32 (&w, 420);
+    tl_write_string(&w, "FLOOD_WAIT_10");
+    memcpy(payload, w.data, w.len);
+    size_t plen = w.len;
+    tl_writer_free(&w);
+
+    uint8_t resp[512]; size_t rlen = 0;
+    build_fake_encrypted_response(payload, plen, resp, &rlen);
+    mock_socket_reset();
+    mock_socket_set_response(resp, rlen);
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    fix_session(&s); fix_transport(&t); fix_cfg(&cfg);
+    int creates_before = mock_socket_was_created();
+
+    HistoryPeer peer = { .kind = HISTORY_PEER_SELF };
+    int rc = domain_send_file(&cfg, &s, &t, &peer, path, NULL, NULL, NULL);
+    ASSERT(rc == -1, "non-migrate error propagates");
+    ASSERT(mock_socket_was_created() == creates_before,
+           "no cross-DC socket opened for non-migrate error");
+    unlink(path);
+}
+
 void run_domain_upload_tests(void) {
     RUN_TEST(test_upload_small_file_success);
     RUN_TEST(test_upload_rejects_missing_file);
@@ -287,4 +325,5 @@ void run_domain_upload_tests(void) {
     RUN_TEST(test_upload_writes_expected_bytes);
     RUN_TEST(test_upload_big_file_uses_saveBigFilePart);
     RUN_TEST(test_upload_rejects_oversized_file);
+    RUN_TEST(test_upload_non_migrate_error_bails);
 }

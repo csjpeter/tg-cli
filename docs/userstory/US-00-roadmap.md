@@ -73,7 +73,7 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
 `pq_factorize` UINT32_MAX guard.
 
 ## Quality
-- **2121 unit tests** passing (ASAN)
+- **2123 unit tests** passing (ASAN)
 - **150 functional tests** passing (real OpenSSL; SHA-512, PBKDF2,
   BN primitives, IGE, MTProto crypto round-trips, full SRP
   client↔server math roundtrip, kitchen-sink Message iteration)
@@ -103,7 +103,7 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
   complex-iteration bail.
 
 ## Backlog (post-MVP polish)
-1. **Cross-DC media routing**
+1. **Cross-DC media routing** ✅ complete
    - P10-01 ✅ multi-DC session store (v2 file, up to 5 DCs)
    - P10-02 ✅ DcSession primitive (fast/slow handshake path)
    - P10-03 ✅ FILE_MIGRATE_X → open DcSession → retry on `upload.getFile`
@@ -114,6 +114,13 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
      (server-side authorization stays bound to the auth_key). Wired
      into `domain_download_media_cross_dc`, available as a primitive
      (`dc_session_ensure_authorized`) for the upload path too.
+   - P10-05 ✅ Upload path migration — `domain_send_file` detects
+     NETWORK/FILE_MIGRATE_X on `upload.saveFilePart` /
+     `saveBigFilePart`, opens + authorizes the target DC, regenerates
+     the file_id, and retries the full upload there.
+     `messages.sendMedia` stays on the home DC (references the
+     foreign-uploaded file_id). Cross-DC routing is now complete
+     across all media I/O.
 2. **Remaining MessageMedia skippers** — Invoice-with-photo
    (WebDocument), Story inline StoryItem.
 3. **Curses TUI (US-11 v2)** — pane-based live redraw.

@@ -5,6 +5,7 @@
 
 #include "domain/write/upload.h"
 
+#include "app/dc_session.h"
 #include "tl_serial.h"
 #include "tl_registry.h"
 #include "mtproto_rpc.h"
@@ -45,12 +46,17 @@ static int write_input_peer(TlWriter *w, const HistoryPeer *p) {
 }
 
 /* Send one upload.saveFilePart (small) or upload.saveBigFilePart (big).
- * For the big variant @p total_parts must be >= 0. Expects boolTrue. */
+ * Returns 0 on boolTrue, -1 on error. When @p out_migrate_dc is non-NULL,
+ * the server's migrate_dc hint (FILE_MIGRATE_X / NETWORK_MIGRATE_X) is
+ * written there so the caller can switch DCs. */
 static int save_part(const ApiConfig *cfg,
                       MtProtoSession *s, Transport *t,
                       int is_big,
                       int64_t file_id, int32_t part_idx, int32_t total_parts,
-                      const uint8_t *bytes, size_t len) {
+                      const uint8_t *bytes, size_t len,
+                      int *out_migrate_dc) {
+    if (out_migrate_dc) *out_migrate_dc = 0;
+
     TlWriter w; tl_writer_init(&w);
     if (is_big) {
         tl_write_uint32(&w, CRC_upload_saveBigFilePart);
@@ -76,12 +82,59 @@ static int save_part(const ApiConfig *cfg,
         return -1;
     if (resp_len < 4) return -1;
     uint32_t top; memcpy(&top, resp, 4);
-    if (top == TL_rpc_error) return -1;
+    if (top == TL_rpc_error) {
+        RpcError perr; rpc_parse_error(resp, resp_len, &perr);
+        if (out_migrate_dc && perr.migrate_dc > 0)
+            *out_migrate_dc = perr.migrate_dc;
+        logger_log(LOG_ERROR, "upload: save%sFilePart RPC %d: %s (migrate=%d)",
+                   is_big ? "Big" : "",
+                   perr.error_code, perr.error_msg, perr.migrate_dc);
+        return -1;
+    }
     if (top != TL_boolTrue) {
         logger_log(LOG_ERROR, "upload: unexpected save%sFilePart reply 0x%08x",
                    is_big ? "Big" : "", top);
         return -1;
     }
+    return 0;
+}
+
+/* Upload @p fp fully on the given (s, t). Caller must have rewound @p fp.
+ * On NETWORK_MIGRATE_X / FILE_MIGRATE_X at any part, writes the target DC
+ * to @p out_migrate_dc and returns -1 without continuing. */
+static int upload_all_parts(const ApiConfig *cfg,
+                             MtProtoSession *s, Transport *t,
+                             FILE *fp, int is_big,
+                             int64_t total,
+                             int64_t file_id, int32_t total_parts,
+                             uint8_t *chunk,
+                             int32_t *out_part_count,
+                             int *out_migrate_dc) {
+    if (out_migrate_dc) *out_migrate_dc = 0;
+    if (fseek(fp, 0, SEEK_SET) != 0) return -1;
+
+    int32_t part_idx = 0;
+    int64_t done = 0;
+    while (done < total) {
+        int64_t want = total - done;
+        if (want > UPLOAD_CHUNK_SIZE) want = UPLOAD_CHUNK_SIZE;
+        size_t got = fread(chunk, 1, (size_t)want, fp);
+        if ((int64_t)got != want) {
+            logger_log(LOG_ERROR, "upload: short read at part %d", part_idx);
+            return -1;
+        }
+        int migrate = 0;
+        if (save_part(cfg, s, t, is_big, file_id, part_idx, total_parts,
+                        chunk, got, &migrate) != 0) {
+            if (out_migrate_dc && migrate > 0) *out_migrate_dc = migrate;
+            logger_log(LOG_ERROR, "upload: part %d failed (migrate=%d)",
+                       part_idx, migrate);
+            return -1;
+        }
+        done += (int64_t)got;
+        part_idx++;
+    }
+    if (out_part_count) *out_part_count = part_idx;
     return 0;
 }
 
@@ -133,22 +186,43 @@ int domain_send_file(const ApiConfig *cfg,
     if (!chunk) return -1;
 
     int32_t part_idx = 0;
-    int64_t done = 0;
-    while (done < total) {
-        int64_t want = total - done;
-        if (want > UPLOAD_CHUNK_SIZE) want = UPLOAD_CHUNK_SIZE;
-        size_t got = fread(chunk, 1, (size_t)want, fp);
-        if ((int64_t)got != want) {
-            logger_log(LOG_ERROR, "upload: short read at part %d", part_idx);
+    int home_migrate = 0;
+    if (upload_all_parts(cfg, s, t, fp, is_big, total,
+                          file_id, total_parts, chunk,
+                          &part_idx, &home_migrate) != 0) {
+        if (home_migrate <= 0) {
+            logger_log(LOG_ERROR, "upload: non-migrate failure");
             return -1;
         }
-        if (save_part(cfg, s, t, is_big, file_id, part_idx, total_parts,
-                        chunk, got) != 0) {
-            logger_log(LOG_ERROR, "upload: part %d failed", part_idx);
+        /* Migrate: open the target DC, authorize, pick a fresh file_id
+         * (partial uploads on the old DC are discarded), retry. */
+        logger_log(LOG_INFO,
+                   "upload: NETWORK/FILE_MIGRATE_%d, retrying on DC%d",
+                   home_migrate, home_migrate);
+
+        DcSession xdc;
+        if (dc_session_open(home_migrate, &xdc) != 0) return -1;
+        if (dc_session_ensure_authorized(&xdc, cfg, s, t) != 0) {
+            dc_session_close(&xdc);
             return -1;
         }
-        done += (int64_t)got;
-        part_idx++;
+
+        uint8_t id2_buf[8] = {0};
+        if (crypto_rand_bytes(id2_buf, 8) != 0) {
+            dc_session_close(&xdc); return -1;
+        }
+        memcpy(&file_id, id2_buf, 8);
+
+        int fdc_migrate = 0;
+        int rc2 = upload_all_parts(cfg, &xdc.session, &xdc.transport, fp,
+                                    is_big, total, file_id, total_parts,
+                                    chunk, &part_idx, &fdc_migrate);
+        dc_session_close(&xdc);
+        if (rc2 != 0) {
+            logger_log(LOG_ERROR, "upload: retry on DC%d also failed",
+                       home_migrate);
+            return -1;
+        }
     }
 
     /* Second phase: messages.sendMedia with InputMediaUploadedDocument. */
