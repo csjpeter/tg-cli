@@ -1,17 +1,17 @@
 /**
  * @file app/session_store.h
- * @brief Persist and restore the MTProto session across runs.
+ * @brief Persist and restore MTProto sessions (one per DC) across runs.
  *
  * File layout at `~/.config/tg-cli/session.bin` (mode 0600):
  *   offset 0  — 4 bytes magic "TGCS"
- *   offset 4  — 4 bytes version (currently 1)
- *   offset 8  — 4 bytes dc_id (int32 LE)
- *   offset 12 — 8 bytes server_salt (uint64 LE)
- *   offset 20 — 8 bytes session_id (uint64 LE)
- *   offset 28 — 256 bytes auth_key
+ *   offset 4  — 4 bytes version (currently 2)
+ *   offset 8  — 4 bytes home_dc_id (int32 LE)
+ *   offset 12 — 4 bytes entry_count (uint32 LE, capped at SESSION_STORE_MAX_DCS)
+ *   offset 16 — entry_count * { int32 dc_id, uint64 server_salt,
+ *                               uint64 session_id, uint8 auth_key[256] }
  *
- * Total = 284 bytes. Simple TLV-free layout; additional fields trigger a
- * version bump that causes restore to fail safely (operator re-login).
+ * Per-entry size = 276 bytes. Max payload = 16 + 5*276 = 1396 bytes.
+ * Version bump: loader rejects older versions so the operator re-logs in.
  */
 
 #ifndef APP_SESSION_STORE_H
@@ -19,19 +19,41 @@
 
 #include "mtproto_session.h"
 
+#define SESSION_STORE_MAX_DCS 5
+
 /**
- * @brief Save the session (auth_key + salt + session_id) plus the DC id.
- * @return 0 on success, -1 on error.
+ * @brief Persist this session under @p dc_id and mark that DC as home.
+ *
+ * Upserts the entry in place if @p dc_id already exists; other entries are
+ * preserved. The file is rewritten atomically-ish (open+write+close — no
+ * fsync/rename dance yet because a torn write just triggers a re-login).
+ *
+ * @return 0 on success, -1 on IO or state error.
  */
 int session_store_save(const MtProtoSession *s, int dc_id);
 
 /**
- * @brief Restore a previously saved session.
+ * @brief Restore the session that was last tagged as home DC.
+ *
  * @param s       Initialised MtProtoSession that will be populated.
- * @param dc_id   Receives the DC id.
- * @return 0 on success, -1 if no file or corrupt / wrong version.
+ * @param dc_id   Receives the home DC id.
+ * @return 0 on success, -1 if no file, wrong version, or home DC missing.
  */
 int session_store_load(MtProtoSession *s, int *dc_id);
+
+/**
+ * @brief Upsert this session under @p dc_id without changing home_dc_id.
+ *
+ * Used when establishing a secondary-DC session (cross-DC media routing).
+ * @return 0 on success, -1 on IO or state error.
+ */
+int session_store_save_dc(int dc_id, const MtProtoSession *s);
+
+/**
+ * @brief Restore the session for a specific DC if one was persisted.
+ * @return 0 on success, -1 if the DC has no entry or the file is corrupt.
+ */
+int session_store_load_dc(int dc_id, MtProtoSession *s);
 
 /** @brief Remove the persisted session file (no-op if absent). */
 void session_store_clear(void);
