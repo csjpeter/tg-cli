@@ -1372,9 +1372,9 @@ static void test_skip_media_story_inline_skipped(void) {
     tl_writer_free(&w);
 }
 
-static void test_skip_media_story_full_still_bails(void) {
-    /* Full storyItem#79b26a24 is deliberately left out — verify it bails
-     * cleanly instead of mis-advancing the reader. */
+static void test_skip_media_story_truncated_full_bails(void) {
+    /* Full storyItem body missing: the skipper must bail cleanly rather
+     * than overrun the buffer. */
     TlWriter w; tl_writer_init(&w);
     tl_write_uint32(&w, CRC_messageMediaStory_t);
     tl_write_uint32(&w, (1u << 0));
@@ -1382,10 +1382,106 @@ static void test_skip_media_story_full_still_bails(void) {
     tl_write_int64 (&w, 7LL);
     tl_write_int32 (&w, 11);
     tl_write_uint32(&w, CRC_storyItem_t);
-    /* Further bytes unused; we expect an early bail on the CRC. */
+    /* No body bytes — skipper should detect truncation. */
     TlReader r = tl_reader_init(w.data, w.len);
     ASSERT(tl_skip_message_media_ex(&r, NULL) == -1,
-           "full storyItem bails (expected, future work)");
+           "truncated full storyItem bails");
+    tl_writer_free(&w);
+}
+
+/* Full storyItem#79b26a24 minimal: only mandatory fields + empty media. */
+static void test_skip_media_story_full_minimal(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaStory_t);
+    tl_write_uint32(&w, (1u << 0));              /* inline story */
+    tl_write_uint32(&w, TL_peerUser);
+    tl_write_int64 (&w, 42LL);
+    tl_write_int32 (&w, 99);                     /* outer id */
+    /* storyItem with no optional flags. */
+    tl_write_uint32(&w, CRC_storyItem_t);
+    tl_write_uint32(&w, 0);                      /* flags */
+    tl_write_int32 (&w, 99);                     /* id */
+    tl_write_int32 (&w, 1700000000);             /* date */
+    tl_write_int32 (&w, 1700086400);             /* expire_date */
+    tl_write_uint32(&w, CRC_messageMediaEmpty);  /* media */
+    tl_write_int32 (&w, 0x12345678);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r, NULL) == 0,
+           "minimal full storyItem iterates");
+    ASSERT(tl_read_int32(&r) == 0x12345678, "cursor past full storyItem");
+    tl_writer_free(&w);
+}
+
+/* Full storyItem with caption + entities + views (flags.0|1|3). */
+static void test_skip_media_story_full_with_views(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaStory_t);
+    tl_write_uint32(&w, (1u << 0));
+    tl_write_uint32(&w, TL_peerChannel);
+    tl_write_int64 (&w, 500LL);
+    tl_write_int32 (&w, 1);
+    /* storyItem w/ caption (flags.0) + entities (flags.1) + views (flags.3). */
+    tl_write_uint32(&w, CRC_storyItem_t);
+    tl_write_uint32(&w, (1u << 0) | (1u << 1) | (1u << 3));
+    tl_write_int32 (&w, 1);
+    tl_write_int32 (&w, 1700000000);
+    tl_write_int32 (&w, 1700086400);
+    tl_write_string(&w, "Hello story");
+    /* entities: empty vector */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 0);
+    /* media: empty */
+    tl_write_uint32(&w, CRC_messageMediaEmpty);
+    /* views: storyViews flags=0, just views_count */
+    tl_write_uint32(&w, 0x8d595cd6u);            /* storyViews */
+    tl_write_uint32(&w, 0);
+    tl_write_int32 (&w, 1234);                   /* views_count */
+    tl_write_int32 (&w, 0xABBA);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r, NULL) == 0,
+           "full storyItem with views iterates");
+    ASSERT(tl_read_int32(&r) == (int32_t)0xABBA, "cursor past");
+    tl_writer_free(&w);
+}
+
+/* Full storyItem with a privacy list + a media_area. */
+static void test_skip_media_story_full_with_privacy_and_area(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaStory_t);
+    tl_write_uint32(&w, (1u << 0));
+    tl_write_uint32(&w, TL_peerUser);
+    tl_write_int64 (&w, 1LL);
+    tl_write_int32 (&w, 1);
+    /* flags.14 media_areas + flags.2 privacy. */
+    tl_write_uint32(&w, CRC_storyItem_t);
+    tl_write_uint32(&w, (1u << 14) | (1u << 2));
+    tl_write_int32 (&w, 1);
+    tl_write_int32 (&w, 1700000000);
+    tl_write_int32 (&w, 1700086400);
+    tl_write_uint32(&w, CRC_messageMediaEmpty);
+    /* media_areas: [mediaAreaUrl with coordinates + url]. */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, 0x37381085u);            /* mediaAreaUrl */
+    /* mediaAreaCoordinates flags=0 + 5 doubles */
+    tl_write_uint32(&w, 0x03d1ea4eu);
+    tl_write_uint32(&w, 0);
+    for (int i = 0; i < 5; i++) tl_write_double(&w, 0.0);
+    tl_write_string(&w, "https://example.org");
+    /* privacy: [allowAll, allowUsers([7,11])]. */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 2);
+    tl_write_uint32(&w, 0x65427b82u);            /* privacyValueAllowAll */
+    tl_write_uint32(&w, 0xb8905fb2u);            /* privacyValueAllowUsers */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 2);
+    tl_write_int64 (&w, 7LL);
+    tl_write_int64 (&w, 11LL);
+    tl_write_int32 (&w, 0xC0DE);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r, NULL) == 0,
+           "full storyItem with privacy + media_area iterates");
+    ASSERT(tl_read_int32(&r) == (int32_t)0xC0DE, "cursor past");
     tl_writer_free(&w);
 }
 
@@ -1504,5 +1600,8 @@ void run_tl_skip_tests(void) {
     RUN_TEST(test_skip_media_invoice_extended_media_preview);
     RUN_TEST(test_skip_media_story_inline_deleted);
     RUN_TEST(test_skip_media_story_inline_skipped);
-    RUN_TEST(test_skip_media_story_full_still_bails);
+    RUN_TEST(test_skip_media_story_truncated_full_bails);
+    RUN_TEST(test_skip_media_story_full_minimal);
+    RUN_TEST(test_skip_media_story_full_with_views);
+    RUN_TEST(test_skip_media_story_full_with_privacy_and_area);
 }

@@ -106,6 +106,41 @@
 #define CRC_storyItemSkipped            0xffadc913u
 #define CRC_storyItem                   0x79b26a24u
 
+/* StoryFwdHeader (inside full storyItem.fwd_from). */
+#define CRC_storyFwdHeader              0xb826e150u
+
+/* MediaAreaCoordinates (inner of every MediaArea). */
+#define CRC_mediaAreaCoordinates        0x03d1ea4eu
+
+/* GeoPointAddress (inside mediaAreaGeoPoint when flags.0). */
+#define CRC_geoPointAddress             0xde4c5d93u
+
+/* MediaArea variants. */
+#define CRC_mediaAreaVenue              0xbe82db9cu
+#define CRC_mediaAreaGeoPoint           0xdf8b3b22u
+#define CRC_mediaAreaSuggestedReaction  0x14455871u
+#define CRC_mediaAreaChannelPost        0x770416afu
+#define CRC_mediaAreaUrl                0x37381085u
+#define CRC_mediaAreaWeather            0x49a6549cu
+#define CRC_mediaAreaStarGift           0x5787686du
+
+/* PrivacyRule variants. */
+#define CRC_privacyValueAllowContacts          0xfffe1bacu
+#define CRC_privacyValueAllowAll               0x65427b82u
+#define CRC_privacyValueAllowUsers             0xb8905fb2u
+#define CRC_privacyValueDisallowContacts       0xf888fa1au
+#define CRC_privacyValueDisallowAll            0x8b73e763u
+#define CRC_privacyValueDisallowUsers          0xe4621141u
+#define CRC_privacyValueAllowChatParticipants  0x6b134e8eu
+#define CRC_privacyValueDisallowChatParticipants 0x41c87565u
+#define CRC_privacyValueAllowCloseFriends      0xf7e8d89bu
+#define CRC_privacyValueAllowPremium           0xece9814bu
+#define CRC_privacyValueAllowBots              0x21461b5du
+#define CRC_privacyValueDisallowBots           0xf6a5f82fu
+
+/* StoryViews. */
+#define CRC_storyViews                  0x8d595cd6u
+
 /* WebPage variants (inside messageMediaWebPage). */
 #define CRC_webPage                     0xe89c45b2u
 #define CRC_webPageEmpty                0xeb1477e8u
@@ -1455,14 +1490,215 @@ static int skip_web_document(TlReader *r) {
     return 0;
 }
 
+/* ---- StoryFwdHeader ----
+ * storyFwdHeader#b826e150 flags:# modified:flags.3?true
+ *   from:flags.0?Peer from_name:flags.1?string story_id:flags.2?int
+ */
+static int skip_story_fwd_header(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    if (crc != CRC_storyFwdHeader) {
+        logger_log(LOG_WARN, "skip_story_fwd_header: unknown 0x%08x", crc);
+        return -1;
+    }
+    if (r->len - r->pos < 4) return -1;
+    uint32_t flags = tl_read_uint32(r);
+    if (flags & (1u << 0))
+        if (tl_skip_peer(r) != 0) return -1;              /* from */
+    if (flags & (1u << 1))
+        if (tl_skip_string(r) != 0) return -1;            /* from_name */
+    if (flags & (1u << 2)) {
+        if (r->len - r->pos < 4) return -1;
+        tl_read_int32(r);                                 /* story_id */
+    }
+    return 0;
+}
+
+/* ---- MediaAreaCoordinates ----
+ * mediaAreaCoordinates#03d1ea4e flags:# x:double y:double w:double h:double
+ *                                rotation:double radius:flags.0?double
+ */
+static int skip_media_area_coordinates(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    if (crc != CRC_mediaAreaCoordinates) {
+        logger_log(LOG_WARN,
+                   "skip_media_area_coordinates: unknown 0x%08x", crc);
+        return -1;
+    }
+    if (r->len - r->pos < 4 + 5 * 8) return -1;
+    uint32_t flags = tl_read_uint32(r);
+    for (int i = 0; i < 5; i++) tl_read_double(r);        /* x, y, w, h, rot */
+    if (flags & (1u << 0)) {
+        if (r->len - r->pos < 8) return -1;
+        tl_read_double(r);                                /* radius */
+    }
+    return 0;
+}
+
+/* ---- GeoPointAddress ----
+ * geoPointAddress#de4c5d93 flags:# country_iso2:string
+ *   state:flags.0?string city:flags.1?string street:flags.2?string
+ */
+static int skip_geo_point_address(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    if (crc != CRC_geoPointAddress) {
+        logger_log(LOG_WARN,
+                   "skip_geo_point_address: unknown 0x%08x", crc);
+        return -1;
+    }
+    if (r->len - r->pos < 4) return -1;
+    uint32_t flags = tl_read_uint32(r);
+    if (tl_skip_string(r) != 0) return -1;                /* country_iso2 */
+    if (flags & (1u << 0))
+        if (tl_skip_string(r) != 0) return -1;            /* state */
+    if (flags & (1u << 1))
+        if (tl_skip_string(r) != 0) return -1;            /* city */
+    if (flags & (1u << 2))
+        if (tl_skip_string(r) != 0) return -1;            /* street */
+    return 0;
+}
+
+/* ---- MediaArea ---- dispatch over 7 known variants. */
+static int skip_media_area(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    switch (crc) {
+    case CRC_mediaAreaVenue:
+        if (skip_media_area_coordinates(r) != 0) return -1;
+        if (skip_geo_point(r) != 0) return -1;
+        if (tl_skip_string(r) != 0) return -1;            /* title */
+        if (tl_skip_string(r) != 0) return -1;            /* address */
+        if (tl_skip_string(r) != 0) return -1;            /* provider */
+        if (tl_skip_string(r) != 0) return -1;            /* venue_id */
+        if (tl_skip_string(r) != 0) return -1;            /* venue_type */
+        return 0;
+    case CRC_mediaAreaGeoPoint: {
+        if (r->len - r->pos < 4) return -1;
+        uint32_t flags = tl_read_uint32(r);
+        if (skip_media_area_coordinates(r) != 0) return -1;
+        if (skip_geo_point(r) != 0) return -1;
+        if (flags & (1u << 0))
+            if (skip_geo_point_address(r) != 0) return -1;
+        return 0;
+    }
+    case CRC_mediaAreaSuggestedReaction: {
+        if (r->len - r->pos < 4) return -1;
+        tl_read_uint32(r);                                /* flags */
+        if (skip_media_area_coordinates(r) != 0) return -1;
+        return skip_reaction(r);
+    }
+    case CRC_mediaAreaChannelPost:
+        if (skip_media_area_coordinates(r) != 0) return -1;
+        if (r->len - r->pos < 12) return -1;
+        tl_read_int64(r);                                 /* channel_id */
+        tl_read_int32(r);                                 /* msg_id */
+        return 0;
+    case CRC_mediaAreaUrl:
+        if (skip_media_area_coordinates(r) != 0) return -1;
+        return tl_skip_string(r);                         /* url */
+    case CRC_mediaAreaWeather:
+        if (skip_media_area_coordinates(r) != 0) return -1;
+        if (tl_skip_string(r) != 0) return -1;            /* emoji */
+        if (r->len - r->pos < 8 + 4) return -1;
+        tl_read_double(r);                                /* temperature_c */
+        tl_read_int32(r);                                 /* color */
+        return 0;
+    case CRC_mediaAreaStarGift:
+        if (skip_media_area_coordinates(r) != 0) return -1;
+        return tl_skip_string(r);                         /* slug */
+    default:
+        logger_log(LOG_WARN, "skip_media_area: unknown 0x%08x", crc);
+        return -1;
+    }
+}
+
+/* ---- PrivacyRule ---- 12 variants; most are CRC-only. */
+static int skip_privacy_rule(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    switch (crc) {
+    case CRC_privacyValueAllowContacts:
+    case CRC_privacyValueAllowAll:
+    case CRC_privacyValueDisallowContacts:
+    case CRC_privacyValueDisallowAll:
+    case CRC_privacyValueAllowCloseFriends:
+    case CRC_privacyValueAllowPremium:
+    case CRC_privacyValueAllowBots:
+    case CRC_privacyValueDisallowBots:
+        return 0;
+    case CRC_privacyValueAllowUsers:
+    case CRC_privacyValueDisallowUsers:
+    case CRC_privacyValueAllowChatParticipants:
+    case CRC_privacyValueDisallowChatParticipants: {
+        /* Vector<long> */
+        if (r->len - r->pos < 8) return -1;
+        uint32_t vc = tl_read_uint32(r);
+        if (vc != TL_vector) return -1;
+        uint32_t n = tl_read_uint32(r);
+        if (r->len - r->pos < (size_t)n * 8) return -1;
+        for (uint32_t i = 0; i < n; i++) tl_read_int64(r);
+        return 0;
+    }
+    default:
+        logger_log(LOG_WARN, "skip_privacy_rule: unknown 0x%08x", crc);
+        return -1;
+    }
+}
+
+/* ---- StoryViews ----
+ * storyViews#8d595cd6 flags:# has_viewers:flags.1?true views_count:int
+ *   forwards_count:flags.2?int reactions:flags.3?Vector<ReactionCount>
+ *   reactions_count:flags.4?int recent_viewers:flags.0?Vector<long>
+ */
+static int skip_story_views(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    if (crc != CRC_storyViews) {
+        logger_log(LOG_WARN, "skip_story_views: unknown 0x%08x", crc);
+        return -1;
+    }
+    if (r->len - r->pos < 4) return -1;
+    uint32_t flags = tl_read_uint32(r);
+    if (r->len - r->pos < 4) return -1;
+    tl_read_int32(r);                                     /* views_count */
+    if (flags & (1u << 2)) {
+        if (r->len - r->pos < 4) return -1;
+        tl_read_int32(r);                                 /* forwards_count */
+    }
+    if (flags & (1u << 3)) {
+        if (r->len - r->pos < 8) return -1;
+        uint32_t vc = tl_read_uint32(r);
+        if (vc != TL_vector) return -1;
+        uint32_t n = tl_read_uint32(r);
+        for (uint32_t i = 0; i < n; i++)
+            if (skip_reaction_count(r) != 0) return -1;
+    }
+    if (flags & (1u << 4)) {
+        if (r->len - r->pos < 4) return -1;
+        tl_read_int32(r);                                 /* reactions_count */
+    }
+    if (flags & (1u << 0)) {
+        if (r->len - r->pos < 8) return -1;
+        uint32_t vc = tl_read_uint32(r);
+        if (vc != TL_vector) return -1;
+        uint32_t n = tl_read_uint32(r);
+        if (r->len - r->pos < (size_t)n * 8) return -1;
+        for (uint32_t i = 0; i < n; i++) tl_read_int64(r);
+    }
+    return 0;
+}
+
 /* ---- StoryItem ----
  * storyItemDeleted#51e6ee4f id:int
  * storyItemSkipped#ffadc913 flags:# close_friends:flags.8?true
  *                           id:int date:int expire_date:int
- * storyItem#79b26a24 — full layout carries StoryFwdHeader, MediaArea,
- *   PrivacyRule, StoryViews, Reaction. We do not walk those yet; this
- *   skipper returns -1 so the caller stops iterating the enclosing
- *   Message (same failure mode as pre-P10 days, just more targeted).
+ * storyItem#79b26a24 — full layout. The inner `media:MessageMedia`
+ * dispatches recursively through tl_skip_message_media_ex, which
+ * handles the common sub-cases (empty / photo / document / webpage /
+ * …). Deeply nested stories-inside-stories would bail by the inner
+ * dispatcher's own bail rules.
  */
 static int skip_story_item(TlReader *r) {
     if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
@@ -1481,12 +1717,45 @@ static int skip_story_item(TlReader *r) {
         tl_read_int32(r);                                 /* expire_date */
         return 0;
     }
-    case CRC_storyItem:
-        logger_log(LOG_WARN,
-                   "skip_story_item: full storyItem#79b26a24 contains "
-                   "StoryFwdHeader / MediaArea / PrivacyRule that are "
-                   "not walked yet");
-        return -1;
+    case CRC_storyItem: {
+        if (r->len - r->pos < 4) return -1;
+        uint32_t flags = tl_read_uint32(r);
+        if (r->len - r->pos < 8) return -1;
+        tl_read_int32(r);                                 /* id */
+        tl_read_int32(r);                                 /* date */
+        if (flags & (1u << 18))
+            if (tl_skip_peer(r) != 0) return -1;          /* from_id */
+        if (flags & (1u << 17))
+            if (skip_story_fwd_header(r) != 0) return -1; /* fwd_from */
+        if (r->len - r->pos < 4) return -1;
+        tl_read_int32(r);                                 /* expire_date */
+        if (flags & (1u << 0))
+            if (tl_skip_string(r) != 0) return -1;        /* caption */
+        if (flags & (1u << 1))
+            if (tl_skip_message_entities_vector(r) != 0) return -1;
+        if (tl_skip_message_media_ex(r, NULL) != 0) return -1;
+        if (flags & (1u << 14)) {
+            if (r->len - r->pos < 8) return -1;
+            uint32_t vc = tl_read_uint32(r);
+            if (vc != TL_vector) return -1;
+            uint32_t n = tl_read_uint32(r);
+            for (uint32_t i = 0; i < n; i++)
+                if (skip_media_area(r) != 0) return -1;
+        }
+        if (flags & (1u << 2)) {
+            if (r->len - r->pos < 8) return -1;
+            uint32_t vc = tl_read_uint32(r);
+            if (vc != TL_vector) return -1;
+            uint32_t n = tl_read_uint32(r);
+            for (uint32_t i = 0; i < n; i++)
+                if (skip_privacy_rule(r) != 0) return -1;
+        }
+        if (flags & (1u << 3))
+            if (skip_story_views(r) != 0) return -1;
+        if (flags & (1u << 15))
+            if (skip_reaction(r) != 0) return -1;         /* sent_reaction */
+        return 0;
+    }
     default:
         logger_log(LOG_WARN, "skip_story_item: unknown 0x%08x", crc);
         return -1;
