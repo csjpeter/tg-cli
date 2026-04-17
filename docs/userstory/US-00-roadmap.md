@@ -73,7 +73,7 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
 `pq_factorize` UINT32_MAX guard.
 
 ## Quality
-- **2412 unit tests** passing (ASAN)
+- **2442 unit tests** passing (ASAN)
 - **150 functional tests** passing (real OpenSSL; SHA-512, PBKDF2,
   BN primitives, IGE, MTProto crypto round-trips, full SRP
   client↔server math roundtrip, kitchen-sink Message iteration)
@@ -156,6 +156,15 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
      when empty, honors scroll_top. `dialog_pane_refresh` wraps
      `domain_get_dialogs`; `dialog_pane_selected` returns the
      highlighted entry (or NULL).
+   - TUI-05 ✅ `tui/history_pane.{h,c}` message history view-model:
+     `HistoryEntry[HISTORY_PANE_MAX]` snapshot bound to a `HistoryPeer`
+     (so we can tell "no peer yet" apart from "peer loaded but empty").
+     Renders one row per message with a direction arrow (`>` outgoing,
+     `<` incoming), id badge and either the extracted text, `(media)`,
+     or `(complex)` marker; complex rows render dimmed. Shows
+     `(select a dialog)` before load and `(no messages)` when the peer
+     is loaded but empty. `history_pane_load` wraps
+     `domain_get_history` with the peer descriptor.
 
 ## Current focus
 MVP feature set is complete; any further work is polish and

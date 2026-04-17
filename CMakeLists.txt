@@ -106,6 +106,7 @@ add_library(tg-tui-lib STATIC
     src/tui/pane.c
     src/tui/list_view.c
     src/tui/dialog_pane.c
+    src/tui/history_pane.c
 )
 target_include_directories(tg-tui-lib PUBLIC src src/tui)
 target_link_libraries(tg-tui-lib PUBLIC tg-domain-read)
