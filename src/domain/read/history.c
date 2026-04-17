@@ -214,8 +214,9 @@ static int parse_message(TlReader *r, HistoryEntry *out) {
         if (r->len - r->pos < 8) { out->complex = 1; return -1; }
         tl_read_int64(r);
     }
-    /* flags2.3 factcheck and a few unlisted recent additions would need
-     * their own skippers; if present we can't advance so stop iteration. */
+    if (flags2 & (1u << 3)) { /* factcheck */
+        if (tl_skip_factcheck(r) != 0) { out->complex = 1; return -1; }
+    }
     return 0;
 }
 

@@ -84,8 +84,8 @@ static int parse_message(TlReader *r, HistoryEntry *out) {
     if (flags & (1u << 22))  if (tl_skip_restriction_reason_vector(r) != 0) { out->complex=1; return -1; }
     if (flags & (1u << 25))  { if (r->len - r->pos < 4) { out->complex=1; return -1; } tl_read_int32(r); }
     if (flags2 & (1u << 30)) { if (r->len - r->pos < 4) { out->complex=1; return -1; } tl_read_int32(r); }
-    if (flags2 & (1u << 3))  { out->complex = 1; return -1; } /* factcheck still bails */
     if (flags2 & (1u << 2))  { if (r->len - r->pos < 8) { out->complex=1; return -1; } tl_read_int64(r); }
+    if (flags2 & (1u << 3))  if (tl_skip_factcheck(r) != 0) { out->complex=1; return -1; }
     return 0;
 }
 

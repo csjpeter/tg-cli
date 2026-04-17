@@ -781,6 +781,51 @@ static void test_skip_message_replies_unknown_crc_bails(void) {
     tl_writer_free(&w);
 }
 
+/* ---- FactCheck skipper ---- */
+
+#define CRC_factCheck_test          0xb89bfccfu
+#define CRC_textWithEntities_test   0x751f3146u
+
+static void test_skip_factcheck_need_check_only(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_factCheck_test);
+    tl_write_uint32(&w, (1u << 0));              /* only need_check */
+    tl_write_int64 (&w, 0x1234567890LL);         /* hash */
+    tl_write_int32 (&w, 777);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_factcheck(&r) == 0, "factcheck need_check skipped");
+    ASSERT(tl_read_int32(&r) == 777, "cursor past factcheck");
+    tl_writer_free(&w);
+}
+
+static void test_skip_factcheck_with_text(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_factCheck_test);
+    tl_write_uint32(&w, (1u << 1));              /* country + text set */
+    tl_write_string(&w, "HU");
+    tl_write_uint32(&w, CRC_textWithEntities_test);
+    tl_write_string(&w, "Fact-checked claim");
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, 0xbd610bc9u);           /* messageEntityBold */
+    tl_write_int32 (&w, 0);
+    tl_write_int32 (&w, 4);
+    tl_write_int64 (&w, 0xabcdefLL);             /* hash */
+    tl_write_int32 (&w, 0x1234);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_factcheck(&r) == 0, "factcheck with text skipped");
+    ASSERT(tl_read_int32(&r) == 0x1234, "cursor past factcheck");
+    tl_writer_free(&w);
+}
+
+static void test_skip_factcheck_unknown_crc_bails(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, 0xdeadbeefu);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_factcheck(&r) == -1, "unknown crc rejected");
+    tl_writer_free(&w);
+}
+
 static void test_skip_reactions_recent_reactors_bails(void) {
     TlWriter w; tl_writer_init(&w);
     tl_write_uint32(&w, CRC_messageReactions_test);
@@ -849,4 +894,7 @@ void run_tl_skip_tests(void) {
     RUN_TEST(test_skip_message_replies_minimal);
     RUN_TEST(test_skip_message_replies_with_commenters);
     RUN_TEST(test_skip_message_replies_unknown_crc_bails);
+    RUN_TEST(test_skip_factcheck_need_check_only);
+    RUN_TEST(test_skip_factcheck_with_text);
+    RUN_TEST(test_skip_factcheck_unknown_crc_bails);
 }

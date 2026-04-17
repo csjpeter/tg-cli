@@ -144,6 +144,10 @@
 /* MessageReplies. */
 #define CRC_messageReplies              0x83d60fc2u
 
+/* FactCheck + TextWithEntities. */
+#define CRC_factCheck                   0xb89bfccfu
+#define CRC_textWithEntities            0x751f3146u
+
 /* MessageReactions + Reaction variants. */
 #define CRC_messageReactions            0x4f2b9479u
 #define CRC_reactionCount               0xa3d1cb80u
@@ -588,6 +592,43 @@ int tl_skip_message_replies(TlReader *r) {
         if (r->len - r->pos < 4) return -1;
         tl_read_int32(r);                             /* read_max_id */
     }
+    return 0;
+}
+
+/* ---- FactCheck skipper ----
+ * factCheck#b89bfccf flags:#
+ *   need_check:flags.0?true
+ *   country:flags.1?string
+ *   text:flags.1?TextWithEntities
+ *   hash:long
+ *
+ * textWithEntities#751f3146 text:string entities:Vector<MessageEntity>
+ */
+int tl_skip_factcheck(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    if (crc != CRC_factCheck) {
+        logger_log(LOG_WARN, "tl_skip_factcheck: unknown 0x%08x", crc);
+        return -1;
+    }
+    if (r->len - r->pos < 4) return -1;
+    uint32_t flags = tl_read_uint32(r);
+    if (flags & (1u << 1)) {
+        if (tl_skip_string(r) != 0) return -1;  /* country */
+        /* text:TextWithEntities */
+        if (r->len - r->pos < 4) return -1;
+        uint32_t twe_crc = tl_read_uint32(r);
+        if (twe_crc != CRC_textWithEntities) {
+            logger_log(LOG_WARN,
+                       "tl_skip_factcheck: expected textWithEntities got 0x%08x",
+                       twe_crc);
+            return -1;
+        }
+        if (tl_skip_string(r) != 0) return -1;  /* text */
+        if (tl_skip_message_entities_vector(r) != 0) return -1;
+    }
+    if (r->len - r->pos < 8) return -1;
+    tl_read_int64(r);                            /* hash */
     return 0;
 }
 
@@ -1660,10 +1701,9 @@ int tl_skip_message(TlReader *r) {
     if (flags & (1u << 17)) { if (r->len - r->pos < 8) return -1; tl_read_int64(r); }
     if (flags & (1u << 20)) if (tl_skip_message_reactions(r) != 0) return -1;
     if (flags & (1u << 22)) if (tl_skip_restriction_reason_vector(r) != 0) return -1;
-    /* factcheck (flags2.3) still halts — no skipper yet. */
-    if (flags2 & (1u << 3)) return -1;
     if (flags & (1u << 25)) { if (r->len - r->pos < 4) return -1; tl_read_int32(r); }
     if (flags2 & (1u << 30)) { if (r->len - r->pos < 4) return -1; tl_read_int32(r); }
     if (flags2 & (1u << 2))  { if (r->len - r->pos < 8) return -1; tl_read_int64(r); }
+    if (flags2 & (1u << 3))  if (tl_skip_factcheck(r) != 0) return -1;
     return 0;
 }

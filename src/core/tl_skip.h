@@ -76,6 +76,15 @@ int tl_skip_message_reactions(TlReader *r);
  */
 int tl_skip_message_replies(TlReader *r);
 
+/**
+ * @brief Skip a factCheck#b89bfccf object.
+ *
+ * Fields: flags + country:flags.1?string + text:flags.1?TextWithEntities
+ * (textWithEntities#751f3146 text:string entities:Vector<MessageEntity>)
+ * + hash:long.
+ */
+int tl_skip_factcheck(TlReader *r);
+
 /** Skip a MessageReplyHeader (conservative — bails on reply_media). */
 int tl_skip_message_reply_header(TlReader *r);
 

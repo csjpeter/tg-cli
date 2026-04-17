@@ -43,7 +43,7 @@ even if an arg-parse bug were exploited (ADR-0005).
   wrappers — all linkable against either real OpenSSL or the test
   mock.
 
-### Protocol parse coverage (P5-07 phases 1–3b + P5-09 v1)
+### Protocol parse coverage (P5-07 phases 1–3c + P5-09 v1)
 - tl_skip helpers for Bool, string, Peer, NotificationSound,
   PeerNotifySettings, DraftMessage(empty), MessageEntity
   (20 variants), Vector<MessageEntity>, MessageFwdHeader,
@@ -57,6 +57,13 @@ even if an arg-parse bug were exploited (ADR-0005).
   `tl_extract_user` (id + name + username),
   `tl_skip_message_media_ex` (kind + photo_id / document_id /
   dc_id + access_hash + file_reference + largest thumb type).
+- Phase 3c trailer skippers: `tl_skip_reply_markup` (4 ReplyMarkup
+  variants + ~12 KeyboardButton), `tl_skip_message_reactions` (
+  `results:Vector<ReactionCount>` + 4 Reaction variants),
+  `tl_skip_message_replies` (messageReplies#83d60fc2 including the
+  recent_repliers Vector<Peer>), `tl_skip_factcheck` (factCheck#b89bfccf
+  including TextWithEntities). Every Message trailer flag now has a
+  skipper.
 
 ### Security + robustness
 14 QA fixes including MITM `new_nonce_hash1` verification (QA-12),
@@ -66,7 +73,7 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
 `pq_factorize` UINT32_MAX guard.
 
 ## Quality
-- **1965 unit tests** passing (ASAN)
+- **2003 unit tests** passing (ASAN)
 - **131 functional tests** passing (real OpenSSL; SHA-512, PBKDF2,
   BN primitives, IGE, MTProto crypto round-trips)
 - Valgrind: 0 leaks, 0 errors
@@ -74,11 +81,8 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
 - Core+infra coverage: ~89% (TUI excluded)
 
 ## Known v1 limitations (follow-ups, not blockers)
-- `reply_markup`, `reactions`, `replies`, `restriction_reason`,
-  `factcheck` on a Message still halt iteration for that response
-  (tracked as phase 3c).
 - Rare MessageMedia variants (Poll, Story, Game, Invoice, Giveaway,
-  WebPage, PaidMedia) also halt iteration — needs per-variant
+  WebPage, PaidMedia) still halt iteration — needs per-variant
   skippers.
 - File upload capped at `UPLOAD_MAX_SIZE = 10 MiB` — the
   `upload.saveBigFilePart` path (>10 MiB, media DCs) and
