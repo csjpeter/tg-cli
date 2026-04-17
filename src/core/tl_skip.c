@@ -2204,7 +2204,12 @@ static int skip_chat_banned_rights(TlReader *r) {
  * If `out` is non-NULL, populates (id, title). chatEmpty leaves title empty.
  */
 static int extract_chat_inner(TlReader *r, ChatSummary *out) {
-    if (out) { out->id = 0; out->title[0] = '\0'; }
+    if (out) {
+        out->id = 0;
+        out->access_hash = 0;
+        out->have_access_hash = 0;
+        out->title[0] = '\0';
+    }
 
     if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
     uint32_t crc = tl_read_uint32(r);
@@ -2267,7 +2272,11 @@ static int extract_chat_inner(TlReader *r, ChatSummary *out) {
         if (r->len - r->pos < 16) return -1;
         int64_t id = tl_read_int64(r);
         if (out) out->id = id;
-        tl_read_int64(r); /* access_hash */
+        int64_t access_hash = tl_read_int64(r);
+        if (out) {
+            out->access_hash = access_hash;
+            out->have_access_hash = 1;
+        }
         if (out) {
             if (read_string_into(r, out->title, sizeof(out->title)) != 0)
                 return -1;
@@ -2300,7 +2309,11 @@ static int extract_chat_inner(TlReader *r, ChatSummary *out) {
         if (out) out->id = id;
         if (flags & (1u << 13)) {
             if (r->len - r->pos < 8) return -1;
-            tl_read_int64(r); /* access_hash */
+            int64_t access_hash = tl_read_int64(r);
+            if (out) {
+                out->access_hash = access_hash;
+                out->have_access_hash = 1;
+            }
         }
         if (out) {
             if (read_string_into(r, out->title, sizeof(out->title)) != 0)
@@ -2384,6 +2397,8 @@ int tl_extract_chat(TlReader *r, ChatSummary *out) {
 static int extract_user_inner(TlReader *r, UserSummary *out) {
     if (out) {
         out->id = 0;
+        out->access_hash = 0;
+        out->have_access_hash = 0;
         out->name[0] = '\0';
         out->username[0] = '\0';
     }
@@ -2418,7 +2433,11 @@ static int extract_user_inner(TlReader *r, UserSummary *out) {
 
     if (flags & (1u << 0)) {
         if (r->len - r->pos < 8) return -1;
-        tl_read_int64(r); /* access_hash */
+        int64_t access_hash = tl_read_int64(r);
+        if (out) {
+            out->access_hash = access_hash;
+            out->have_access_hash = 1;
+        }
     }
     /* first_name */
     if (flags & (1u << 1)) {

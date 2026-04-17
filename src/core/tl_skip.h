@@ -200,6 +200,8 @@ int tl_skip_message(TlReader *r);
 /** Summary fields extracted from a Chat object. */
 typedef struct {
     int64_t id;
+    int64_t access_hash;        /**< 0 for legacy chatEmpty/chat; set for channel/channelForbidden. */
+    int     have_access_hash;   /**< 1 when access_hash was present on the wire. */
     char    title[128];
 } ChatSummary;
 
@@ -218,6 +220,8 @@ int tl_extract_chat(TlReader *r, ChatSummary *out);
 /** Summary fields extracted from a User object. */
 typedef struct {
     int64_t id;
+    int64_t access_hash;        /**< 0 for userEmpty or user without flags.0. */
+    int     have_access_hash;
     char    name[128];
     char    username[64];
 } UserSummary;

@@ -243,7 +243,7 @@ int domain_get_dialogs(const ApiConfig *cfg,
         if (users) users[users_written++] = us;
     }
 
-    /* Fill DialogEntry title/username by looking up peer_id. */
+    /* Fill DialogEntry title/username + access_hash by looking up peer_id. */
     for (int i = 0; i < *out_count; i++) {
         DialogEntry *e = &out[i];
         if (e->kind == DIALOG_PEER_USER) {
@@ -251,6 +251,8 @@ int domain_get_dialogs(const ApiConfig *cfg,
                 if (users[j].id == e->peer_id) {
                     memcpy(e->title,    users[j].name,     sizeof(e->title));
                     memcpy(e->username, users[j].username, sizeof(e->username));
+                    e->access_hash      = users[j].access_hash;
+                    e->have_access_hash = users[j].have_access_hash;
                     break;
                 }
             }
@@ -258,6 +260,10 @@ int domain_get_dialogs(const ApiConfig *cfg,
             for (uint32_t j = 0; j < chats_written; j++) {
                 if (chats[j].id == e->peer_id) {
                     memcpy(e->title, chats[j].title, sizeof(e->title));
+                    /* Legacy chat has no access_hash on the wire; leave
+                     * have_access_hash=0 so the caller knows. Channels do. */
+                    e->access_hash      = chats[j].access_hash;
+                    e->have_access_hash = chats[j].have_access_hash;
                     break;
                 }
             }

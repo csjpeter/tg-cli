@@ -180,6 +180,110 @@ static void test_dialogs_title_join_user(void) {
     ASSERT(strcmp(entries[0].username, "alice_s") == 0, "username");
 }
 
+/* TUI-08: access_hash from a user with flags.0 set is threaded onto DialogEntry. */
+static void test_dialogs_user_access_hash_threaded(void) {
+    mock_socket_reset(); mock_crypto_reset();
+
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, TL_messages_dialogsSlice);
+    tl_write_int32 (&w, 1);
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    write_dialog(&w, TL_peerUser, 42LL, 1, 0);
+
+    /* messages vector: empty */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 0);
+
+    /* chats vector: empty */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 0);
+
+    /* users vector: one user with access_hash + first_name + username */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, TL_user);
+    uint32_t uflags = (1u << 0) | (1u << 1) | (1u << 3);
+    tl_write_uint32(&w, uflags);
+    tl_write_uint32(&w, 0);
+    tl_write_int64 (&w, 42LL);
+    tl_write_int64 (&w, 0xFEEDFACEDEADBEEFLL);
+    tl_write_string(&w, "Bob");
+    tl_write_string(&w, "bob");
+
+    uint8_t payload[1024]; memcpy(payload, w.data, w.len);
+    size_t plen = w.len; tl_writer_free(&w);
+
+    uint8_t resp[2048]; size_t rlen = 0;
+    build_fake_encrypted_response(payload, plen, resp, &rlen);
+    mock_socket_set_response(resp, rlen);
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    fix_session(&s); fix_transport(&t); fix_cfg(&cfg);
+
+    DialogEntry entries[5] = {0};
+    int count = 0;
+    int rc = domain_get_dialogs(&cfg, &s, &t, 5, entries, &count);
+    ASSERT(rc == 0, "dialog with access_hash ok");
+    ASSERT(count == 1, "one dialog");
+    ASSERT(entries[0].have_access_hash == 1, "access_hash threaded");
+    ASSERT(entries[0].access_hash == (int64_t)0xFEEDFACEDEADBEEFLL,
+           "access_hash value");
+}
+
+/* TUI-08: channel access_hash is threaded too. */
+static void test_dialogs_channel_access_hash_threaded(void) {
+    mock_socket_reset(); mock_crypto_reset();
+
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, TL_messages_dialogsSlice);
+    tl_write_int32 (&w, 1);
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    write_dialog(&w, TL_peerChannel, -1001234567LL, 1, 0);
+
+    /* messages vector: empty */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 0);
+
+    /* chats vector: one channel with access_hash */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, TL_channel);
+    uint32_t cflags = (1u << 13);          /* access_hash */
+    tl_write_uint32(&w, cflags);
+    tl_write_uint32(&w, 0);                /* flags2 */
+    tl_write_int64 (&w, -1001234567LL);
+    tl_write_int64 (&w, 0xAABBCCDDEEFF0011LL);
+    tl_write_string(&w, "Chan");
+    tl_write_uint32(&w, 0x37c1011cu);      /* chatPhotoEmpty */
+    tl_write_int32 (&w, 1700000000);
+
+    /* users vector: empty */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 0);
+
+    uint8_t payload[1024]; memcpy(payload, w.data, w.len);
+    size_t plen = w.len; tl_writer_free(&w);
+
+    uint8_t resp[2048]; size_t rlen = 0;
+    build_fake_encrypted_response(payload, plen, resp, &rlen);
+    mock_socket_set_response(resp, rlen);
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    fix_session(&s); fix_transport(&t); fix_cfg(&cfg);
+
+    DialogEntry entries[5] = {0};
+    int count = 0;
+    int rc = domain_get_dialogs(&cfg, &s, &t, 5, entries, &count);
+    ASSERT(rc == 0, "channel dialog ok");
+    ASSERT(count == 1, "one dialog");
+    ASSERT(entries[0].kind == DIALOG_PEER_CHANNEL, "channel kind");
+    ASSERT(entries[0].have_access_hash == 1, "channel access_hash threaded");
+    ASSERT(entries[0].access_hash == (int64_t)0xAABBCCDDEEFF0011LL,
+           "channel access_hash value");
+}
+
 static void test_dialogs_multi_entries(void) {
     mock_socket_reset(); mock_crypto_reset();
 
@@ -320,6 +424,8 @@ static void test_dialogs_null_args(void) {
 
 void run_domain_dialogs_tests(void) {
     RUN_TEST(test_dialogs_title_join_user);
+    RUN_TEST(test_dialogs_user_access_hash_threaded);
+    RUN_TEST(test_dialogs_channel_access_hash_threaded);
     RUN_TEST(test_dialogs_multi_entries);
     RUN_TEST(test_dialogs_single_user);
     RUN_TEST(test_dialogs_single_channel);

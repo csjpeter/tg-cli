@@ -29,6 +29,8 @@ typedef enum {
 typedef struct {
     DialogPeerKind kind;
     int64_t        peer_id;
+    int64_t        access_hash;     /**< 0 for legacy CHAT; set for USER/CHANNEL when carried in the payload. */
+    int            have_access_hash;/**< 1 when the wire payload included an access_hash. */
     int32_t        unread_count;
     int32_t        top_message_id;
     char           title[128];     /**< Chat/channel title or user name. */

@@ -506,11 +506,9 @@ static int repl(const ApiConfig *cfg, MtProtoSession *s, Transport *t,
 }
 
 
-/* Map a DialogEntry to a HistoryPeer. Returns 0 when the entry is
- * directly loadable (self / chat). For users and channels the
- * access_hash is not carried in the v1 DialogEntry, so this currently
- * returns -1 and the caller shows a "cannot open" message; US-09-style
- * access_hash caching is a follow-up. */
+/* Map a DialogEntry to a HistoryPeer. Legacy groups don't need an
+ * access_hash; users/channels do, and since TUI-08 the DialogEntry
+ * carries it when the server sent one. */
 static int dialog_to_history_peer(const DialogEntry *d, HistoryPeer *out) {
     memset(out, 0, sizeof(*out));
     switch (d->kind) {
@@ -519,11 +517,17 @@ static int dialog_to_history_peer(const DialogEntry *d, HistoryPeer *out) {
         out->peer_id = d->peer_id;
         return 0;
     case DIALOG_PEER_USER:
+        if (!d->have_access_hash) return -1;
+        out->kind = HISTORY_PEER_USER;
+        out->peer_id = d->peer_id;
+        out->access_hash = d->access_hash;
+        return 0;
     case DIALOG_PEER_CHANNEL:
-        /* TODO: thread access_hash through messages.getDialogs so these
-         * dialogs can also be opened. For now only the Saved Messages
-         * + group-chat paths are reachable from the TUI. */
-        return -1;
+        if (!d->have_access_hash) return -1;
+        out->kind = HISTORY_PEER_CHANNEL;
+        out->peer_id = d->peer_id;
+        out->access_hash = d->access_hash;
+        return 0;
     default:
         return -1;
     }

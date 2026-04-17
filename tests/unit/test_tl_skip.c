@@ -603,9 +603,96 @@ static void test_extract_user(void) {
     UserSummary us;
     ASSERT(tl_extract_user(&r, &us) == 0, "extract user");
     ASSERT(us.id == 0x1234567890LL, "user id");
+    ASSERT(us.have_access_hash == 0, "no access_hash when flag clear");
+    ASSERT(us.access_hash == 0, "access_hash zero when absent");
     ASSERT(strcmp(us.name, "Alice Smith") == 0, "user name joined");
     ASSERT(strcmp(us.username, "asmith") == 0, "user username");
     ASSERT(tl_read_int32(&r) == 8888, "cursor past extract user");
+    tl_writer_free(&w);
+}
+
+static void test_extract_user_access_hash(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, TL_user);
+    uint32_t flags = (1u << 0) | (1u << 1) | (1u << 3); /* access_hash + first_name + username */
+    tl_write_uint32(&w, flags);
+    tl_write_uint32(&w, 0);
+    tl_write_int64(&w, 123LL);
+    tl_write_int64(&w, 0xDEADBEEFCAFEBABELL); /* access_hash */
+    tl_write_string(&w, "Bob");
+    tl_write_string(&w, "bob");
+    tl_write_int32(&w, 9999);
+    TlReader r = tl_reader_init(w.data, w.len);
+    UserSummary us;
+    ASSERT(tl_extract_user(&r, &us) == 0, "extract user with access_hash");
+    ASSERT(us.id == 123LL, "user id");
+    ASSERT(us.have_access_hash == 1, "have_access_hash set");
+    ASSERT(us.access_hash == (int64_t)0xDEADBEEFCAFEBABELL, "access_hash value");
+    ASSERT(strcmp(us.name, "Bob") == 0, "user name");
+    ASSERT(strcmp(us.username, "bob") == 0, "user username");
+    ASSERT(tl_read_int32(&r) == 9999, "cursor past user");
+    tl_writer_free(&w);
+}
+
+static void test_extract_channel_access_hash(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, TL_channel);
+    uint32_t flags = (1u << 13);               /* access_hash */
+    tl_write_uint32(&w, flags);
+    tl_write_uint32(&w, 0);                    /* flags2 */
+    tl_write_int64(&w, -1001234567LL);         /* id */
+    tl_write_int64(&w, 0x1111222233334444LL);  /* access_hash */
+    tl_write_string(&w, "My Channel");
+    tl_write_uint32(&w, CRC_chatPhotoEmpty);   /* photo */
+    tl_write_int32(&w, 1700000000);            /* date */
+    tl_write_int32(&w, 5555);                  /* sentinel */
+    TlReader r = tl_reader_init(w.data, w.len);
+    ChatSummary cs;
+    ASSERT(tl_extract_chat(&r, &cs) == 0, "extract channel with access_hash");
+    ASSERT(cs.id == -1001234567LL, "channel id");
+    ASSERT(cs.have_access_hash == 1, "have_access_hash set");
+    ASSERT(cs.access_hash == 0x1111222233334444LL, "access_hash value");
+    ASSERT(strcmp(cs.title, "My Channel") == 0, "channel title");
+    ASSERT(tl_read_int32(&r) == 5555, "cursor past channel");
+    tl_writer_free(&w);
+}
+
+static void test_extract_channel_forbidden_access_hash(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, TL_channelForbidden);
+    tl_write_uint32(&w, 0);                    /* flags: no until_date */
+    tl_write_int64(&w, -1009999999LL);
+    tl_write_int64(&w, 0xA5A5A5A5A5A5A5A5LL);  /* access_hash */
+    tl_write_string(&w, "Forbidden");
+    tl_write_int32(&w, 6666);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ChatSummary cs;
+    ASSERT(tl_extract_chat(&r, &cs) == 0, "extract channelForbidden");
+    ASSERT(cs.have_access_hash == 1, "have_access_hash set");
+    ASSERT(cs.access_hash == (int64_t)0xA5A5A5A5A5A5A5A5LL, "access_hash value");
+    ASSERT(strcmp(cs.title, "Forbidden") == 0, "title extracted");
+    ASSERT(tl_read_int32(&r) == 6666, "cursor past channelForbidden");
+    tl_writer_free(&w);
+}
+
+static void test_extract_chat_no_access_hash(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, TL_chat);
+    tl_write_uint32(&w, 0);                    /* flags */
+    tl_write_int64(&w, 42LL);
+    tl_write_string(&w, "Legacy Group");
+    tl_write_uint32(&w, CRC_chatPhotoEmpty);
+    tl_write_int32(&w, 5);
+    tl_write_int32(&w, 1700000000);
+    tl_write_int32(&w, 1);
+    tl_write_int32(&w, 7777);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ChatSummary cs;
+    ASSERT(tl_extract_chat(&r, &cs) == 0, "extract legacy chat");
+    ASSERT(cs.id == 42LL, "chat id");
+    ASSERT(cs.have_access_hash == 0, "legacy chat has no access_hash");
+    ASSERT(strcmp(cs.title, "Legacy Group") == 0, "title");
+    ASSERT(tl_read_int32(&r) == 7777, "cursor past chat");
     tl_writer_free(&w);
 }
 
@@ -1562,6 +1649,10 @@ void run_tl_skip_tests(void) {
     RUN_TEST(test_skip_user_full);
     RUN_TEST(test_extract_chat_forbidden);
     RUN_TEST(test_extract_user);
+    RUN_TEST(test_extract_user_access_hash);
+    RUN_TEST(test_extract_channel_access_hash);
+    RUN_TEST(test_extract_channel_forbidden_access_hash);
+    RUN_TEST(test_extract_chat_no_access_hash);
     RUN_TEST(test_skip_reply_markup_hide);
     RUN_TEST(test_skip_reply_markup_force_reply_with_placeholder);
     RUN_TEST(test_skip_reply_markup_inline_url_callback);
