@@ -452,6 +452,128 @@ static void test_history_stops_on_reply_markup(void) {
     ASSERT(strcmp(entries[0].text, "has reply_markup") == 0, "text before bail");
 }
 
+/* After phase 3c, a well-formed reply_markup (inline keyboard) no longer
+ * halts iteration — we can parse the message *and* continue to the
+ * next one in the same response. */
+static void test_history_iterates_with_reply_markup(void) {
+    mock_socket_reset(); mock_crypto_reset();
+
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, TL_messages_messages);
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 2);
+
+    /* Msg 1: flags.6 set + replyInlineMarkup with one URL button. */
+    tl_write_uint32(&w, TL_message);
+    tl_write_uint32(&w, (1u << 6));
+    tl_write_uint32(&w, 0);
+    tl_write_int32 (&w, 210);
+    tl_write_uint32(&w, TL_peerUser);
+    tl_write_int64 (&w, 100LL);
+    tl_write_int32 (&w, 1700000000);
+    tl_write_string(&w, "check this bot");
+    /* reply_markup */
+    tl_write_uint32(&w, 0x48a30254u);            /* replyInlineMarkup */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, 0x77608b83u);            /* keyboardButtonRow */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, 0x258aff05u);            /* keyboardButtonUrl */
+    tl_write_string(&w, "Docs");
+    tl_write_string(&w, "https://example.com/docs");
+
+    /* Msg 2: plain — must be reachable. */
+    tl_write_uint32(&w, TL_message);
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, 0);
+    tl_write_int32 (&w, 211);
+    tl_write_uint32(&w, TL_peerUser);
+    tl_write_int64 (&w, 100LL);
+    tl_write_int32 (&w, 1700000001);
+    tl_write_string(&w, "after the keyboard");
+
+    uint8_t payload[512]; memcpy(payload, w.data, w.len);
+    size_t plen = w.len; tl_writer_free(&w);
+
+    uint8_t resp[1024]; size_t rlen = 0;
+    build_fake_encrypted_response(payload, plen, resp, &rlen);
+    mock_socket_set_response(resp, rlen);
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    fix_session(&s); fix_transport(&t); fix_cfg(&cfg);
+
+    HistoryEntry e[5] = {0}; int n = 0;
+    int rc = domain_get_history_self(&cfg, &s, &t, 0, 5, e, &n);
+    ASSERT(rc == 0, "history parses past reply_markup");
+    ASSERT(n == 2, "both messages iterate past keyboard");
+    ASSERT(e[0].id == 210 && strcmp(e[0].text, "check this bot") == 0,
+           "msg0 text");
+    ASSERT(e[0].complex == 0, "msg0 NOT complex after keyboard skip");
+    ASSERT(e[1].id == 211 && strcmp(e[1].text, "after the keyboard") == 0,
+           "msg1 text");
+}
+
+/* Reactions (flags.20) with a simple results vector should also no
+ * longer halt. */
+static void test_history_iterates_with_reactions(void) {
+    mock_socket_reset(); mock_crypto_reset();
+
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, TL_messages_messages);
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 2);
+
+    /* Msg 1: flags.20 = reactions. */
+    tl_write_uint32(&w, TL_message);
+    tl_write_uint32(&w, (1u << 20));
+    tl_write_uint32(&w, 0);
+    tl_write_int32 (&w, 310);
+    tl_write_uint32(&w, TL_peerUser);
+    tl_write_int64 (&w, 100LL);
+    tl_write_int32 (&w, 1700000000);
+    tl_write_string(&w, "popular message");
+    /* messageReactions: flags=0, one emoji reaction. */
+    tl_write_uint32(&w, 0x4f2b9479u);
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, 0xa3d1cb80u);   /* reactionCount */
+    tl_write_uint32(&w, 0);              /* flags */
+    tl_write_uint32(&w, 0x1b2286b8u);   /* reactionEmoji */
+    tl_write_string(&w, "\xf0\x9f\x94\xa5"); /* 🔥 */
+    tl_write_int32 (&w, 42);
+
+    /* Msg 2: plain. */
+    tl_write_uint32(&w, TL_message);
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, 0);
+    tl_write_int32 (&w, 311);
+    tl_write_uint32(&w, TL_peerUser);
+    tl_write_int64 (&w, 100LL);
+    tl_write_int32 (&w, 1700000001);
+    tl_write_string(&w, "next");
+
+    uint8_t payload[512]; memcpy(payload, w.data, w.len);
+    size_t plen = w.len; tl_writer_free(&w);
+
+    uint8_t resp[1024]; size_t rlen = 0;
+    build_fake_encrypted_response(payload, plen, resp, &rlen);
+    mock_socket_set_response(resp, rlen);
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    fix_session(&s); fix_transport(&t); fix_cfg(&cfg);
+
+    HistoryEntry e[5] = {0}; int n = 0;
+    int rc = domain_get_history_self(&cfg, &s, &t, 0, 5, e, &n);
+    ASSERT(rc == 0, "history parses past reactions");
+    ASSERT(n == 2, "both messages iterate past reactions");
+    ASSERT(e[0].id == 310 && strcmp(e[0].text, "popular message") == 0,
+           "msg0 text");
+    ASSERT(e[0].complex == 0, "msg0 NOT complex after reactions skip");
+    ASSERT(e[1].id == 311 && strcmp(e[1].text, "next") == 0, "msg1 text");
+}
+
 static void test_history_null_args(void) {
     HistoryEntry e[1]; int n = 0;
     ASSERT(domain_get_history_self(NULL, NULL, NULL, 0, 5, e, &n) == -1,
@@ -474,5 +596,7 @@ void run_domain_history_tests(void) {
     RUN_TEST(test_history_iterates_with_media_geo);
     RUN_TEST(test_history_media_photo_info);
     RUN_TEST(test_history_stops_on_reply_markup);
+    RUN_TEST(test_history_iterates_with_reply_markup);
+    RUN_TEST(test_history_iterates_with_reactions);
     RUN_TEST(test_history_null_args);
 }

@@ -609,6 +609,145 @@ static void test_extract_user(void) {
     tl_writer_free(&w);
 }
 
+/* ---- ReplyMarkup skipper ---- */
+
+#define CRC_replyKeyboardHide            0xa03e5b85u
+#define CRC_replyKeyboardForceReply      0x86b40b08u
+#define CRC_replyInlineMarkup_test       0x48a30254u
+#define CRC_keyboardButtonRow_test       0x77608b83u
+#define CRC_keyboardButtonUrl_test       0x258aff05u
+#define CRC_keyboardButtonCallback_test  0x35bbdb6bu
+
+static void test_skip_reply_markup_hide(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_replyKeyboardHide);
+    tl_write_uint32(&w, 0);                 /* flags */
+    tl_write_int32 (&w, 777);                /* trailer */
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_reply_markup(&r) == 0, "replyKeyboardHide skipped");
+    ASSERT(tl_read_int32(&r) == 777, "cursor past hide");
+    tl_writer_free(&w);
+}
+
+static void test_skip_reply_markup_force_reply_with_placeholder(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_replyKeyboardForceReply);
+    tl_write_uint32(&w, (1u << 3));         /* placeholder flag */
+    tl_write_string(&w, "Type here...");
+    tl_write_int32 (&w, 42);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_reply_markup(&r) == 0, "forceReply w/ placeholder skipped");
+    ASSERT(tl_read_int32(&r) == 42, "cursor past forceReply");
+    tl_writer_free(&w);
+}
+
+static void test_skip_reply_markup_inline_url_callback(void) {
+    TlWriter w; tl_writer_init(&w);
+    /* replyInlineMarkup with one row, two buttons (url + callback). */
+    tl_write_uint32(&w, CRC_replyInlineMarkup_test);
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);                             /* row count */
+    tl_write_uint32(&w, CRC_keyboardButtonRow_test);
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 2);                             /* button count */
+    tl_write_uint32(&w, CRC_keyboardButtonUrl_test);
+    tl_write_string(&w, "Open");
+    tl_write_string(&w, "https://example.com");
+    tl_write_uint32(&w, CRC_keyboardButtonCallback_test);
+    tl_write_uint32(&w, 0);                             /* inner flags */
+    tl_write_string(&w, "Click");
+    tl_write_string(&w, "payload-bytes");
+    tl_write_int32 (&w, 12345);                         /* trailer */
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_reply_markup(&r) == 0, "inline url+callback skipped");
+    ASSERT(tl_read_int32(&r) == 12345, "cursor past inline markup");
+    tl_writer_free(&w);
+}
+
+static void test_skip_reply_markup_unknown_bails(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, 0xdeadbeefu);       /* unknown ReplyMarkup variant */
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_reply_markup(&r) == -1, "unknown variant rejected");
+    tl_writer_free(&w);
+}
+
+static void test_skip_reply_markup_unknown_button_bails(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_replyInlineMarkup_test);
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, CRC_keyboardButtonRow_test);
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, 0xfeedfacu);        /* unknown button */
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_reply_markup(&r) == -1, "unknown button rejected");
+    tl_writer_free(&w);
+}
+
+/* ---- MessageReactions skipper ---- */
+
+#define CRC_messageReactions_test 0x4f2b9479u
+#define CRC_reactionCount_test    0xa3d1cb80u
+#define CRC_reactionEmoji_test    0x1b2286b8u
+#define CRC_reactionCustomEmoji_t 0x8935fc73u
+#define CRC_reactionEmpty_test    0x79f5d419u
+
+static void test_skip_reactions_empty_results(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageReactions_test);
+    tl_write_uint32(&w, 0);                  /* flags */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 0);                  /* empty results */
+    tl_write_int32 (&w, 555);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_reactions(&r) == 0, "empty reactions");
+    ASSERT(tl_read_int32(&r) == 555, "cursor past reactions");
+    tl_writer_free(&w);
+}
+
+static void test_skip_reactions_emoji_and_custom(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageReactions_test);
+    tl_write_uint32(&w, 0);                  /* flags */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 2);                  /* 2 reaction counts */
+
+    /* #1: emoji reaction, chosen_order set. */
+    tl_write_uint32(&w, CRC_reactionCount_test);
+    tl_write_uint32(&w, (1u << 0));          /* chosen_order present */
+    tl_write_int32 (&w, 1);                  /* chosen_order */
+    tl_write_uint32(&w, CRC_reactionEmoji_test);
+    tl_write_string(&w, "\xf0\x9f\x91\x8d");  /* 👍 */
+    tl_write_int32 (&w, 7);                  /* count */
+
+    /* #2: custom emoji reaction, no chosen_order. */
+    tl_write_uint32(&w, CRC_reactionCount_test);
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, CRC_reactionCustomEmoji_t);
+    tl_write_int64 (&w, 0x1234567890abcdefLL);
+    tl_write_int32 (&w, 3);
+
+    tl_write_int32 (&w, 9999);               /* trailer */
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_reactions(&r) == 0, "reactions skipped");
+    ASSERT(tl_read_int32(&r) == 9999, "cursor past reactions");
+    tl_writer_free(&w);
+}
+
+static void test_skip_reactions_recent_reactors_bails(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageReactions_test);
+    tl_write_uint32(&w, (1u << 1));          /* recent_reactions present */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 0);                  /* empty results */
+    /* recent_reactions would follow — we bail before reading. */
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_reactions(&r) == -1, "bails on recent_reactions");
+    tl_writer_free(&w);
+}
+
 void run_tl_skip_tests(void) {
     RUN_TEST(test_skip_bool);
     RUN_TEST(test_skip_string);
@@ -654,4 +793,12 @@ void run_tl_skip_tests(void) {
     RUN_TEST(test_skip_user_full);
     RUN_TEST(test_extract_chat_forbidden);
     RUN_TEST(test_extract_user);
+    RUN_TEST(test_skip_reply_markup_hide);
+    RUN_TEST(test_skip_reply_markup_force_reply_with_placeholder);
+    RUN_TEST(test_skip_reply_markup_inline_url_callback);
+    RUN_TEST(test_skip_reply_markup_unknown_bails);
+    RUN_TEST(test_skip_reply_markup_unknown_button_bails);
+    RUN_TEST(test_skip_reactions_empty_results);
+    RUN_TEST(test_skip_reactions_emoji_and_custom);
+    RUN_TEST(test_skip_reactions_recent_reactors_bails);
 }

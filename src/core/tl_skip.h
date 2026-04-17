@@ -46,6 +46,27 @@ int tl_skip_message_entities_vector(TlReader *r);
 /** Skip a MessageFwdHeader. */
 int tl_skip_message_fwd_header(TlReader *r);
 
+/**
+ * @brief Skip a ReplyMarkup (keyboardHide / keyboardForceReply /
+ *        keyboardMarkup / inlineMarkup).
+ *
+ * Returns 0 when the whole object was skipped. Returns -1 on an
+ * unknown ReplyMarkup variant, an unknown KeyboardButton variant, or
+ * truncation. The reader position is undefined on -1 — caller stops
+ * iterating the enclosing Message.
+ */
+int tl_skip_reply_markup(TlReader *r);
+
+/**
+ * @brief Skip a MessageReactions.
+ *
+ * Handles the `results:Vector<ReactionCount>` body for the known
+ * Reaction variants (empty / emoji / custom emoji / paid). Bails on
+ * `recent_reactions` and `top_reactors` (flags.1 / flags.2) because
+ * those nested types need their own skippers.
+ */
+int tl_skip_message_reactions(TlReader *r);
+
 /** Skip a MessageReplyHeader (conservative — bails on reply_media). */
 int tl_skip_message_reply_header(TlReader *r);
 

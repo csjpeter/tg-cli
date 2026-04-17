@@ -49,12 +49,12 @@ static int write_input_peer(TlWriter *w, const HistoryPeer *p) {
 #define MSG_FLAG_HAS_FROM_ID      (1u << 8)
 
 /* Flags that still block full Message iteration because the corresponding
- * nested type has no skipper yet. Media (flags.9) is handled separately
- * after the text via tl_skip_message_media(). */
+ * nested type has no skipper yet. Media (flags.9) is handled via
+ * tl_skip_message_media(). reply_markup (flags.6) is handled via
+ * tl_skip_reply_markup. reactions (flags.20) is handled via
+ * tl_skip_message_reactions. */
 #define MSG_FLAGS_STOP_ITER       ( \
-      (1u << 6)   /* reply_markup */ \
-    | (1u << 20)  /* reactions */    \
-    | (1u << 22)  /* restriction_reason */ \
+      (1u << 22)  /* restriction_reason */ \
     | (1u << 23)  /* replies */      \
     )
 
@@ -173,18 +173,22 @@ static int parse_message(TlReader *r, HistoryEntry *out) {
         out->media_info = mi;
     }
 
-    /* reply_markup: still no skipper — stop iteration. */
-    if (flags & MSG_FLAGS_STOP_ITER) {
-        out->complex = 1;
-        return -1;
+    /* Per-layer order: media → reply_markup → entities → views/forwards
+     * → replies → edit_date → post_author → grouped_id → reactions →
+     * restriction_reason → ttl_period → ... replies + restriction_reason
+     * still don't have skippers. */
+    if (flags & (1u << 6)) { /* reply_markup */
+        if (tl_skip_reply_markup(r) != 0) { out->complex = 1; return -1; }
     }
-
     if (flags & (1u << 7))  { /* entities */
         if (tl_skip_message_entities_vector(r) != 0) { out->complex = 1; return -1; }
     }
     if (flags & (1u << 10)) { /* views + forwards */
         if (r->len - r->pos < 8) { out->complex = 1; return -1; }
         tl_read_int32(r); tl_read_int32(r);
+    }
+    if (flags & (1u << 23)) { /* replies — no skipper yet */
+        out->complex = 1; return -1;
     }
     if (flags & (1u << 15)) { /* edit_date */
         if (r->len - r->pos < 4) { out->complex = 1; return -1; }
@@ -196,6 +200,12 @@ static int parse_message(TlReader *r, HistoryEntry *out) {
     if (flags & (1u << 17)) { /* grouped_id */
         if (r->len - r->pos < 8) { out->complex = 1; return -1; }
         tl_read_int64(r);
+    }
+    if (flags & (1u << 20)) { /* reactions */
+        if (tl_skip_message_reactions(r) != 0) { out->complex = 1; return -1; }
+    }
+    if (flags & (1u << 22)) { /* restriction_reason — no skipper yet */
+        out->complex = 1; return -1;
     }
     if (flags & (1u << 25)) { /* ttl_period */
         if (r->len - r->pos < 4) { out->complex = 1; return -1; }

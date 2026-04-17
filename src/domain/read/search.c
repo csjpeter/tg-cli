@@ -43,10 +43,10 @@ static int write_input_peer(TlWriter *w, const HistoryPeer *p) {
     }
 }
 
-/* Stop-iteration mask — must match history.c. flag.9 (media) no longer
- * stops iteration since tl_skip_message_media handles it. */
-#define MSG_FLAGS_STOP_ITER ( \
-      (1u << 6) | (1u << 20) | (1u << 22) | (1u << 23) )
+/* Stop-iteration mask — mirrors history.c. reply_markup (6) and
+ * reactions (20) now have skippers; 22 (restriction_reason) and 23
+ * (replies) still halt iteration. */
+#define MSG_FLAGS_STOP_ITER ( (1u << 22) | (1u << 23) )
 
 /* Message parser — identical semantics to history.c::parse_message. */
 static int parse_message(TlReader *r, HistoryEntry *out) {
@@ -97,13 +97,14 @@ static int parse_message(TlReader *r, HistoryEntry *out) {
                       : (mi.kind == MEDIA_DOCUMENT) ? mi.document_id : 0;
         out->media_dc = mi.dc_id;
     }
-    if (flags & MSG_FLAGS_STOP_ITER) { out->complex = 1; return -1; }
-
+    if (flags & (1u << 6))   if (tl_skip_reply_markup(r) != 0) { out->complex=1; return -1; }
     if (flags & (1u << 7))   if (tl_skip_message_entities_vector(r) != 0) { out->complex=1; return -1; }
     if (flags & (1u << 10))  { if (r->len - r->pos < 8) { out->complex=1; return -1; } tl_read_int32(r); tl_read_int32(r); }
+    if (flags & MSG_FLAGS_STOP_ITER) { out->complex = 1; return -1; }
     if (flags & (1u << 15))  { if (r->len - r->pos < 4) { out->complex=1; return -1; } tl_read_int32(r); }
     if (flags & (1u << 16))  if (tl_skip_string(r) != 0) { out->complex=1; return -1; }
     if (flags & (1u << 17))  { if (r->len - r->pos < 8) { out->complex=1; return -1; } tl_read_int64(r); }
+    if (flags & (1u << 20))  if (tl_skip_message_reactions(r) != 0) { out->complex=1; return -1; }
     if (flags & (1u << 25))  { if (r->len - r->pos < 4) { out->complex=1; return -1; } tl_read_int32(r); }
     if (flags2 & (1u << 30)) { if (r->len - r->pos < 4) { out->complex=1; return -1; } tl_read_int32(r); }
     if (flags2 & (1u << 2))  { if (r->len - r->pos < 8) { out->complex=1; return -1; } tl_read_int64(r); }
