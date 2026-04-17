@@ -14,7 +14,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define RPC_BUF_SIZE 65536
+/* Must be large enough to hold a full encrypted frame, including
+ * the 512 KiB upload chunk used by saveBigFilePart + the ~56-byte
+ * MTProto plaintext header + the outer auth_key_id / msg_key.
+ * 1 MiB leaves plenty of headroom. */
+#define RPC_BUF_SIZE (1024 * 1024)
 
 #define CRC_gzip_packed    0x3072cfa1
 #define CRC_msg_container  0x73f1f8dc

@@ -18,8 +18,10 @@
 #include <sys/stat.h>
 
 #define CRC_upload_saveFilePart           0xb304a621u
+#define CRC_upload_saveBigFilePart        0xde7b673du
 #define CRC_messages_sendMedia            0x7547c966u
 #define CRC_inputFile                     0xf52ff27fu
+#define CRC_inputFileBig                  0xfa4f0bb5u
 #define CRC_inputMediaUploadedDocument    0x5b38c6c1u
 #define CRC_documentAttributeFilename     0x15590068u
 
@@ -42,16 +44,26 @@ static int write_input_peer(TlWriter *w, const HistoryPeer *p) {
     }
 }
 
-/* Send one upload.saveFilePart, expecting boolTrue on success. */
-static int save_file_part(const ApiConfig *cfg,
-                           MtProtoSession *s, Transport *t,
-                           int64_t file_id, int32_t part_idx,
-                           const uint8_t *bytes, size_t len) {
+/* Send one upload.saveFilePart (small) or upload.saveBigFilePart (big).
+ * For the big variant @p total_parts must be >= 0. Expects boolTrue. */
+static int save_part(const ApiConfig *cfg,
+                      MtProtoSession *s, Transport *t,
+                      int is_big,
+                      int64_t file_id, int32_t part_idx, int32_t total_parts,
+                      const uint8_t *bytes, size_t len) {
     TlWriter w; tl_writer_init(&w);
-    tl_write_uint32(&w, CRC_upload_saveFilePart);
-    tl_write_int64 (&w, file_id);
-    tl_write_int32 (&w, part_idx);
-    tl_write_bytes (&w, bytes, len);
+    if (is_big) {
+        tl_write_uint32(&w, CRC_upload_saveBigFilePart);
+        tl_write_int64 (&w, file_id);
+        tl_write_int32 (&w, part_idx);
+        tl_write_int32 (&w, total_parts);
+        tl_write_bytes (&w, bytes, len);
+    } else {
+        tl_write_uint32(&w, CRC_upload_saveFilePart);
+        tl_write_int64 (&w, file_id);
+        tl_write_int32 (&w, part_idx);
+        tl_write_bytes (&w, bytes, len);
+    }
 
     RAII_STRING uint8_t *query = (uint8_t *)malloc(w.len);
     if (!query) { tl_writer_free(&w); return -1; }
@@ -66,8 +78,8 @@ static int save_file_part(const ApiConfig *cfg,
     uint32_t top; memcpy(&top, resp, 4);
     if (top == TL_rpc_error) return -1;
     if (top != TL_boolTrue) {
-        logger_log(LOG_ERROR, "upload: unexpected saveFilePart reply 0x%08x",
-                   top);
+        logger_log(LOG_ERROR, "upload: unexpected save%sFilePart reply 0x%08x",
+                   is_big ? "Big" : "", top);
         return -1;
     }
     return 0;
@@ -95,12 +107,16 @@ int domain_send_file(const ApiConfig *cfg,
         logger_log(LOG_ERROR, "upload: cannot stat %s", file_path);
         return -1;
     }
-    if ((size_t)st.st_size == 0 || (size_t)st.st_size > UPLOAD_MAX_SIZE) {
+    if (st.st_size <= 0 || (int64_t)st.st_size > UPLOAD_MAX_SIZE) {
         logger_log(LOG_ERROR,
-                   "upload: size %lld out of supported range (1..%d)",
-                   (long long)st.st_size, UPLOAD_MAX_SIZE);
+                   "upload: size %lld out of supported range (1..%lld)",
+                   (long long)st.st_size, (long long)UPLOAD_MAX_SIZE);
         return -1;
     }
+    int is_big = ((int64_t)st.st_size >= UPLOAD_BIG_THRESHOLD);
+    int64_t total = (int64_t)st.st_size;
+    int32_t total_parts = (int32_t)((total + UPLOAD_CHUNK_SIZE - 1)
+                                     / UPLOAD_CHUNK_SIZE);
 
     RAII_FILE FILE *fp = fopen(file_path, "rb");
     if (!fp) {
@@ -117,21 +133,21 @@ int domain_send_file(const ApiConfig *cfg,
     if (!chunk) return -1;
 
     int32_t part_idx = 0;
-    size_t total = (size_t)st.st_size;
-    size_t done = 0;
+    int64_t done = 0;
     while (done < total) {
-        size_t want = total - done;
+        int64_t want = total - done;
         if (want > UPLOAD_CHUNK_SIZE) want = UPLOAD_CHUNK_SIZE;
-        size_t got = fread(chunk, 1, want, fp);
-        if (got != want) {
+        size_t got = fread(chunk, 1, (size_t)want, fp);
+        if ((int64_t)got != want) {
             logger_log(LOG_ERROR, "upload: short read at part %d", part_idx);
             return -1;
         }
-        if (save_file_part(cfg, s, t, file_id, part_idx, chunk, got) != 0) {
+        if (save_part(cfg, s, t, is_big, file_id, part_idx, total_parts,
+                        chunk, got) != 0) {
             logger_log(LOG_ERROR, "upload: part %d failed", part_idx);
             return -1;
         }
-        done += got;
+        done += (int64_t)got;
         part_idx++;
     }
 
@@ -152,12 +168,19 @@ int domain_send_file(const ApiConfig *cfg,
     /* media: InputMediaUploadedDocument */
     tl_write_uint32(&w, CRC_inputMediaUploadedDocument);
     tl_write_uint32(&w, 0);                       /* inner flags */
-    /* file: InputFile (no md5 for v1 — empty string). */
-    tl_write_uint32(&w, CRC_inputFile);
-    tl_write_int64 (&w, file_id);
-    tl_write_int32 (&w, part_idx);                /* parts */
-    tl_write_string(&w, file_name);
-    tl_write_string(&w, "");                      /* md5_checksum */
+    /* file: InputFile (small, with md5="") or InputFileBig. */
+    if (is_big) {
+        tl_write_uint32(&w, CRC_inputFileBig);
+        tl_write_int64 (&w, file_id);
+        tl_write_int32 (&w, part_idx);            /* parts */
+        tl_write_string(&w, file_name);
+    } else {
+        tl_write_uint32(&w, CRC_inputFile);
+        tl_write_int64 (&w, file_id);
+        tl_write_int32 (&w, part_idx);            /* parts */
+        tl_write_string(&w, file_name);
+        tl_write_string(&w, "");                  /* md5_checksum */
+    }
     tl_write_string(&w, mime_type);
     /* attributes: Vector<DocumentAttribute> with a single filename. */
     tl_write_uint32(&w, TL_vector);

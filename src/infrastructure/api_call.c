@@ -137,10 +137,14 @@ static int api_call_once(const ApiConfig *cfg,
                           int *bad_salt) {
     *bad_salt = 0;
 
-    RAII_STRING uint8_t *wrapped = (uint8_t *)malloc(65536);
+    /* 1 MiB accommodates the largest call we make — a saveBigFilePart
+     * carrying a 512 KiB chunk + initConnection + invokeWithLayer. */
+    enum { API_BUF_SIZE = 1024 * 1024 };
+    RAII_STRING uint8_t *wrapped = (uint8_t *)malloc(API_BUF_SIZE);
     if (!wrapped) return -1;
     size_t wrapped_len = 0;
-    if (api_wrap_query(cfg, query, qlen, wrapped, 65536, &wrapped_len) != 0) {
+    if (api_wrap_query(cfg, query, qlen, wrapped, API_BUF_SIZE,
+                         &wrapped_len) != 0) {
         logger_log(LOG_ERROR, "api_call: failed to wrap query");
         return -1;
     }
@@ -150,13 +154,13 @@ static int api_call_once(const ApiConfig *cfg,
         return -1;
     }
 
-    RAII_STRING uint8_t *raw_resp = (uint8_t *)malloc(65536);
+    RAII_STRING uint8_t *raw_resp = (uint8_t *)malloc(API_BUF_SIZE);
     if (!raw_resp) return -1;
     size_t raw_len = 0;
 
     /* Drain service frames until we see a real result. */
     for (int attempt = 0; attempt < SERVICE_FRAME_LIMIT; attempt++) {
-        if (rpc_recv_encrypted(s, t, raw_resp, 65536, &raw_len) != 0) {
+        if (rpc_recv_encrypted(s, t, raw_resp, API_BUF_SIZE, &raw_len) != 0) {
             logger_log(LOG_ERROR, "api_call: failed to receive");
             return -1;
         }

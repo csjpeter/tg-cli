@@ -182,10 +182,109 @@ static void test_upload_writes_expected_bytes(void) {
     unlink(path);
 }
 
+/* Seed the mock socket with @p n boolTrue frames (for N saveBigFilePart
+ * acks) followed by an updateShort frame (for the final sendMedia). */
+static void seed_big_response(int n_parts) {
+    mock_socket_reset();
+    for (int i = 0; i < n_parts; i++) {
+        TlWriter w; tl_writer_init(&w);
+        tl_write_uint32(&w, TL_boolTrue);
+        uint8_t resp[128]; size_t rlen = 0;
+        build_fake_encrypted_response(w.data, w.len, resp, &rlen);
+        tl_writer_free(&w);
+        if (i == 0) mock_socket_set_response(resp, rlen);
+        else        mock_socket_append_response(resp, rlen);
+    }
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, TL_updateShort);
+    tl_write_uint32(&w, 0);
+    tl_write_int32 (&w, 1700000000);
+    uint8_t resp[128]; size_t rlen = 0;
+    build_fake_encrypted_response(w.data, w.len, resp, &rlen);
+    tl_writer_free(&w);
+    mock_socket_append_response(resp, rlen);
+}
+
+static void test_upload_big_file_uses_saveBigFilePart(void) {
+    mock_crypto_reset();
+    const char *path = "/tmp/tg-cli-upload-big.bin";
+    unlink(path);
+
+    /* 12 MiB, just over the 10 MiB big threshold. */
+    const size_t big_size = 12 * 1024 * 1024;
+    uint8_t *body = (uint8_t *)malloc(big_size);
+    ASSERT(body != NULL, "alloc 12 MiB body");
+    for (size_t i = 0; i < big_size; i++) body[i] = (uint8_t)(i & 0xff);
+    write_temp(path, body, big_size);
+    free(body);
+
+    int expected_parts = (int)((big_size + UPLOAD_CHUNK_SIZE - 1)
+                                / UPLOAD_CHUNK_SIZE);
+    seed_big_response(expected_parts);
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    fix_session(&s); fix_transport(&t); fix_cfg(&cfg);
+    HistoryPeer peer = { .kind = HISTORY_PEER_SELF };
+    int rc = domain_send_file(&cfg, &s, &t, &peer, path, NULL, NULL, NULL);
+    ASSERT(rc == 0, "big-file upload ok");
+
+    size_t sent_len = 0;
+    const uint8_t *sent = mock_socket_get_sent(&sent_len);
+
+    uint32_t big_part = 0xde7b673du;
+    int found_big = 0;
+    for (size_t i = 0; i + 4 <= sent_len; i++)
+        if (memcmp(sent + i, &big_part, 4) == 0) { found_big = 1; break; }
+    ASSERT(found_big, "upload.saveBigFilePart CRC transmitted");
+
+    uint32_t input_file_big = 0xfa4f0bb5u;
+    int found_ifb = 0;
+    for (size_t i = 0; i + 4 <= sent_len; i++)
+        if (memcmp(sent + i, &input_file_big, 4) == 0) { found_ifb = 1; break; }
+    ASSERT(found_ifb, "inputFileBig CRC on sendMedia");
+
+    /* Plain saveFilePart CRC must NOT appear when is_big. */
+    uint32_t small_part = 0xb304a621u;
+    int found_small = 0;
+    for (size_t i = 0; i + 4 <= sent_len; i++)
+        if (memcmp(sent + i, &small_part, 4) == 0) {
+            found_small = 1; break;
+        }
+    ASSERT(!found_small, "saveFilePart NOT used for big file");
+
+    unlink(path);
+}
+
+static void test_upload_rejects_oversized_file(void) {
+    /* Fabricate a file just over UPLOAD_MAX_SIZE by seeking — avoids
+     * actually writing 1.5 GiB. */
+    const char *path = "/tmp/tg-cli-upload-oversize.bin";
+    unlink(path);
+    FILE *fp = fopen(path, "wb");
+    ASSERT(fp != NULL, "open oversize file");
+    if (fp) {
+        off_t too_big = (off_t)UPLOAD_MAX_SIZE + 1024;
+        /* Seek then write one byte to create a sparse file. */
+        if (fseeko(fp, too_big - 1, SEEK_SET) == 0) {
+            fputc(0, fp);
+        }
+        fclose(fp);
+    }
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    fix_session(&s); fix_transport(&t); fix_cfg(&cfg);
+    HistoryPeer peer = { .kind = HISTORY_PEER_SELF };
+    int rc = domain_send_file(&cfg, &s, &t, &peer, path, NULL, NULL, NULL);
+    ASSERT(rc == -1, "over-cap file rejected");
+    unlink(path);
+}
+
 void run_domain_upload_tests(void) {
     RUN_TEST(test_upload_small_file_success);
     RUN_TEST(test_upload_rejects_missing_file);
     RUN_TEST(test_upload_rejects_empty_file);
     RUN_TEST(test_upload_null_args);
     RUN_TEST(test_upload_writes_expected_bytes);
+    RUN_TEST(test_upload_big_file_uses_saveBigFilePart);
+    RUN_TEST(test_upload_rejects_oversized_file);
 }

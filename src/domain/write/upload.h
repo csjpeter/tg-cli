@@ -2,10 +2,10 @@
  * @file domain/write/upload.h
  * @brief US-P6-02 — upload a local file and send it as a document.
  *
- * Chunked upload via upload.saveFilePart, then messages.sendMedia with
- * an InputMediaUploadedDocument carrying just a DocumentAttributeFilename
- * (v1). Small files only — the upload.saveBigFilePart path (> 10 MB) is
- * a follow-up; we cap the request at UPLOAD_MAX_SIZE for now.
+ * Chunked upload via upload.saveFilePart (small files) or
+ * upload.saveBigFilePart (files >= UPLOAD_BIG_THRESHOLD). The latter
+ * uses InputFileBig (no md5) on messages.sendMedia. Cap at
+ * UPLOAD_MAX_SIZE (1.5 GiB).
  */
 
 #ifndef DOMAIN_WRITE_UPLOAD_H
@@ -21,8 +21,10 @@
 
 /** Upload chunk size — 512 KiB per Telegram recommendation. */
 #define UPLOAD_CHUNK_SIZE   (512 * 1024)
-/** Max file size handled by this v1 (10 MiB — no saveBigFilePart yet). */
-#define UPLOAD_MAX_SIZE     (10 * 1024 * 1024)
+/** Files >= this go through upload.saveBigFilePart + InputFileBig. */
+#define UPLOAD_BIG_THRESHOLD (10 * 1024 * 1024)
+/** Hard cap (Telegram server-side limit is ~2 GiB). */
+#define UPLOAD_MAX_SIZE     ((int64_t)1536 * 1024 * 1024)
 
 /**
  * @brief Upload @p file_path and attach it to @p peer as a document.

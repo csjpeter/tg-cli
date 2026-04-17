@@ -73,7 +73,7 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
 `pq_factorize` UINT32_MAX guard.
 
 ## Quality
-- **2048 unit tests** passing (ASAN)
+- **2055 unit tests** passing (ASAN)
 - **131 functional tests** passing (real OpenSSL; SHA-512, PBKDF2,
   BN primitives, IGE, MTProto crypto round-trips)
 - Valgrind: 0 leaks, 0 errors
@@ -88,10 +88,12 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
   Story (peer+id) / Giveaway all iterate through; WebPage parses
   the common text-only preview (cached_page and attributes still
   bail).
-- File upload capped at `UPLOAD_MAX_SIZE = 10 MiB` — the
-  `upload.saveBigFilePart` path (>10 MiB, media DCs) and
-  cross-DC download of photos on other DCs are follow-ups
-  under P4-04.
+- File upload now handles both small files (<10 MiB via
+  `upload.saveFilePart` + `InputFile`) and big files
+  (`upload.saveBigFilePart` + `InputFileBig`, capped at
+  `UPLOAD_MAX_SIZE = 1.5 GiB`). Cross-DC media routing (uploading
+  to / downloading from a non-home DC) is still follow-up under
+  P4-04.
 - Only documents are uploaded; photo upload (scaled InputMedia) is
   future work.
 - Document download now works for the common "plain document" case
@@ -100,14 +102,12 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
   complex-iteration bail.
 
 ## Backlog (post-MVP polish)
-1. **Big files / media DCs** — `upload.saveBigFilePart` and
-   transparent transport migration to DC-2/DC-4 for media.
-2. **Remaining MessageMedia / trailing flag skippers** — Poll,
-   Reactions, Replies, ReplyMarkup, RestrictionReason, FactCheck
-   (unlocks more real-world channels during iteration).
-3. **Document download** — analogous to the photo path but using
-   `inputDocumentFileLocation` + the document's thumb_size.
-4. **Curses TUI (US-11 v2)** — pane-based live redraw.
+1. **Cross-DC media routing** — transparent transport migration to
+   DC-2/DC-4 for `upload.getFile` / `upload.saveBigFilePart`.
+2. **Remaining MessageMedia skippers** — Game (Game object),
+   PaidMedia (MessageExtendedMedia), Invoice-with-photo
+   (WebDocument), Story inline StoryItem.
+3. **Curses TUI (US-11 v2)** — pane-based live redraw.
 
 ## Current focus
 MVP feature set is complete; any further work is polish and
