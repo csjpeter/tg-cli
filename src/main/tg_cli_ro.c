@@ -423,7 +423,8 @@ static int cmd_history(const ArgResult *args) {
         [MEDIA_GEO_LIVE] = "geo_live", [MEDIA_DICE] = "dice",
         [MEDIA_WEBPAGE] = "webpage", [MEDIA_POLL] = "poll",
         [MEDIA_INVOICE] = "invoice", [MEDIA_STORY] = "story",
-        [MEDIA_GIVEAWAY] = "giveaway", [MEDIA_OTHER] = "other",
+        [MEDIA_GIVEAWAY] = "giveaway", [MEDIA_GAME] = "game",
+        [MEDIA_PAID] = "paid", [MEDIA_OTHER] = "other",
     };
     if (args->json) {
         printf("[");

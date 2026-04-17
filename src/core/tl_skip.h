@@ -121,6 +121,8 @@ typedef enum {
     MEDIA_INVOICE,
     MEDIA_STORY,
     MEDIA_GIVEAWAY,
+    MEDIA_GAME,
+    MEDIA_PAID,
     MEDIA_OTHER,
 } MediaKind;
 

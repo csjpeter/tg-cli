@@ -87,6 +87,15 @@
 #define CRC_messageMediaInvoice         0xf6a548d3u
 #define CRC_messageMediaStory           0x68cb6283u
 #define CRC_messageMediaGiveaway        0xaa073beeu
+#define CRC_messageMediaGame            0xfdb19008u
+#define CRC_messageMediaPaidMedia       0xa8852491u
+
+/* Game (inside messageMediaGame). */
+#define CRC_game                        0xbdf9653bu
+
+/* MessageExtendedMedia (inside messageMediaPaidMedia). */
+#define CRC_messageExtendedMediaPreview 0xad628cc8u
+#define CRC_messageExtendedMedia        0xee479c64u
 
 /* WebPage variants (inside messageMediaWebPage). */
 #define CRC_webPage                     0xe89c45b2u
@@ -1340,9 +1349,70 @@ static int skip_poll_results(TlReader *r) {
     return 0;
 }
 
+/* ---- Game ----
+ * game#bdf9653b flags:# id:long access_hash:long short_name:string
+ *   title:string description:string photo:Photo document:flags.0?Document
+ */
+static int skip_game(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    if (crc != CRC_game) {
+        logger_log(LOG_WARN, "skip_game: unexpected 0x%08x", crc);
+        return -1;
+    }
+    if (r->len - r->pos < 4 + 8 + 8) return -1;
+    uint32_t flags = tl_read_uint32(r);
+    tl_read_int64(r);                                /* id */
+    tl_read_int64(r);                                /* access_hash */
+    if (tl_skip_string(r) != 0) return -1;           /* short_name */
+    if (tl_skip_string(r) != 0) return -1;           /* title */
+    if (tl_skip_string(r) != 0) return -1;           /* description */
+    if (tl_skip_photo(r) != 0) return -1;            /* photo */
+    if (flags & (1u << 0)) {
+        if (tl_skip_document(r) != 0) return -1;     /* document */
+    }
+    return 0;
+}
+
+/* ---- MessageExtendedMedia ----
+ * messageExtendedMediaPreview#ad628cc8 flags:# w:flags.0?int h:flags.0?int
+ *   thumb:flags.1?PhotoSize video_duration:flags.2?int
+ * messageExtendedMedia#ee479c64 media:MessageMedia
+ */
+static int skip_message_extended_media(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    switch (crc) {
+    case CRC_messageExtendedMediaPreview: {
+        if (r->len - r->pos < 4) return -1;
+        uint32_t flags = tl_read_uint32(r);
+        if (flags & (1u << 0)) {
+            if (r->len - r->pos < 8) return -1;
+            tl_read_int32(r); tl_read_int32(r);       /* w, h */
+        }
+        if (flags & (1u << 1)) {
+            if (tl_skip_photo_size(r) != 0) return -1;
+        }
+        if (flags & (1u << 2)) {
+            if (r->len - r->pos < 4) return -1;
+            tl_read_int32(r);                         /* video_duration */
+        }
+        return 0;
+    }
+    case CRC_messageExtendedMedia:
+        /* Recurse into the wrapped MessageMedia. The inner metadata is
+         * discarded — paid-media iteration only needs the outer kind. */
+        return tl_skip_message_media_ex(r, NULL);
+    default:
+        logger_log(LOG_WARN,
+                   "skip_message_extended_media: unknown 0x%08x", crc);
+        return -1;
+    }
+}
+
 /* ---- MessageMedia skipper ----
- * Common variants supported; unusual ones (Story, Game, Invoice,
- * Giveaway, PaidMedia, ...) bail with -1.
+ * Common variants supported; remaining unusual ones (Invoice with photo,
+ * Story with inline StoryItem) still bail with -1.
  */
 int tl_skip_message_media_ex(TlReader *r, MediaInfo *out) {
     if (out) memset(out, 0, sizeof(*out));
@@ -1500,6 +1570,25 @@ int tl_skip_message_media_ex(TlReader *r, MediaInfo *out) {
         }
         if (r->len - r->pos < 4) return -1;
         tl_read_int32(r);                         /* until_date */
+        return 0;
+    }
+
+    case CRC_messageMediaGame: {
+        if (out) out->kind = MEDIA_GAME;
+        return skip_game(r);
+    }
+
+    case CRC_messageMediaPaidMedia: {
+        if (out) out->kind = MEDIA_PAID;
+        if (r->len - r->pos < 8) return -1;
+        tl_read_int64(r);                         /* stars_amount */
+        if (r->len - r->pos < 8) return -1;
+        uint32_t vc = tl_read_uint32(r);
+        if (vc != TL_vector) return -1;
+        uint32_t n = tl_read_uint32(r);
+        for (uint32_t i = 0; i < n; i++) {
+            if (skip_message_extended_media(r) != 0) return -1;
+        }
         return 0;
     }
 

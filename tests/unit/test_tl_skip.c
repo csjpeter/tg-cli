@@ -1123,6 +1123,141 @@ static void test_skip_media_webpage_cached_page_bails(void) {
     tl_writer_free(&w);
 }
 
+/* ---- messageMediaGame ---- */
+
+#define CRC_messageMediaGame_t  0xfdb19008u
+#define CRC_game_t              0xbdf9653bu
+
+static void test_skip_media_game_photo_only(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaGame_t);
+    tl_write_uint32(&w, CRC_game_t);
+    tl_write_uint32(&w, 0);                    /* game flags (no document) */
+    tl_write_int64 (&w, 0x11LL);
+    tl_write_int64 (&w, 0x22LL);
+    tl_write_string(&w, "short");
+    tl_write_string(&w, "title");
+    tl_write_string(&w, "desc");
+    /* photo:photoEmpty */
+    tl_write_uint32(&w, CRC_photoEmpty);
+    tl_write_int64 (&w, 7777LL);
+    tl_write_int32 (&w, 0xCAFE);
+    TlReader r = tl_reader_init(w.data, w.len);
+    MediaInfo mi = {0};
+    ASSERT(tl_skip_message_media_ex(&r, &mi) == 0, "game photo-only ok");
+    ASSERT(mi.kind == MEDIA_GAME, "kind=game");
+    ASSERT(tl_read_int32(&r) == 0xCAFE, "cursor past game");
+    tl_writer_free(&w);
+}
+
+static void test_skip_media_game_with_document(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaGame_t);
+    tl_write_uint32(&w, CRC_game_t);
+    tl_write_uint32(&w, (1u << 0));            /* document flag set */
+    tl_write_int64 (&w, 1LL);
+    tl_write_int64 (&w, 2LL);
+    tl_write_string(&w, "s");
+    tl_write_string(&w, "t");
+    tl_write_string(&w, "d");
+    tl_write_uint32(&w, CRC_photoEmpty);
+    tl_write_int64 (&w, 3LL);
+    /* document:documentEmpty (id only) */
+    tl_write_uint32(&w, 0x36f8c871u);
+    tl_write_int64 (&w, 4LL);
+    tl_write_int32 (&w, 0xABC);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r, NULL) == 0, "game+doc ok");
+    ASSERT(tl_read_int32(&r) == 0xABC, "cursor past game+doc");
+    tl_writer_free(&w);
+}
+
+static void test_skip_media_game_wrong_inner_crc_bails(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaGame_t);
+    tl_write_uint32(&w, 0xdeadbeefu);          /* not a Game CRC */
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r, NULL) == -1, "non-Game inner rejected");
+    tl_writer_free(&w);
+}
+
+/* ---- messageMediaPaidMedia ---- */
+
+#define CRC_messageMediaPaidMedia_t        0xa8852491u
+#define CRC_messageExtendedMediaPreview_t  0xad628cc8u
+#define CRC_messageExtendedMedia_t         0xee479c64u
+
+static void test_skip_media_paid_preview_only(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaPaidMedia_t);
+    tl_write_int64 (&w, 500LL);                /* stars_amount */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);                    /* one extended_media */
+    tl_write_uint32(&w, CRC_messageExtendedMediaPreview_t);
+    tl_write_uint32(&w, 0);                    /* no flags */
+    tl_write_int32 (&w, 0x55AA);
+    TlReader r = tl_reader_init(w.data, w.len);
+    MediaInfo mi = {0};
+    ASSERT(tl_skip_message_media_ex(&r, &mi) == 0, "paid preview ok");
+    ASSERT(mi.kind == MEDIA_PAID, "kind=paid");
+    ASSERT(tl_read_int32(&r) == 0x55AA, "cursor past paid");
+    tl_writer_free(&w);
+}
+
+static void test_skip_media_paid_preview_with_dims_and_thumb(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaPaidMedia_t);
+    tl_write_int64 (&w, 1000LL);
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, CRC_messageExtendedMediaPreview_t);
+    tl_write_uint32(&w, (1u << 0) | (1u << 1) | (1u << 2));
+    tl_write_int32 (&w, 1280); tl_write_int32(&w, 720);
+    /* thumb: photoStrippedSize#e0b0bc2e type:string bytes:bytes */
+    tl_write_uint32(&w, 0xe0b0bc2eu);
+    tl_write_string(&w, "i");
+    uint8_t stripped[3] = { 0x01, 0x02, 0x03 };
+    tl_write_bytes(&w, stripped, sizeof(stripped));
+    tl_write_int32 (&w, 12);                   /* video_duration */
+    tl_write_int32 (&w, 0xFACE);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r, NULL) == 0, "paid preview full ok");
+    ASSERT(tl_read_int32(&r) == 0xFACE, "cursor past paid");
+    tl_writer_free(&w);
+}
+
+static void test_skip_media_paid_wrapped_inner_media(void) {
+    /* extended_media variant that wraps an inner MessageMedia (here
+     * messageMediaEmpty). Confirms the recursive tl_skip_message_media_ex
+     * dispatch path. */
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaPaidMedia_t);
+    tl_write_int64 (&w, 42LL);
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 2);                    /* two extended_media entries */
+    tl_write_uint32(&w, CRC_messageExtendedMediaPreview_t);
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, CRC_messageExtendedMedia_t);
+    tl_write_uint32(&w, CRC_messageMediaEmpty);
+    tl_write_int32 (&w, 0xBEEF);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r, NULL) == 0, "paid wrapped ok");
+    ASSERT(tl_read_int32(&r) == (int32_t)0xBEEF, "cursor past wrapped paid");
+    tl_writer_free(&w);
+}
+
+static void test_skip_media_paid_unknown_variant_bails(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaPaidMedia_t);
+    tl_write_int64 (&w, 1LL);
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, 0xdeadbeefu);          /* unknown ExtendedMedia */
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r, NULL) == -1, "unknown variant bails");
+    tl_writer_free(&w);
+}
+
 static void test_skip_factcheck_unknown_crc_bails(void) {
     TlWriter w; tl_writer_init(&w);
     tl_write_uint32(&w, 0xdeadbeefu);
@@ -1214,4 +1349,11 @@ void run_tl_skip_tests(void) {
     RUN_TEST(test_skip_media_story_minimal);
     RUN_TEST(test_skip_media_giveaway_minimal);
     RUN_TEST(test_skip_media_giveaway_countries_prize);
+    RUN_TEST(test_skip_media_game_photo_only);
+    RUN_TEST(test_skip_media_game_with_document);
+    RUN_TEST(test_skip_media_game_wrong_inner_crc_bails);
+    RUN_TEST(test_skip_media_paid_preview_only);
+    RUN_TEST(test_skip_media_paid_preview_with_dims_and_thumb);
+    RUN_TEST(test_skip_media_paid_wrapped_inner_media);
+    RUN_TEST(test_skip_media_paid_unknown_variant_bails);
 }
