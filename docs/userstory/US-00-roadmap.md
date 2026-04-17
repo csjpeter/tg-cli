@@ -73,7 +73,7 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
 `pq_factorize` UINT32_MAX guard.
 
 ## Quality
-- **2301 unit tests** passing (ASAN)
+- **2335 unit tests** passing (ASAN)
 - **150 functional tests** passing (real OpenSSL; SHA-512, PBKDF2,
   BN primitives, IGE, MTProto crypto round-trips, full SRP
   client↔server math roundtrip, kitchen-sink Message iteration)
@@ -142,6 +142,12 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
      clip strictly at the pane edge (no spill past the right border,
      including partial wide-glyph cases). Layered cleanly on top of
      TUI-01 via the new `screen_put_str_n` bounded variant.
+   - TUI-03 ✅ `tui/list_view.{h,c}` scroll+selection helper: flat-list
+     navigation (up/down, PgUp/PgDn, Home/End) with automatic viewport
+     reveal so the selected row is always visible. Pure state, no
+     drawing — shared between the dialog pane and the history pane.
+     Set-count clamps selection + scroll on shrink; set-count to zero
+     resets to selected=-1.
 
 ## Current focus
 MVP feature set is complete; any further work is polish and

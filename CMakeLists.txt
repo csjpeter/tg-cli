@@ -104,6 +104,7 @@ target_link_libraries(tg-app PUBLIC tg-proto tg-crypto)
 add_library(tg-tui-lib STATIC
     src/tui/screen.c
     src/tui/pane.c
+    src/tui/list_view.c
 )
 target_include_directories(tg-tui-lib PUBLIC src src/tui)
 target_link_libraries(tg-tui-lib PUBLIC tg-proto)
