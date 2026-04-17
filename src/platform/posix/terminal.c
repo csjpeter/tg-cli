@@ -3,6 +3,8 @@
  * Uses termios(3), ioctl TIOCGWINSZ, wcwidth(3).
  */
 #include "../terminal.h"
+#include <errno.h>
+#include <poll.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -177,6 +179,17 @@ TermKey terminal_read_key(void) {
 int terminal_wcwidth(uint32_t cp) {
     int w = wcwidth((wchar_t)cp);
     return (w < 0) ? 0 : w;
+}
+
+int terminal_wait_key(int timeout_ms) {
+    struct pollfd pfd = { .fd = STDIN_FILENO, .events = POLLIN, .revents = 0 };
+    int rc = poll(&pfd, 1, timeout_ms);
+    if (rc < 0) {
+        /* EINTR (e.g. SIGWINCH) is not a hard error — caller retries. */
+        return (errno == EINTR) ? -1 : -1;
+    }
+    if (rc == 0) return 0;
+    return (pfd.revents & POLLIN) ? 1 : 0;
 }
 
 /* ---- SIGWINCH / resize notifications ---- */

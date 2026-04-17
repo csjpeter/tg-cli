@@ -565,16 +565,23 @@ static int run_tui_loop(const ApiConfig *cfg,
 
     terminal_enable_resize_notifications();
 
+    /* Prime updates polling. If getState fails (eg. offline or server hiccup)
+     * we silently skip live polling — the pane UI still works. */
+    UpdatesState upd_state = {0};
+    int upd_active = (domain_updates_state(cfg, s, t, &upd_state) == 0);
+
     tui_app_paint(&app);
     screen_flip(&app.screen);
 
+    /* Poll cadence for updates.getDifference. 5 seconds is low enough to
+     * feel live and high enough not to rate-limit ourselves. */
+    const int POLL_INTERVAL_MS = 5000;
+
     int rc = 0;
     for (;;) {
-        TermKey key = terminal_read_key();
+        int ready = terminal_wait_key(POLL_INTERVAL_MS);
 
-        /* A SIGWINCH may have just interrupted the read. Absorb the
-         * resize before handling the key so the new layout applies to
-         * any subsequent OPEN_DIALOG flow. */
+        /* SIGWINCH interrupts poll(): pick up the new size and repaint. */
         if (terminal_consume_resize()) {
             int nr = terminal_rows(); if (nr < 3)  nr = app.rows;
             int nc = terminal_cols(); if (nc < 40) nc = app.cols;
@@ -585,12 +592,41 @@ static int run_tui_loop(const ApiConfig *cfg,
                     screen_flip(&app.screen);
                 }
             }
-            if (key == TERM_KEY_IGNORE && terminal_last_printable() == 0) {
-                /* read(2) returned EINTR — no real keystroke to process. */
-                continue;
-            }
+            if (ready < 0) continue;   /* poll returned -1 (EINTR) */
         }
 
+        if (ready == 0) {
+            /* No keystroke within the poll window: consult the server
+             * for any changes since we last asked. If anything came in,
+             * refresh the dialog pane (titles / unread counts) and, if a
+             * dialog is currently open, its history too. */
+            if (upd_active) {
+                UpdatesDifference diff = {0};
+                if (domain_updates_difference(cfg, s, t,
+                                               &upd_state, &diff) == 0) {
+                    upd_state = diff.next_state;
+                    int changed = !diff.is_empty
+                               && (diff.new_messages_count > 0
+                                   || diff.other_updates_count > 0);
+                    if (changed) {
+                        dialog_pane_refresh(&app.dialogs, cfg, s, t);
+                        app.dialogs.lv.rows_visible = app.layout.dialogs.rows;
+                        if (app.history.peer_loaded) {
+                            history_pane_load(&app.history, cfg, s, t,
+                                              &app.history.peer);
+                            app.history.lv.rows_visible = app.layout.history.rows;
+                        }
+                        tui_app_paint(&app);
+                        screen_flip(&app.screen);
+                    }
+                }
+            }
+            continue;
+        }
+
+        if (ready < 0) continue;   /* interrupted before any key — retry */
+
+        TermKey key = terminal_read_key();
         TuiEvent ev;
         if (key == TERM_KEY_IGNORE) {
             ev = tui_app_handle_char(&app, terminal_last_printable());

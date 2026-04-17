@@ -67,6 +67,15 @@ static inline void terminal_raw_exit_ptr(TermRawState **p) {
 TermKey terminal_read_key(void);
 
 /**
+ * Wait up to @p timeout_ms for a keystroke to be ready on stdin.
+ * Returns 1 when at least one byte is pending (read_key will not
+ * block for that first byte), 0 on timeout, -1 on interrupt or
+ * error. The terminal need not be in raw mode. Pass a negative
+ * timeout to block indefinitely.
+ */
+int     terminal_wait_key(int timeout_ms);
+
+/**
  * Returns the last printable ASCII character (32–126) that caused
  * terminal_read_key() to return TERM_KEY_IGNORE.
  * Returns 0 if the last ignored keystroke was not a printable character.

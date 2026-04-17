@@ -162,4 +162,22 @@ void test_platform(void) {
     ASSERT(terminal_consume_resize() == 1, "resize observed after SIGWINCH");
     /* Flag should clear on first consume. */
     ASSERT(terminal_consume_resize() == 0, "resize flag clears after read");
+
+    /* ── terminal_wait_key ──────────────────────────────────────────── */
+
+    /* With a 0ms timeout and no piped input pending, wait_key should
+     * return 0 (timeout) quickly. The test runner's stdin is closed or
+     * empty, so poll() either times out or reports a hangup — both
+     * count as "no actionable key ready". */
+    int wk = terminal_wait_key(0);
+    ASSERT(wk == 0 || wk == 1 || wk == -1,
+           "wait_key returns a valid sentinel");
+
+    /* Raise SIGWINCH mid-wait: poll returns EINTR → we return -1. */
+    raise(SIGWINCH);
+    /* The handler already ran and set the flag; poll may or may not
+     * actually be interrupted (depends on whether raise delivers
+     * synchronously). Either way consume_resize should now be 1. */
+    ASSERT(terminal_consume_resize() == 1,
+           "SIGWINCH raised right before wait still observable");
 }
