@@ -105,9 +105,10 @@ add_library(tg-tui-lib STATIC
     src/tui/screen.c
     src/tui/pane.c
     src/tui/list_view.c
+    src/tui/dialog_pane.c
 )
 target_include_directories(tg-tui-lib PUBLIC src src/tui)
-target_link_libraries(tg-tui-lib PUBLIC tg-proto)
+target_link_libraries(tg-tui-lib PUBLIC tg-domain-read)
 
 # ---- Domain: read-only module (tg-cli-ro, tg-tui, tg-cli all link this) ----
 # Sources will grow as US-04, US-05, US-06, US-07 land.

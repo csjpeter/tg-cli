@@ -73,7 +73,7 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
 `pq_factorize` UINT32_MAX guard.
 
 ## Quality
-- **2335 unit tests** passing (ASAN)
+- **2412 unit tests** passing (ASAN)
 - **150 functional tests** passing (real OpenSSL; SHA-512, PBKDF2,
   BN primitives, IGE, MTProto crypto round-trips, full SRP
   client↔server math roundtrip, kitchen-sink Message iteration)
@@ -148,6 +148,14 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
      drawing — shared between the dialog pane and the history pane.
      Set-count clamps selection + scroll on shrink; set-count to zero
      resets to selected=-1.
+   - TUI-04 ✅ `tui/dialog_pane.{h,c}` dialog list view-model: owns a
+     `DialogEntry[DIALOG_PANE_MAX]` snapshot + `ListView`, renders onto
+     a pane with one line per dialog (kind prefix + optional unread
+     badge + title), highlights the current selection via reverse-video
+     when focused, bolds rows with unread messages, shows a placeholder
+     when empty, honors scroll_top. `dialog_pane_refresh` wraps
+     `domain_get_dialogs`; `dialog_pane_selected` returns the
+     highlighted entry (or NULL).
 
 ## Current focus
 MVP feature set is complete; any further work is polish and
