@@ -147,6 +147,47 @@
 #define CRC_webPagePending              0xb0d13e47u
 #define CRC_webPageNotModified          0x7311ca11u
 
+/* WebPageAttribute variants (webPage.attributes, flags.12). */
+#define CRC_webPageAttributeTheme       0x54b56617u
+#define CRC_webPageAttributeStory       0x2e94c3e7u
+#define CRC_webPageAttributeStickerSet  0x50cc03d3u
+
+/* Page (webPage.cached_page, flags.10). */
+#define CRC_page                        0x98657f0du
+
+/* PageBlock subset supported for cached_page iteration. */
+#define CRC_pageBlockUnsupported        0x13567e8au
+#define CRC_pageBlockTitle              0x70abc3fdu
+#define CRC_pageBlockSubtitle           0x8ffa9a1fu
+#define CRC_pageBlockHeader             0xbfd064ecu
+#define CRC_pageBlockSubheader          0xf12bb6e1u
+#define CRC_pageBlockKicker             0x1e148390u
+#define CRC_pageBlockParagraph          0x467a0766u
+#define CRC_pageBlockPreformatted       0xc070d93eu
+#define CRC_pageBlockFooter             0x48870999u
+#define CRC_pageBlockDivider            0xdb20b188u
+#define CRC_pageBlockAnchor             0xce0d37b0u
+#define CRC_pageBlockAuthorDate         0xbaafe5e0u
+
+/* RichText variants — full tree so every supported PageBlock can walk
+ * its RichText payload. */
+#define CRC_textEmpty                   0xdc3d824fu
+#define CRC_textPlain                   0x744694e0u
+#define CRC_textBold                    0x6724abc4u
+#define CRC_textItalic                  0xd912a59cu
+#define CRC_textUnderline               0xc12622c4u
+#define CRC_textStrike                  0x9bf8bb95u
+#define CRC_textFixed                   0x6c3f19b9u
+#define CRC_textUrl                     0x3c2884c1u
+#define CRC_textEmail                   0xde5a0dd6u
+#define CRC_textConcat                  0x7e6260d7u
+#define CRC_textSubscript               0xed6a8504u
+#define CRC_textSuperscript             0xc7fb5e01u
+#define CRC_textMarked                  0x034b27f6u
+#define CRC_textPhone                   0x1ccb966au
+#define CRC_textImage                   0x081ccf4fu
+#define CRC_textAnchor                  0x35553762u
+
 /* Poll + PollAnswer + PollResults + PollAnswerVoters. */
 #define CRC_poll                        0x58747131u
 #define CRC_pollAnswer                  0x6ca9c2e9u
@@ -1192,8 +1233,230 @@ static int skip_geo_point(TlReader *r) {
     return 0;
 }
 
-/* Skip a WebPage variant. Returns -1 on rich-content variants we don't
- * support yet (embedded Photo / Document / cached_page / attributes). */
+/* Forward decl: skip_story_item is defined later in the file (next to
+ * the MessageMedia switch) and is re-used by webPageAttributeStory. */
+static int skip_story_item(TlReader *r);
+
+/* RichText tree (used by cached_page's PageBlock variants). Recursive:
+ * wrap-type variants contain a nested RichText. textConcat is a vector. */
+static int skip_rich_text(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    switch (crc) {
+    case CRC_textEmpty:
+        return 0;
+    case CRC_textPlain:
+        return tl_skip_string(r);
+    case CRC_textBold:
+    case CRC_textItalic:
+    case CRC_textUnderline:
+    case CRC_textStrike:
+    case CRC_textFixed:
+    case CRC_textSubscript:
+    case CRC_textSuperscript:
+    case CRC_textMarked:
+        return skip_rich_text(r);
+    case CRC_textUrl: {
+        if (skip_rich_text(r) != 0) return -1;
+        if (tl_skip_string(r) != 0) return -1;
+        if (r->len - r->pos < 8) return -1;
+        tl_read_int64(r);                            /* webpage_id */
+        return 0;
+    }
+    case CRC_textEmail:
+    case CRC_textPhone: {
+        if (skip_rich_text(r) != 0) return -1;
+        return tl_skip_string(r);
+    }
+    case CRC_textConcat: {
+        if (r->len - r->pos < 8) return -1;
+        uint32_t vec = tl_read_uint32(r);
+        if (vec != TL_vector) return -1;
+        uint32_t n = tl_read_uint32(r);
+        for (uint32_t i = 0; i < n; i++) {
+            if (skip_rich_text(r) != 0) return -1;
+        }
+        return 0;
+    }
+    case CRC_textImage: {
+        if (r->len - r->pos < 16) return -1;
+        tl_read_int64(r);                            /* document_id */
+        tl_read_int32(r);                            /* w */
+        tl_read_int32(r);                            /* h */
+        return 0;
+    }
+    case CRC_textAnchor: {
+        if (skip_rich_text(r) != 0) return -1;
+        return tl_skip_string(r);
+    }
+    default:
+        logger_log(LOG_WARN, "skip_rich_text: unknown 0x%08x", crc);
+        return -1;
+    }
+}
+
+/* Skip a single PageBlock variant. Only a whitelisted simple subset is
+ * supported; complex blocks (Cover, Collage, Slideshow, Details,
+ * RelatedArticles, Table, Embed, Photo, Video, Audio, Map, Channel,
+ * List, OrderedList, Blockquote, Pullquote) return -1 so the caller
+ * stops iterating the Page.
+ *
+ * This subset covers simple article-style Instant View pages
+ * (header + paragraphs + author + footer + anchors) which is enough to
+ * not fail outright on most modern webPage.cached_page payloads. */
+static int skip_page_block(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    switch (crc) {
+    case CRC_pageBlockUnsupported:
+    case CRC_pageBlockDivider:
+        return 0;
+    case CRC_pageBlockTitle:
+    case CRC_pageBlockSubtitle:
+    case CRC_pageBlockHeader:
+    case CRC_pageBlockSubheader:
+    case CRC_pageBlockKicker:
+    case CRC_pageBlockParagraph:
+    case CRC_pageBlockFooter:
+        return skip_rich_text(r);
+    case CRC_pageBlockAnchor:
+        return tl_skip_string(r);
+    case CRC_pageBlockPreformatted: {
+        if (skip_rich_text(r) != 0) return -1;
+        return tl_skip_string(r);                    /* language */
+    }
+    case CRC_pageBlockAuthorDate: {
+        if (skip_rich_text(r) != 0) return -1;       /* author */
+        if (r->len - r->pos < 4) return -1;
+        tl_read_int32(r);                            /* published_date */
+        return 0;
+    }
+    default:
+        logger_log(LOG_WARN, "skip_page_block: unsupported 0x%08x", crc);
+        return -1;
+    }
+}
+
+/* Skip a Page object (webPage.cached_page). Best-effort: simple
+ * Instant View article bodies iterate; anything that contains a
+ * complex PageBlock variant bails so the caller stops walking. */
+static int skip_page(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    if (crc != CRC_page) {
+        logger_log(LOG_WARN, "skip_page: unknown Page variant 0x%08x", crc);
+        return -1;
+    }
+    if (r->len - r->pos < 4) return -1;
+    uint32_t flags = tl_read_uint32(r);
+    if (tl_skip_string(r) != 0) return -1;           /* url */
+
+    /* blocks:Vector<PageBlock> */
+    if (r->len - r->pos < 8) return -1;
+    uint32_t vec = tl_read_uint32(r);
+    if (vec != TL_vector) return -1;
+    uint32_t n = tl_read_uint32(r);
+    for (uint32_t i = 0; i < n; i++) {
+        if (skip_page_block(r) != 0) return -1;
+    }
+
+    /* photos:Vector<Photo> */
+    if (r->len - r->pos < 8) return -1;
+    vec = tl_read_uint32(r);
+    if (vec != TL_vector) return -1;
+    n = tl_read_uint32(r);
+    for (uint32_t i = 0; i < n; i++) {
+        if (tl_skip_photo(r) != 0) return -1;
+    }
+
+    /* documents:Vector<Document> */
+    if (r->len - r->pos < 8) return -1;
+    vec = tl_read_uint32(r);
+    if (vec != TL_vector) return -1;
+    n = tl_read_uint32(r);
+    for (uint32_t i = 0; i < n; i++) {
+        if (tl_skip_document(r) != 0) return -1;
+    }
+
+    /* views:flags.3?int */
+    if (flags & (1u << 3)) {
+        if (r->len - r->pos < 4) return -1;
+        tl_read_int32(r);
+    }
+    return 0;
+}
+
+/* Skip a Vector<WebPageAttribute> (webPage.attributes, flags.12). Only
+ * the three known WebPageAttribute variants are supported; anything
+ * else makes the caller bail. */
+static int skip_webpage_attributes_vector(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 8) return -1;
+    uint32_t vec = tl_read_uint32(r);
+    if (vec != TL_vector) return -1;
+    uint32_t n = tl_read_uint32(r);
+    for (uint32_t i = 0; i < n; i++) {
+        if (r->len - r->pos < 4) return -1;
+        uint32_t crc = tl_read_uint32(r);
+        switch (crc) {
+        case CRC_webPageAttributeTheme: {
+            /* flags:# documents:flags.0?Vector<Document>
+             *        settings:flags.1?ThemeSettings
+             * v1 bails if settings is present — ThemeSettings is a
+             * fat nested object we don't otherwise walk. */
+            if (r->len - r->pos < 4) return -1;
+            uint32_t flags = tl_read_uint32(r);
+            if (flags & (1u << 0)) {
+                if (r->len - r->pos < 8) return -1;
+                uint32_t dvec = tl_read_uint32(r);
+                if (dvec != TL_vector) return -1;
+                uint32_t dn = tl_read_uint32(r);
+                for (uint32_t j = 0; j < dn; j++) {
+                    if (tl_skip_document(r) != 0) return -1;
+                }
+            }
+            if (flags & (1u << 1)) {
+                logger_log(LOG_WARN,
+                    "skip_webpage_attributes: theme settings not supported");
+                return -1;
+            }
+            break;
+        }
+        case CRC_webPageAttributeStory: {
+            /* flags:# peer:Peer id:int story:flags.0?StoryItem */
+            if (r->len - r->pos < 4) return -1;
+            uint32_t flags = tl_read_uint32(r);
+            if (tl_skip_peer(r) != 0) return -1;
+            if (r->len - r->pos < 4) return -1;
+            tl_read_int32(r);                        /* id */
+            if (flags & (1u << 0)) {
+                if (skip_story_item(r) != 0) return -1;
+            }
+            break;
+        }
+        case CRC_webPageAttributeStickerSet: {
+            /* flags:# emojis:flags.0?true text_color:flags.1?true
+             *        stickers:Vector<Document> */
+            if (r->len - r->pos < 4) return -1;
+            (void)tl_read_uint32(r);                 /* flags */
+            if (r->len - r->pos < 8) return -1;
+            uint32_t svec = tl_read_uint32(r);
+            if (svec != TL_vector) return -1;
+            uint32_t sn = tl_read_uint32(r);
+            for (uint32_t j = 0; j < sn; j++) {
+                if (tl_skip_document(r) != 0) return -1;
+            }
+            break;
+        }
+        default:
+            logger_log(LOG_WARN,
+                "skip_webpage_attributes: unknown variant 0x%08x", crc);
+            return -1;
+        }
+    }
+    return 0;
+}
+
+/* Skip a WebPage variant. */
 static int skip_webpage(TlReader *r) {
     if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
     uint32_t crc = tl_read_uint32(r);
@@ -1272,12 +1535,10 @@ static int skip_webpage(TlReader *r) {
             if (tl_skip_document(r) != 0) return -1;
         }
         if (flags & (1u << 10)) {
-            logger_log(LOG_WARN, "skip_webpage: cached_page not supported");
-            return -1;
+            if (skip_page(r) != 0) return -1;
         }
         if (flags & (1u << 12)) {
-            logger_log(LOG_WARN, "skip_webpage: attributes not supported");
-            return -1;
+            if (skip_webpage_attributes_vector(r) != 0) return -1;
         }
         return 0;
     }

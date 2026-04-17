@@ -1194,7 +1194,20 @@ static void test_skip_media_webpage_pending(void) {
     tl_writer_free(&w);
 }
 
-static void test_skip_media_webpage_cached_page_bails(void) {
+/* TUI-11: webPage with cached_page set, Page contains two simple
+ * PageBlock rows (title + paragraph). Skipper must iterate past them. */
+#define CRC_page_test                0x98657f0du
+#define CRC_pageBlockTitle_test      0x70abc3fdu
+#define CRC_pageBlockParagraph_test  0x467a0766u
+#define CRC_pageBlockDivider_test    0xdb20b188u
+#define CRC_pageBlockAnchor_test     0xce0d37b0u
+#define CRC_pageBlockAuthorDate_t    0xbaafe5e0u
+#define CRC_textPlain_test           0x744694e0u
+#define CRC_textEmpty_test           0xdc3d824fu
+#define CRC_textBold_test            0x6724abc4u
+#define CRC_textConcat_test          0x7e6260d7u
+
+static void test_skip_media_webpage_cached_page_simple(void) {
     TlWriter w; tl_writer_init(&w);
     tl_write_uint32(&w, CRC_messageMediaWebPage_test);
     tl_write_uint32(&w, 0);
@@ -1203,10 +1216,261 @@ static void test_skip_media_webpage_cached_page_bails(void) {
     tl_write_int64 (&w, 0x111);
     tl_write_string(&w, "u");
     tl_write_string(&w, "u");
-    tl_write_int32 (&w, 1);
-    /* cached_page body would follow — we bail before it. */
+    tl_write_int32 (&w, 1);                     /* hash */
+    /* cached_page body — page#98657f0d. */
+    tl_write_uint32(&w, CRC_page_test);
+    tl_write_uint32(&w, 0);                     /* page flags */
+    tl_write_string(&w, "https://x/a");         /* url */
+    /* blocks: [Title(plain), Paragraph(bold(plain)), Divider, Anchor] */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 4);
+    /* block 0: Title(textPlain) */
+    tl_write_uint32(&w, CRC_pageBlockTitle_test);
+    tl_write_uint32(&w, CRC_textPlain_test);
+    tl_write_string(&w, "The Article");
+    /* block 1: Paragraph(textBold(textPlain)) */
+    tl_write_uint32(&w, CRC_pageBlockParagraph_test);
+    tl_write_uint32(&w, CRC_textBold_test);
+    tl_write_uint32(&w, CRC_textPlain_test);
+    tl_write_string(&w, "Body");
+    /* block 2: Divider */
+    tl_write_uint32(&w, CRC_pageBlockDivider_test);
+    /* block 3: Anchor */
+    tl_write_uint32(&w, CRC_pageBlockAnchor_test);
+    tl_write_string(&w, "section-1");
+    /* photos: empty */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 0);
+    /* documents: empty */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 0);
+    /* sentinel past the whole media */
+    tl_write_int32(&w, 0xFACE);
     TlReader r = tl_reader_init(w.data, w.len);
-    ASSERT(tl_skip_message_media_ex(&r, NULL) == -1, "cached_page bails");
+    MediaInfo mi = {0};
+    ASSERT(tl_skip_message_media_ex(&r, &mi) == 0, "cached_page iterates");
+    ASSERT(mi.kind == MEDIA_WEBPAGE, "kind=webpage");
+    ASSERT(tl_read_int32(&r) == 0xFACE, "cursor past whole media");
+    tl_writer_free(&w);
+}
+
+/* TUI-11: same but with textConcat (vector of RichTexts). */
+static void test_skip_media_webpage_cached_page_textconcat(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaWebPage_test);
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, CRC_webPage_test);
+    tl_write_uint32(&w, (1u << 10));
+    tl_write_int64 (&w, 0x222);
+    tl_write_string(&w, "u");
+    tl_write_string(&w, "u");
+    tl_write_int32 (&w, 1);
+    tl_write_uint32(&w, CRC_page_test);
+    tl_write_uint32(&w, 0);
+    tl_write_string(&w, "x");
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    /* block: Paragraph(textConcat([textPlain, textEmpty])) */
+    tl_write_uint32(&w, CRC_pageBlockParagraph_test);
+    tl_write_uint32(&w, CRC_textConcat_test);
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 2);
+    tl_write_uint32(&w, CRC_textPlain_test);
+    tl_write_string(&w, "foo");
+    tl_write_uint32(&w, CRC_textEmpty_test);
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 0);  /* photos */
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 0);  /* documents */
+    tl_write_int32(&w, 0xDEAD);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r, NULL) == 0, "textConcat iterates");
+    ASSERT(tl_read_int32(&r) == 0xDEAD, "cursor past media");
+    tl_writer_free(&w);
+}
+
+/* TUI-11: cached_page with an unsupported PageBlock (Cover etc.) bails. */
+static void test_skip_media_webpage_cached_page_unsupported(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaWebPage_test);
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, CRC_webPage_test);
+    tl_write_uint32(&w, (1u << 10));
+    tl_write_int64 (&w, 0x333);
+    tl_write_string(&w, "u");
+    tl_write_string(&w, "u");
+    tl_write_int32 (&w, 1);
+    tl_write_uint32(&w, CRC_page_test);
+    tl_write_uint32(&w, 0);
+    tl_write_string(&w, "x");
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    /* unknown PageBlock CRC */
+    tl_write_uint32(&w, 0xDEADBEEFu);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r, NULL) == -1,
+           "unknown PageBlock bails");
+    tl_writer_free(&w);
+}
+
+/* TUI-11: webPageAttribute — Vector with a theme (no settings). */
+#define CRC_webPageAttributeTheme_t      0x54b56617u
+#define CRC_webPageAttributeStickerSet_t 0x50cc03d3u
+#define CRC_webPageAttributeStory_t      0x2e94c3e7u
+#define CRC_storyItemDeleted_t           0x51e6ee4fu
+
+static void test_skip_media_webpage_attributes_theme(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaWebPage_test);
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, CRC_webPage_test);
+    tl_write_uint32(&w, (1u << 12));             /* attributes flag */
+    tl_write_int64 (&w, 1);
+    tl_write_string(&w, "u");
+    tl_write_string(&w, "u");
+    tl_write_int32 (&w, 1);
+    /* attributes: [Theme{documents=[]}] */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, CRC_webPageAttributeTheme_t);
+    tl_write_uint32(&w, (1u << 0));              /* documents present */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 0);
+    tl_write_int32(&w, 0xBEEF);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r, NULL) == 0, "theme attrs iterate");
+    ASSERT(tl_read_int32(&r) == 0xBEEF, "cursor past media");
+    tl_writer_free(&w);
+}
+
+/* TUI-11: webPageAttribute — StickerSet with a couple of documents. */
+static void test_skip_media_webpage_attributes_stickerset(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaWebPage_test);
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, CRC_webPage_test);
+    tl_write_uint32(&w, (1u << 12));
+    tl_write_int64 (&w, 1);
+    tl_write_string(&w, "u");
+    tl_write_string(&w, "u");
+    tl_write_int32 (&w, 1);
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, CRC_webPageAttributeStickerSet_t);
+    tl_write_uint32(&w, 0);                      /* flags */
+    /* stickers: [documentEmpty, documentEmpty] */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 2);
+    tl_write_uint32(&w, CRC_documentEmpty);
+    tl_write_int64 (&w, 11LL);
+    tl_write_uint32(&w, CRC_documentEmpty);
+    tl_write_int64 (&w, 22LL);
+    tl_write_int32(&w, 0xABCD);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r, NULL) == 0, "stickerset iterates");
+    ASSERT(tl_read_int32(&r) == 0xABCD, "cursor past media");
+    tl_writer_free(&w);
+}
+
+/* TUI-11: webPageAttribute — Story without a nested story (flag.0 clear). */
+static void test_skip_media_webpage_attributes_story_noinline(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaWebPage_test);
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, CRC_webPage_test);
+    tl_write_uint32(&w, (1u << 12));
+    tl_write_int64 (&w, 1);
+    tl_write_string(&w, "u");
+    tl_write_string(&w, "u");
+    tl_write_int32 (&w, 1);
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, CRC_webPageAttributeStory_t);
+    tl_write_uint32(&w, 0);                      /* no inline story */
+    tl_write_uint32(&w, TL_peerUser);            /* peer */
+    tl_write_int64 (&w, 42LL);
+    tl_write_int32 (&w, 7);                      /* story id */
+    tl_write_int32(&w, 0x1234);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r, NULL) == 0, "story attr iterates");
+    ASSERT(tl_read_int32(&r) == 0x1234, "cursor past media");
+    tl_writer_free(&w);
+}
+
+/* TUI-11: webPageAttribute — Story with an inline storyItemDeleted. */
+static void test_skip_media_webpage_attributes_story_inline(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaWebPage_test);
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, CRC_webPage_test);
+    tl_write_uint32(&w, (1u << 12));
+    tl_write_int64 (&w, 1);
+    tl_write_string(&w, "u");
+    tl_write_string(&w, "u");
+    tl_write_int32 (&w, 1);
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, CRC_webPageAttributeStory_t);
+    tl_write_uint32(&w, (1u << 0));              /* inline story */
+    tl_write_uint32(&w, TL_peerUser);
+    tl_write_int64 (&w, 42LL);
+    tl_write_int32 (&w, 7);
+    /* story: storyItemDeleted{id=7} — simplest variant */
+    tl_write_uint32(&w, CRC_storyItemDeleted_t);
+    tl_write_int32 (&w, 7);
+    tl_write_int32(&w, 0xBABE);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r, NULL) == 0, "story inline iterates");
+    ASSERT(tl_read_int32(&r) == 0xBABE, "cursor past media");
+    tl_writer_free(&w);
+}
+
+/* TUI-11: unknown WebPageAttribute variant bails. */
+static void test_skip_media_webpage_attributes_unknown(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaWebPage_test);
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, CRC_webPage_test);
+    tl_write_uint32(&w, (1u << 12));
+    tl_write_int64 (&w, 1);
+    tl_write_string(&w, "u");
+    tl_write_string(&w, "u");
+    tl_write_int32 (&w, 1);
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, 0xDEADC0DE);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r, NULL) == -1,
+           "unknown WebPageAttribute bails");
+    tl_writer_free(&w);
+}
+
+/* TUI-11: both cached_page AND attributes set, combined page + stickerset. */
+static void test_skip_media_webpage_cached_page_plus_attributes(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaWebPage_test);
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, CRC_webPage_test);
+    tl_write_uint32(&w, (1u << 10) | (1u << 12));
+    tl_write_int64 (&w, 1);
+    tl_write_string(&w, "u");
+    tl_write_string(&w, "u");
+    tl_write_int32 (&w, 1);
+    /* cached_page: empty page */
+    tl_write_uint32(&w, CRC_page_test);
+    tl_write_uint32(&w, 0);
+    tl_write_string(&w, "p");
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 0);  /* blocks */
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 0);  /* photos */
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 0);  /* documents */
+    /* attributes: one StickerSet with no stickers */
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, CRC_webPageAttributeStickerSet_t);
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 0);
+    tl_write_int32(&w, 0x5678);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r, NULL) == 0,
+           "cached_page + attributes iterate together");
+    ASSERT(tl_read_int32(&r) == 0x5678, "cursor past media");
     tl_writer_free(&w);
 }
 
@@ -1670,7 +1934,15 @@ void run_tl_skip_tests(void) {
     RUN_TEST(test_skip_media_webpage_empty);
     RUN_TEST(test_skip_media_webpage_rich);
     RUN_TEST(test_skip_media_webpage_pending);
-    RUN_TEST(test_skip_media_webpage_cached_page_bails);
+    RUN_TEST(test_skip_media_webpage_cached_page_simple);
+    RUN_TEST(test_skip_media_webpage_cached_page_textconcat);
+    RUN_TEST(test_skip_media_webpage_cached_page_unsupported);
+    RUN_TEST(test_skip_media_webpage_attributes_theme);
+    RUN_TEST(test_skip_media_webpage_attributes_stickerset);
+    RUN_TEST(test_skip_media_webpage_attributes_story_noinline);
+    RUN_TEST(test_skip_media_webpage_attributes_story_inline);
+    RUN_TEST(test_skip_media_webpage_attributes_unknown);
+    RUN_TEST(test_skip_media_webpage_cached_page_plus_attributes);
     RUN_TEST(test_skip_media_document_full);
     RUN_TEST(test_skip_media_poll_minimal);
     RUN_TEST(test_skip_media_poll_with_results);

@@ -73,7 +73,7 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
 `pq_factorize` UINT32_MAX guard.
 
 ## Quality
-- **2583 unit tests** passing (ASAN)
+- **2639 unit tests** passing (ASAN)
 - **150 functional tests** passing (real OpenSSL; SHA-512, PBKDF2,
   BN primitives, IGE, MTProto crypto round-trips, full SRP
   client↔server math roundtrip, kitchen-sink Message iteration)
@@ -83,11 +83,19 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
 
 ## Known v1 limitations (follow-ups, not blockers)
 - MessageMedia iteration is effectively complete for the read surface.
-  The only remaining stoppers are `webPage` with `cached_page` /
-  `attributes` (IV article body) and the recursive edge case of a
-  `storyItem` whose own `media:MessageMedia` lands on an
-  already-unsupported sub-variant. Everything else now iterates:
-  Photo, Document, Geo, Contact, Venue, Dice, WebPage (text-only),
+  Since TUI-11 every modern MessageMedia with a `webPage` having
+  `attributes` (theme / stickerSet / story) iterates, and a simple
+  `cached_page` (Instant View body built only from Title / Header /
+  Subheader / Kicker / Paragraph / Subtitle / Footer / Preformatted /
+  Divider / Anchor / AuthorDate blocks with standard RichText
+  wrappers) iterates too. Complex IV blocks (Cover, Collage,
+  Slideshow, Details, RelatedArticles, Table, Embed, Photo, Video,
+  Audio, Map, Channel, List, OrderedList, Blockquote, Pullquote)
+  still bail. Unknown `WebPageAttribute` variants also bail. The only
+  other remaining stopper is the recursive edge case of a `storyItem`
+  whose own `media:MessageMedia` lands on an already-unsupported
+  sub-variant. Everything else now iterates: Photo, Document, Geo,
+  Contact, Venue, Dice, WebPage (incl. cached_page + attributes),
   Poll, Invoice (with WebDocument photo or MessageExtendedMedia),
   Story (deleted / skipped / full with StoryFwdHeader + MediaArea +
   PrivacyRule + StoryViews + Reaction), Giveaway, Game (photo-only
@@ -185,16 +193,38 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
      hands it to the state machine, and on OPEN_DIALOG fetches the
      selected dialog's history with a "loading…" status message.
      Without `--tui` the existing REPL is preserved, so no user
-     workflow regresses. Known limitation: only Saved Messages
-     (HISTORY_PEER_SELF) and legacy group chats (HISTORY_PEER_CHAT)
-     are reachable — the v1 DialogEntry does not carry access_hash,
-     so user/channel dialogs show "cannot open (access_hash missing)"
-     for now. Threading access_hash through messages.getDialogs is a
-     follow-up.
+     workflow regresses.
+   - TUI-08 ✅ `access_hash` threaded through
+     `messages.getDialogs` parse: `ChatSummary` /
+     `UserSummary` + `DialogEntry` now carry
+     `(access_hash, have_access_hash)`. The TUI can open user and
+     channel dialogs directly from the dialog pane instead of the
+     previous "cannot open (access_hash missing)" status.
+   - TUI-09 ✅ SIGWINCH handler drives `tui_app_resize`.
+     New platform entry points `terminal_enable_resize_notifications`
+     + `terminal_consume_resize`; POSIX sigaction without SA_RESTART
+     so the blocking read(2) returns EINTR on SIGWINCH and the TUI
+     loop can re-check geometry between keystrokes. Screen is
+     reinitialised, cursor hidden again, list-view selections /
+     scroll preserved across the resize.
+   - TUI-10 ✅ live updates poll via `updates.getDifference`.
+     Added `terminal_wait_key(timeout_ms)` (poll() on STDIN). TUI
+     loop idles for 5 s between keystrokes; on each timeout it
+     calls `updates.getDifference` and, on non-empty diff, refreshes
+     the dialog pane (and the open history pane if any). Initial
+     `getState` primes the high-water marks; failures silently skip
+     polling so the UI keeps working offline.
+   - TUI-11 ✅ webPage cached_page + attributes iteration.
+     `skip_webpage` now handles `attributes:flags.12?Vector<WebPageAttribute>`
+     (Theme without settings, StickerSet, Story with optional inline
+     StoryItem) and `cached_page:flags.10?Page` for simple Instant
+     View bodies (Title / Header / Subheader / Kicker / Paragraph /
+     Subtitle / Footer / Preformatted / Divider / Anchor /
+     AuthorDate blocks with the full 15-variant RichText tree
+     including textConcat). Complex IV blocks still bail; unknown
+     WebPageAttribute variants still bail. This closes the last
+     modern-webPage gap in MessageMedia iteration.
 
 ## Current focus
-MVP feature set is complete; any further work is polish and
-follow-ups. If nothing new is requested, the recommended next step
-is **extending tl_skip coverage** (phase 3c flags + rare MessageMedia
-variants) because that directly unlocks more real chats from the
-history / search / watch surface.
+MVP feature set and US-11 v2 TUI polish (TUI-08..TUI-11) are
+complete; any further work is edge-case polish. No obvious next step.
