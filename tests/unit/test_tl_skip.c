@@ -818,6 +818,47 @@ static void test_skip_factcheck_with_text(void) {
     tl_writer_free(&w);
 }
 
+/* ---- messageMediaDocument with full Document ---- */
+
+#define CRC_messageMediaDocument_t    0x4cf4d72du
+#define CRC_document_t                0x8fd4c4d8u
+#define CRC_documentAttributeFilename_t 0x15590068u
+
+static void test_skip_media_document_full(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaDocument_t);
+    tl_write_uint32(&w, (1u << 0));                /* document present */
+    tl_write_uint32(&w, CRC_document_t);
+    tl_write_uint32(&w, 0);                        /* flags (no thumbs) */
+    tl_write_int64 (&w, 5551212LL);
+    tl_write_int64 (&w, 0xCAFECAFEDEADBEEFLL);
+    uint8_t fr[4] = { 0x01, 0x02, 0x03, 0x04 };
+    tl_write_bytes (&w, fr, sizeof(fr));
+    tl_write_int32 (&w, 1700000000);               /* date */
+    tl_write_string(&w, "application/pdf");
+    tl_write_int64 (&w, 1024LL);                   /* size */
+    tl_write_int32 (&w, 2);                        /* dc_id */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);                        /* one attribute */
+    tl_write_uint32(&w, CRC_documentAttributeFilename_t);
+    tl_write_string(&w, "report.pdf");
+    tl_write_int32 (&w, 0xfeed);                   /* trailer */
+    TlReader r = tl_reader_init(w.data, w.len);
+    MediaInfo mi = {0};
+    ASSERT(tl_skip_message_media_ex(&r, &mi) == 0, "document extract ok");
+    ASSERT(mi.kind == MEDIA_DOCUMENT, "kind=document");
+    ASSERT(mi.document_id == 5551212LL, "document_id captured");
+    ASSERT(mi.access_hash == (int64_t)0xCAFECAFEDEADBEEFLL, "access_hash");
+    ASSERT(mi.file_reference_len == 4, "file_reference_len");
+    ASSERT(mi.file_reference[0] == 0x01 && mi.file_reference[3] == 0x04,
+           "file_reference bytes");
+    ASSERT(mi.document_size == 1024, "size captured");
+    ASSERT(strcmp(mi.document_mime, "application/pdf") == 0, "mime");
+    ASSERT(strcmp(mi.document_filename, "report.pdf") == 0, "filename");
+    ASSERT(tl_read_int32(&r) == 0xfeed, "cursor past document");
+    tl_writer_free(&w);
+}
+
 /* ---- MessageMediaWebPage ---- */
 
 #define CRC_messageMediaWebPage_test 0xddf8c26eu
@@ -980,4 +1021,5 @@ void run_tl_skip_tests(void) {
     RUN_TEST(test_skip_media_webpage_rich);
     RUN_TEST(test_skip_media_webpage_pending);
     RUN_TEST(test_skip_media_webpage_cached_page_bails);
+    RUN_TEST(test_skip_media_document_full);
 }

@@ -950,21 +950,153 @@ int tl_skip_photo(TlReader *r) {
  * reach us typically have Photo, not Document. Callers treating a
  * Document as complex+stop-iter is acceptable for v1.
  */
-static int document_inner(TlReader *r, int64_t *id_out) {
+/* DocumentAttribute CRCs we can skip without bailing. */
+#define CRC_documentAttributeImageSize   0x6c37c15cu
+#define CRC_documentAttributeAnimated    0x11b58939u
+#define CRC_documentAttributeHasStickers 0x9801d2f7u
+#define CRC_documentAttributeFilename    0x15590068u
+#define CRC_documentAttributeVideo       0x43c57c48u
+#define CRC_documentAttributeAudio       0x9852f9c6u
+
+/* Skip a single DocumentAttribute, optionally extracting the filename. */
+static int skip_document_attribute(TlReader *r,
+                                    char *filename_out, size_t fn_cap) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    switch (crc) {
+    case CRC_documentAttributeImageSize:
+        if (r->len - r->pos < 8) return -1;
+        tl_read_int32(r); tl_read_int32(r);              /* w, h */
+        return 0;
+    case CRC_documentAttributeAnimated:
+    case CRC_documentAttributeHasStickers:
+        return 0;
+    case CRC_documentAttributeFilename: {
+        size_t before = r->pos;
+        char *s = tl_read_string(r);
+        if (!s) { r->pos = before; return -1; }
+        if (filename_out && fn_cap) {
+            size_t n = strlen(s);
+            if (n >= fn_cap) n = fn_cap - 1;
+            memcpy(filename_out, s, n);
+            filename_out[n] = '\0';
+        }
+        free(s);
+        return 0;
+    }
+    case CRC_documentAttributeVideo: {
+        if (r->len - r->pos < 4) return -1;
+        uint32_t flags = tl_read_uint32(r);
+        if (r->len - r->pos < 8 + 4 + 4) return -1;
+        tl_read_double(r);                               /* duration */
+        tl_read_int32(r); tl_read_int32(r);              /* w, h */
+        if (flags & (1u << 2)) {
+            if (r->len - r->pos < 4) return -1;
+            tl_read_int32(r);                            /* preload_prefix_size */
+        }
+        if (flags & (1u << 4)) {
+            if (r->len - r->pos < 8) return -1;
+            tl_read_double(r);                           /* video_start_ts */
+        }
+        if (flags & (1u << 5))
+            if (tl_skip_string(r) != 0) return -1;       /* video_codec */
+        return 0;
+    }
+    case CRC_documentAttributeAudio: {
+        if (r->len - r->pos < 8) return -1;
+        uint32_t flags = tl_read_uint32(r);
+        tl_read_int32(r);                                /* duration */
+        if (flags & (1u << 0))
+            if (tl_skip_string(r) != 0) return -1;       /* title */
+        if (flags & (1u << 1))
+            if (tl_skip_string(r) != 0) return -1;       /* performer */
+        if (flags & (1u << 2))
+            if (tl_skip_string(r) != 0) return -1;       /* waveform:bytes */
+        return 0;
+    }
+    default:
+        logger_log(LOG_WARN, "skip_document_attribute: unknown 0x%08x", crc);
+        return -1;
+    }
+}
+
+/* Walk a Document. When @p out is non-NULL, fills id + access_hash +
+ * file_reference + dc_id + size + mime_type + filename. Returns -1 on
+ * thumbs / video_thumbs (flags.0 / flags.1) or an unknown attribute. */
+static int document_inner(TlReader *r, MediaInfo *out) {
     if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
     uint32_t crc = tl_read_uint32(r);
     if (crc == CRC_documentEmpty) {
         if (r->len - r->pos < 8) return -1;
         int64_t id = tl_read_int64(r);
-        if (id_out) *id_out = id;
+        if (out) out->document_id = id;
         return 0;
     }
-    if (crc == CRC_document) {
-        logger_log(LOG_WARN, "tl_skip_document: non-empty Document not implemented");
+    if (crc != CRC_document) {
+        logger_log(LOG_WARN, "tl_skip_document: unknown 0x%08x", crc);
         return -1;
     }
-    logger_log(LOG_WARN, "tl_skip_document: unknown 0x%08x", crc);
-    return -1;
+    if (r->len - r->pos < 4) return -1;
+    uint32_t flags = tl_read_uint32(r);
+    if (r->len - r->pos < 16) return -1;
+    int64_t id     = tl_read_int64(r);
+    int64_t access = tl_read_int64(r);
+    if (out) { out->document_id = id; out->access_hash = access; }
+
+    size_t fr_len = 0;
+    uint8_t *fr = tl_read_bytes(r, &fr_len);
+    if (!fr && fr_len != 0) return -1;
+    if (out) {
+        size_t n = fr_len;
+        if (n > MEDIA_FILE_REF_MAX) n = MEDIA_FILE_REF_MAX;
+        if (fr) memcpy(out->file_reference, fr, n);
+        out->file_reference_len = n;
+    }
+    free(fr);
+
+    if (r->len - r->pos < 4) return -1;
+    tl_read_int32(r);                                    /* date */
+
+    size_t mime_before = r->pos;
+    char *mime = tl_read_string(r);
+    if (!mime) { r->pos = mime_before; return -1; }
+    if (out) {
+        size_t n = strlen(mime);
+        if (n >= sizeof(out->document_mime)) n = sizeof(out->document_mime) - 1;
+        memcpy(out->document_mime, mime, n);
+        out->document_mime[n] = '\0';
+    }
+    free(mime);
+
+    if (r->len - r->pos < 8) return -1;
+    int64_t size = tl_read_int64(r);
+    if (out) out->document_size = size;
+
+    if (flags & (1u << 0)) {
+        logger_log(LOG_WARN, "tl_skip_document: thumbs vector not supported");
+        return -1;
+    }
+    if (flags & (1u << 1)) {
+        logger_log(LOG_WARN, "tl_skip_document: video_thumbs not supported");
+        return -1;
+    }
+
+    if (r->len - r->pos < 4) return -1;
+    int32_t dc = tl_read_int32(r);
+    if (out) out->dc_id = dc;
+
+    /* attributes:Vector<DocumentAttribute> */
+    if (r->len - r->pos < 8) return -1;
+    uint32_t vec_crc = tl_read_uint32(r);
+    if (vec_crc != TL_vector) return -1;
+    uint32_t n_attrs = tl_read_uint32(r);
+    for (uint32_t i = 0; i < n_attrs; i++) {
+        if (skip_document_attribute(r,
+                                     out ? out->document_filename : NULL,
+                                     out ? sizeof(out->document_filename) : 0) != 0)
+            return -1;
+    }
+    return 0;
 }
 
 int tl_skip_document(TlReader *r) {
@@ -1179,9 +1311,7 @@ int tl_skip_message_media_ex(TlReader *r, MediaInfo *out) {
             return -1;
         }
         if (flags & (1u << 0)) {
-            int64_t id = 0;
-            if (document_inner(r, &id) != 0) return -1;
-            if (out) out->document_id = id;
+            if (document_inner(r, out) != 0) return -1;
         }
         if (flags & (1u << 2)) { if (r->len - r->pos < 4) return -1; tl_read_int32(r); }
         return 0;

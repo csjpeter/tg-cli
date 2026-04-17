@@ -73,7 +73,7 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
 `pq_factorize` UINT32_MAX guard.
 
 ## Quality
-- **2012 unit tests** passing (ASAN)
+- **2030 unit tests** passing (ASAN)
 - **131 functional tests** passing (real OpenSSL; SHA-512, PBKDF2,
   BN primitives, IGE, MTProto crypto round-trips)
 - Valgrind: 0 leaks, 0 errors
@@ -91,7 +91,10 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
   under P4-04.
 - Only documents are uploaded; photo upload (scaled InputMedia) is
   future work.
-- Only photos are downloaded — Document download is a follow-up.
+- Document download now works for the common "plain document" case
+  (PDF, mp4, mp3, etc). Documents with Sticker / CustomEmoji attributes
+  or populated thumbs/video_thumbs vectors still fall back to the
+  complex-iteration bail.
 
 ## Backlog (post-MVP polish)
 1. **Big files / media DCs** — `upload.saveBigFilePart` and

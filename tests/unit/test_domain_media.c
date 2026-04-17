@@ -185,10 +185,105 @@ static void test_download_photo_requires_credentials(void) {
     ASSERT(rc != 0, "empty MediaInfo rejected");
 }
 
+/* ---- Document download ---- */
+
+static MediaInfo fake_document_info(void) {
+    MediaInfo m = {0};
+    m.kind = MEDIA_DOCUMENT;
+    m.document_id = 5551212LL;
+    m.access_hash = 0xFEEDFACE01234567LL;
+    m.dc_id = 2;
+    m.file_reference_len = 5;
+    uint8_t fr[5] = {0xDE,0xAD,0xBE,0xEF,0x01};
+    memcpy(m.file_reference, fr, 5);
+    m.document_size = 64;
+    snprintf(m.document_mime, sizeof(m.document_mime), "%s", "application/pdf");
+    snprintf(m.document_filename, sizeof(m.document_filename), "%s",
+             "report.pdf");
+    return m;
+}
+
+static void test_download_document_single_chunk(void) {
+    mock_socket_reset(); mock_crypto_reset();
+    const char *path = "/tmp/tg-cli-media-doc-test.bin";
+    unlink(path);
+
+    uint8_t body[64];
+    for (size_t i = 0; i < sizeof(body); i++) body[i] = (uint8_t)(i ^ 0x3C);
+
+    uint8_t payload[256];
+    size_t plen = make_upload_file(payload, sizeof(payload),
+                                    body, sizeof(body));
+    uint8_t resp[512]; size_t rlen = 0;
+    build_fake_encrypted_response(payload, plen, resp, &rlen);
+    mock_socket_set_response(resp, rlen);
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    fix_session(&s); fix_transport(&t); fix_cfg(&cfg);
+    MediaInfo info = fake_document_info();
+    int wrong_dc = -1;
+    int rc = domain_download_document(&cfg, &s, &t, &info, path, &wrong_dc);
+    ASSERT(rc == 0, "document download ok");
+    ASSERT(wrong_dc == 0, "wrong_dc stays 0");
+
+    FILE *fp = fopen(path, "rb");
+    ASSERT(fp != NULL, "doc file created");
+    if (fp) {
+        uint8_t got[128] = {0};
+        size_t n = fread(got, 1, sizeof(got), fp);
+        fclose(fp);
+        ASSERT(n == sizeof(body), "doc size matches");
+        ASSERT(memcmp(got, body, sizeof(body)) == 0, "doc round-trips");
+    }
+    unlink(path);
+}
+
+static void test_download_document_wire_has_doc_location_crc(void) {
+    mock_socket_reset(); mock_crypto_reset();
+    const char *path = "/tmp/tg-cli-media-doc-wire.bin";
+    unlink(path);
+
+    uint8_t body[16];
+    for (size_t i = 0; i < sizeof(body); i++) body[i] = (uint8_t)(i + 1);
+    uint8_t payload[128];
+    size_t plen = make_upload_file(payload, sizeof(payload),
+                                    body, sizeof(body));
+    uint8_t resp[256]; size_t rlen = 0;
+    build_fake_encrypted_response(payload, plen, resp, &rlen);
+    mock_socket_set_response(resp, rlen);
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    fix_session(&s); fix_transport(&t); fix_cfg(&cfg);
+    MediaInfo info = fake_document_info();
+    int rc = domain_download_document(&cfg, &s, &t, &info, path, NULL);
+    ASSERT(rc == 0, "download ok");
+
+    size_t sent_len = 0;
+    const uint8_t *sent = mock_socket_get_sent(&sent_len);
+    uint32_t want = 0xbad07584u;                      /* inputDocumentFileLocation */
+    int found = 0;
+    for (size_t i = 0; i + 4 <= sent_len; i++)
+        if (memcmp(sent + i, &want, 4) == 0) { found = 1; break; }
+    ASSERT(found, "inputDocumentFileLocation CRC on wire");
+    unlink(path);
+}
+
+static void test_download_document_rejects_non_document(void) {
+    ApiConfig cfg; MtProtoSession s; Transport t;
+    fix_session(&s); fix_transport(&t); fix_cfg(&cfg);
+    MediaInfo info = fake_photo_info();             /* PHOTO, not DOC */
+    int rc = domain_download_document(&cfg, &s, &t, &info,
+                                        "/tmp/tg-cli-media-x.bin", NULL);
+    ASSERT(rc != 0, "photo rejected for document download");
+}
+
 void run_domain_media_tests(void) {
     RUN_TEST(test_download_photo_single_chunk);
     RUN_TEST(test_download_photo_rpc_error_migrate);
     RUN_TEST(test_download_photo_rejects_non_photo);
     RUN_TEST(test_download_photo_null_args);
     RUN_TEST(test_download_photo_requires_credentials);
+    RUN_TEST(test_download_document_single_chunk);
+    RUN_TEST(test_download_document_wire_has_doc_location_crc);
+    RUN_TEST(test_download_document_rejects_non_document);
 }

@@ -487,10 +487,11 @@ static int cmd_download(const ArgResult *args, const AppContext *ctx) {
         transport_close(&t);
         return 1;
     }
-    if (entry.media != MEDIA_PHOTO) {
+    if (entry.media != MEDIA_PHOTO && entry.media != MEDIA_DOCUMENT) {
         fprintf(stderr,
-                "tg-cli-ro download: message %d has no downloadable photo "
-                "(media kind=%d)\n", args->msg_id, (int)entry.media);
+                "tg-cli-ro download: message %d has no downloadable "
+                "photo/document (media kind=%d)\n",
+                args->msg_id, (int)entry.media);
         transport_close(&t);
         return 1;
     }
@@ -502,7 +503,9 @@ static int cmd_download(const ArgResult *args, const AppContext *ctx) {
         return 1;
     }
 
-    /* Compose output path: --out if given, else <cache>/downloads/photo-<id>.jpg */
+    /* Compose output path: --out if given, else
+     *   <cache>/downloads/photo-<id>.jpg  (photo)
+     *   <cache>/downloads/<filename or doc-<id>>  (document) */
     char path_buf[2048];
     const char *out_path = args->out_path;
     if (!out_path) {
@@ -510,14 +513,27 @@ static int cmd_download(const ArgResult *args, const AppContext *ctx) {
         char dir_buf[1536];
         snprintf(dir_buf, sizeof(dir_buf), "%s/downloads", cache);
         fs_mkdir_p(dir_buf, 0700);
-        snprintf(path_buf, sizeof(path_buf), "%s/photo-%lld.jpg",
-                 dir_buf, (long long)entry.media_info.photo_id);
+        if (entry.media == MEDIA_DOCUMENT) {
+            const char *fn = entry.media_info.document_filename;
+            if (fn[0]) {
+                snprintf(path_buf, sizeof(path_buf), "%s/%s", dir_buf, fn);
+            } else {
+                snprintf(path_buf, sizeof(path_buf), "%s/doc-%lld",
+                         dir_buf, (long long)entry.media_info.document_id);
+            }
+        } else {
+            snprintf(path_buf, sizeof(path_buf), "%s/photo-%lld.jpg",
+                     dir_buf, (long long)entry.media_info.photo_id);
+        }
         out_path = path_buf;
     }
 
     int wrong_dc = 0;
-    rc = domain_download_photo(&cfg, &s, &t, &entry.media_info,
-                                out_path, &wrong_dc);
+    rc = (entry.media == MEDIA_DOCUMENT)
+       ? domain_download_document(&cfg, &s, &t, &entry.media_info,
+                                    out_path, &wrong_dc)
+       : domain_download_photo(&cfg, &s, &t, &entry.media_info,
+                                 out_path, &wrong_dc);
     transport_close(&t);
     if (rc != 0) {
         if (wrong_dc > 0) {
@@ -530,8 +546,13 @@ static int cmd_download(const ArgResult *args, const AppContext *ctx) {
         return 1;
     }
     if (args->json) {
-        printf("{\"saved\":\"%s\",\"photo_id\":%lld}\n",
-               out_path, (long long)entry.media_info.photo_id);
+        int64_t id = (entry.media == MEDIA_DOCUMENT)
+                   ? entry.media_info.document_id
+                   : entry.media_info.photo_id;
+        printf("{\"saved\":\"%s\",\"kind\":\"%s\",\"id\":%lld}\n",
+               out_path,
+               (entry.media == MEDIA_DOCUMENT) ? "document" : "photo",
+               (long long)id);
     } else if (!args->quiet) {
         printf("saved: %s\n", out_path);
     }

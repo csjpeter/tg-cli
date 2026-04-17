@@ -17,12 +17,17 @@
 
 #define CRC_upload_getFile                 0xbe5335beu
 #define CRC_inputPhotoFileLocation         0x40181ffeu
+#define CRC_inputDocumentFileLocation      0xbad07584u
 #define CRC_upload_file                    0x096a18d5u
 #define CRC_upload_fileCdnRedirect         0xf18cda44u
 
 /** Default chunk size — must be a multiple of 4 KB per Telegram spec. */
 #define CHUNK_SIZE (128 * 1024)
 
+/* Build a upload.getFile request whose InputFileLocation is derived
+ * from @p info.kind. Photos use inputPhotoFileLocation with the
+ * largest thumb_size; documents use inputDocumentFileLocation with
+ * an empty thumb_size to fetch the full file. */
 static int build_getfile_request(const MediaInfo *info,
                                   int64_t offset, int32_t limit,
                                   uint8_t *out, size_t cap, size_t *out_len) {
@@ -31,14 +36,25 @@ static int build_getfile_request(const MediaInfo *info,
 
     tl_write_uint32(&w, CRC_upload_getFile);
     tl_write_uint32(&w, 0);                             /* flags */
-    /* inputPhotoFileLocation#40181ffe id:long access_hash:long
-     *                                 file_reference:bytes thumb_size:string */
-    tl_write_uint32(&w, CRC_inputPhotoFileLocation);
-    tl_write_int64 (&w, info->photo_id);
-    tl_write_int64 (&w, info->access_hash);
-    tl_write_bytes (&w, info->file_reference,
-                        info->file_reference_len);
-    tl_write_string(&w, info->thumb_type[0] ? info->thumb_type : "y");
+    if (info->kind == MEDIA_DOCUMENT) {
+        /* inputDocumentFileLocation#bad07584 id:long access_hash:long
+         *                                    file_reference:bytes thumb_size:string */
+        tl_write_uint32(&w, CRC_inputDocumentFileLocation);
+        tl_write_int64 (&w, info->document_id);
+        tl_write_int64 (&w, info->access_hash);
+        tl_write_bytes (&w, info->file_reference,
+                            info->file_reference_len);
+        tl_write_string(&w, "");                        /* full file */
+    } else {
+        /* inputPhotoFileLocation#40181ffe id:long access_hash:long
+         *                                 file_reference:bytes thumb_size:string */
+        tl_write_uint32(&w, CRC_inputPhotoFileLocation);
+        tl_write_int64 (&w, info->photo_id);
+        tl_write_int64 (&w, info->access_hash);
+        tl_write_bytes (&w, info->file_reference,
+                            info->file_reference_len);
+        tl_write_string(&w, info->thumb_type[0] ? info->thumb_type : "y");
+    }
     tl_write_int64 (&w, offset);
     tl_write_int32 (&w, limit);
 
@@ -52,23 +68,12 @@ static int build_getfile_request(const MediaInfo *info,
     return rc;
 }
 
-int domain_download_photo(const ApiConfig *cfg,
-                           MtProtoSession *s, Transport *t,
-                           const MediaInfo *info,
-                           const char *out_path,
-                           int *wrong_dc) {
-    if (wrong_dc) *wrong_dc = 0;
-    if (!cfg || !s || !t || !info || !out_path) return -1;
-    if (info->kind != MEDIA_PHOTO) {
-        logger_log(LOG_ERROR, "media: download supports MEDIA_PHOTO only");
-        return -1;
-    }
-    if (info->photo_id == 0 || info->access_hash == 0
-        || info->file_reference_len == 0) {
-        logger_log(LOG_ERROR, "media: missing id / access_hash / file_reference");
-        return -1;
-    }
-
+/* Shared chunked download loop. Caller has already validated @p info. */
+static int download_loop(const ApiConfig *cfg,
+                          MtProtoSession *s, Transport *t,
+                          const MediaInfo *info,
+                          const char *out_path,
+                          int *wrong_dc) {
     RAII_FILE FILE *fp = fopen(out_path, "wb");
     if (!fp) {
         logger_log(LOG_ERROR, "media: cannot open %s for writing", out_path);
@@ -114,7 +119,6 @@ int domain_download_photo(const ApiConfig *cfg,
             return -1;
         }
 
-        /* upload.file#096a18d5 type:storage.FileType mtime:int bytes:bytes */
         TlReader r = tl_reader_init(resp, resp_len);
         tl_read_uint32(&r);                 /* top */
         tl_read_uint32(&r);                 /* storage.FileType crc */
@@ -131,11 +135,49 @@ int domain_download_photo(const ApiConfig *cfg,
             offset += (int64_t)bytes_len;
         }
 
-        /* A chunk smaller than CHUNK_SIZE signals end-of-file. */
         if (bytes_len < CHUNK_SIZE) break;
     }
 
     logger_log(LOG_INFO, "media: saved %lld bytes to %s",
                (long long)offset, out_path);
     return 0;
+}
+
+int domain_download_photo(const ApiConfig *cfg,
+                           MtProtoSession *s, Transport *t,
+                           const MediaInfo *info,
+                           const char *out_path,
+                           int *wrong_dc) {
+    if (wrong_dc) *wrong_dc = 0;
+    if (!cfg || !s || !t || !info || !out_path) return -1;
+    if (info->kind != MEDIA_PHOTO) {
+        logger_log(LOG_ERROR, "media: download_photo needs MEDIA_PHOTO");
+        return -1;
+    }
+    if (info->photo_id == 0 || info->access_hash == 0
+        || info->file_reference_len == 0) {
+        logger_log(LOG_ERROR, "media: missing id / access_hash / file_reference");
+        return -1;
+    }
+    return download_loop(cfg, s, t, info, out_path, wrong_dc);
+}
+
+int domain_download_document(const ApiConfig *cfg,
+                              MtProtoSession *s, Transport *t,
+                              const MediaInfo *info,
+                              const char *out_path,
+                              int *wrong_dc) {
+    if (wrong_dc) *wrong_dc = 0;
+    if (!cfg || !s || !t || !info || !out_path) return -1;
+    if (info->kind != MEDIA_DOCUMENT) {
+        logger_log(LOG_ERROR, "media: download_document needs MEDIA_DOCUMENT");
+        return -1;
+    }
+    if (info->document_id == 0 || info->access_hash == 0
+        || info->file_reference_len == 0) {
+        logger_log(LOG_ERROR,
+                   "media: document missing id / access_hash / file_reference");
+        return -1;
+    }
+    return download_loop(cfg, s, t, info, out_path, wrong_dc);
 }

@@ -141,6 +141,11 @@ typedef struct {
     uint8_t   file_reference[MEDIA_FILE_REF_MAX];
     size_t    file_reference_len;
     char      thumb_type[8];   /**< Largest PhotoSize.type (e.g. "y", "w"). */
+
+    /* MEDIA_DOCUMENT extras — populated only when kind == MEDIA_DOCUMENT. */
+    int64_t   document_size;   /**< Size in bytes from Document.size. */
+    char      document_mime[64];
+    char      document_filename[128]; /**< From DocumentAttributeFilename. */
 } MediaInfo;
 
 /** @brief Like tl_skip_message_media but fills @p out with basic metadata. */

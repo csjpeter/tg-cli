@@ -45,4 +45,20 @@ int domain_download_photo(const ApiConfig *cfg,
                            const char *out_path,
                            int *wrong_dc);
 
+/**
+ * @brief Download a document (file / video / audio / etc.) referenced
+ *        by a MediaInfo into @p out_path.
+ *
+ * Same chunked upload.getFile flow as domain_download_photo, except the
+ * input location is inputDocumentFileLocation with thumb_size = "".
+ * Works for MIME types we can represent as a plain file. Caller is
+ * responsible for picking @p out_path — MediaInfo.document_filename
+ * (from DocumentAttributeFilename) is a good default.
+ */
+int domain_download_document(const ApiConfig *cfg,
+                              MtProtoSession *s, Transport *t,
+                              const MediaInfo *info,
+                              const char *out_path,
+                              int *wrong_dc);
+
 #endif /* DOMAIN_READ_MEDIA_H */
