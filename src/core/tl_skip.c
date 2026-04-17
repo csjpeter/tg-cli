@@ -141,6 +141,9 @@
 #define CRC_keyboardButtonWebView       0x13767230u
 #define CRC_keyboardButtonSimpleWebView 0xa0c0505cu
 
+/* MessageReplies. */
+#define CRC_messageReplies              0x83d60fc2u
+
 /* MessageReactions + Reaction variants. */
 #define CRC_messageReactions            0x4f2b9479u
 #define CRC_reactionCount               0xa3d1cb80u
@@ -542,6 +545,48 @@ int tl_skip_message_reactions(TlReader *r) {
                    "tl_skip_message_reactions: recent/top reactors present "
                    "(flags=0x%08x) — not supported", flags);
         return -1;
+    }
+    return 0;
+}
+
+/* ---- MessageReplies skipper ----
+ * messageReplies#83d60fc2 flags:# comments:flags.0?true
+ *   replies:int replies_pts:int
+ *   recent_repliers:flags.1?Vector<Peer>
+ *   channel_id:flags.0?long
+ *   max_id:flags.2?int  read_max_id:flags.3?int
+ */
+int tl_skip_message_replies(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    if (crc != CRC_messageReplies) {
+        logger_log(LOG_WARN, "tl_skip_message_replies: unknown 0x%08x", crc);
+        return -1;
+    }
+    if (r->len - r->pos < 12) return -1;
+    uint32_t flags = tl_read_uint32(r);
+    tl_read_int32(r);                                 /* replies */
+    tl_read_int32(r);                                 /* replies_pts */
+    if (flags & (1u << 1)) {
+        if (r->len - r->pos < 8) return -1;
+        uint32_t vec_crc = tl_read_uint32(r);
+        if (vec_crc != TL_vector) return -1;
+        uint32_t n = tl_read_uint32(r);
+        for (uint32_t i = 0; i < n; i++) {
+            if (tl_skip_peer(r) != 0) return -1;
+        }
+    }
+    if (flags & (1u << 0)) {
+        if (r->len - r->pos < 8) return -1;
+        tl_read_int64(r);                             /* channel_id */
+    }
+    if (flags & (1u << 2)) {
+        if (r->len - r->pos < 4) return -1;
+        tl_read_int32(r);                             /* max_id */
+    }
+    if (flags & (1u << 3)) {
+        if (r->len - r->pos < 4) return -1;
+        tl_read_int32(r);                             /* read_max_id */
     }
     return 0;
 }
@@ -1609,15 +1654,14 @@ int tl_skip_message(TlReader *r) {
     if (flags & (1u << 6))  if (tl_skip_reply_markup(r) != 0) return -1;
     if (flags & (1u << 7))  if (tl_skip_message_entities_vector(r) != 0) return -1;
     if (flags & (1u << 10)) { if (r->len - r->pos < 8) return -1; tl_read_int32(r); tl_read_int32(r); }
-
-    /* replies (flags.23), restriction_reason (flags.22), factcheck
-     * (flags2.3) still halt. reactions (flags.20) has a skipper. */
-    if (flags & ((1u << 22) | (1u << 23))) return -1;
-    if (flags2 & (1u << 3)) return -1;
+    if (flags & (1u << 23)) if (tl_skip_message_replies(r) != 0) return -1;
     if (flags & (1u << 15)) { if (r->len - r->pos < 4) return -1; tl_read_int32(r); }
     if (flags & (1u << 16)) if (tl_skip_string(r) != 0) return -1;
     if (flags & (1u << 17)) { if (r->len - r->pos < 8) return -1; tl_read_int64(r); }
     if (flags & (1u << 20)) if (tl_skip_message_reactions(r) != 0) return -1;
+    if (flags & (1u << 22)) if (tl_skip_restriction_reason_vector(r) != 0) return -1;
+    /* factcheck (flags2.3) still halts — no skipper yet. */
+    if (flags2 & (1u << 3)) return -1;
     if (flags & (1u << 25)) { if (r->len - r->pos < 4) return -1; tl_read_int32(r); }
     if (flags2 & (1u << 30)) { if (r->len - r->pos < 4) return -1; tl_read_int32(r); }
     if (flags2 & (1u << 2))  { if (r->len - r->pos < 8) return -1; tl_read_int64(r); }

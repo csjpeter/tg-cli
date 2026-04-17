@@ -736,6 +736,51 @@ static void test_skip_reactions_emoji_and_custom(void) {
     tl_writer_free(&w);
 }
 
+/* ---- MessageReplies skipper ---- */
+
+#define CRC_messageReplies_test 0x83d60fc2u
+
+static void test_skip_message_replies_minimal(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageReplies_test);
+    tl_write_uint32(&w, 0);                     /* flags = 0 */
+    tl_write_int32 (&w, 5);                     /* replies */
+    tl_write_int32 (&w, 100);                   /* replies_pts */
+    tl_write_int32 (&w, 0xCAFE);                /* trailer */
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_replies(&r) == 0, "minimal replies");
+    ASSERT(tl_read_int32(&r) == 0xCAFE, "cursor past replies");
+    tl_writer_free(&w);
+}
+
+static void test_skip_message_replies_with_commenters(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageReplies_test);
+    tl_write_uint32(&w, (1u << 0) | (1u << 1) | (1u << 2));
+    tl_write_int32 (&w, 9);                     /* replies */
+    tl_write_int32 (&w, 200);                   /* replies_pts */
+    /* recent_repliers:Vector<Peer> = 2 peers */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 2);
+    tl_write_uint32(&w, TL_peerUser);    tl_write_int64(&w, 111LL);
+    tl_write_uint32(&w, TL_peerChannel); tl_write_int64(&w, 222LL);
+    tl_write_int64 (&w, 0xDEADBEEFLL);          /* channel_id */
+    tl_write_int32 (&w, 2048);                  /* max_id */
+    tl_write_int32 (&w, 1337);                  /* trailer */
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_replies(&r) == 0, "full replies skipped");
+    ASSERT(tl_read_int32(&r) == 1337, "cursor past replies");
+    tl_writer_free(&w);
+}
+
+static void test_skip_message_replies_unknown_crc_bails(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, 0xbadbadbu);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_replies(&r) == -1, "unknown crc rejected");
+    tl_writer_free(&w);
+}
+
 static void test_skip_reactions_recent_reactors_bails(void) {
     TlWriter w; tl_writer_init(&w);
     tl_write_uint32(&w, CRC_messageReactions_test);
@@ -801,4 +846,7 @@ void run_tl_skip_tests(void) {
     RUN_TEST(test_skip_reactions_empty_results);
     RUN_TEST(test_skip_reactions_emoji_and_custom);
     RUN_TEST(test_skip_reactions_recent_reactors_bails);
+    RUN_TEST(test_skip_message_replies_minimal);
+    RUN_TEST(test_skip_message_replies_with_commenters);
+    RUN_TEST(test_skip_message_replies_unknown_crc_bails);
 }

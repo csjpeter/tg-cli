@@ -67,6 +67,15 @@ int tl_skip_reply_markup(TlReader *r);
  */
 int tl_skip_message_reactions(TlReader *r);
 
+/**
+ * @brief Skip a MessageReplies (messageReplies#83d60fc2).
+ *
+ * Fields: flags + replies:int + replies_pts:int +
+ *   recent_repliers:flags.1?Vector<Peer> + channel_id:flags.0?long +
+ *   max_id:flags.2?int + read_max_id:flags.3?int.
+ */
+int tl_skip_message_replies(TlReader *r);
+
 /** Skip a MessageReplyHeader (conservative — bails on reply_media). */
 int tl_skip_message_reply_header(TlReader *r);
 

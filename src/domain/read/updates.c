@@ -19,9 +19,7 @@
 #define CRC_updates_getDifference 0x19c2f763u
 #define CRC_updates_differenceTooLong 0x4afe8f6du
 
-/* Stop-iteration flag mask (must match history.c). reply_markup (6)
- * and reactions (20) have skippers; 22/23 still halt iteration. */
-#define MSG_FLAGS_STOP_ITER ( (1u << 22) | (1u << 23) )
+/* All trailer flags now have skippers; factcheck (flags2.3) still halts. */
 
 /* Parse one Message, advance the cursor past it. Populates entry with
  * id/out/date/text; sets complex=1 if we had to bail on a trailing
@@ -78,13 +76,15 @@ static int parse_message(TlReader *r, HistoryEntry *out) {
     if (flags & (1u << 6))   if (tl_skip_reply_markup(r) != 0) { out->complex=1; return -1; }
     if (flags & (1u << 7))   if (tl_skip_message_entities_vector(r) != 0) { out->complex=1; return -1; }
     if (flags & (1u << 10))  { if (r->len - r->pos < 8) { out->complex=1; return -1; } tl_read_int32(r); tl_read_int32(r); }
-    if (flags & MSG_FLAGS_STOP_ITER) { out->complex = 1; return -1; }
+    if (flags & (1u << 23))  if (tl_skip_message_replies(r) != 0) { out->complex=1; return -1; }
     if (flags & (1u << 15))  { if (r->len - r->pos < 4) { out->complex=1; return -1; } tl_read_int32(r); }
     if (flags & (1u << 16))  if (tl_skip_string(r) != 0) { out->complex=1; return -1; }
     if (flags & (1u << 17))  { if (r->len - r->pos < 8) { out->complex=1; return -1; } tl_read_int64(r); }
     if (flags & (1u << 20))  if (tl_skip_message_reactions(r) != 0) { out->complex=1; return -1; }
+    if (flags & (1u << 22))  if (tl_skip_restriction_reason_vector(r) != 0) { out->complex=1; return -1; }
     if (flags & (1u << 25))  { if (r->len - r->pos < 4) { out->complex=1; return -1; } tl_read_int32(r); }
     if (flags2 & (1u << 30)) { if (r->len - r->pos < 4) { out->complex=1; return -1; } tl_read_int32(r); }
+    if (flags2 & (1u << 3))  { out->complex = 1; return -1; } /* factcheck still bails */
     if (flags2 & (1u << 2))  { if (r->len - r->pos < 8) { out->complex=1; return -1; } tl_read_int64(r); }
     return 0;
 }

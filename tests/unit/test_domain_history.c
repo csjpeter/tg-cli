@@ -574,6 +574,68 @@ static void test_history_iterates_with_reactions(void) {
     ASSERT(e[1].id == 311 && strcmp(e[1].text, "next") == 0, "msg1 text");
 }
 
+/* Message carrying flags.23 (replies) + flags.22 (restriction_reason)
+ * now iterates — both have skippers. */
+static void test_history_iterates_with_replies_and_restriction(void) {
+    mock_socket_reset(); mock_crypto_reset();
+
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, TL_messages_messages);
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 2);
+
+    /* Msg 1: flags.23 + flags.22 set. */
+    tl_write_uint32(&w, TL_message);
+    tl_write_uint32(&w, (1u << 23) | (1u << 22));
+    tl_write_uint32(&w, 0);
+    tl_write_int32 (&w, 410);
+    tl_write_uint32(&w, TL_peerUser);
+    tl_write_int64 (&w, 100LL);
+    tl_write_int32 (&w, 1700000000);
+    tl_write_string(&w, "discussion post");
+    /* messageReplies#83d60fc2: flags=0, replies=3, replies_pts=1 */
+    tl_write_uint32(&w, 0x83d60fc2u);
+    tl_write_uint32(&w, 0);
+    tl_write_int32 (&w, 3);
+    tl_write_int32 (&w, 1);
+    /* restriction_reason: Vector<RestrictionReason>, 1 entry */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, 0xd072acb4u);        /* restrictionReason */
+    tl_write_string(&w, "android");
+    tl_write_string(&w, "sensitive");
+    tl_write_string(&w, "Age-restricted");
+
+    /* Msg 2: plain. */
+    tl_write_uint32(&w, TL_message);
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, 0);
+    tl_write_int32 (&w, 411);
+    tl_write_uint32(&w, TL_peerUser);
+    tl_write_int64 (&w, 100LL);
+    tl_write_int32 (&w, 1700000001);
+    tl_write_string(&w, "next");
+
+    uint8_t payload[1024]; memcpy(payload, w.data, w.len);
+    size_t plen = w.len; tl_writer_free(&w);
+
+    uint8_t resp[2048]; size_t rlen = 0;
+    build_fake_encrypted_response(payload, plen, resp, &rlen);
+    mock_socket_set_response(resp, rlen);
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    fix_session(&s); fix_transport(&t); fix_cfg(&cfg);
+
+    HistoryEntry e[5] = {0}; int n = 0;
+    int rc = domain_get_history_self(&cfg, &s, &t, 0, 5, e, &n);
+    ASSERT(rc == 0, "history parses past replies + restriction_reason");
+    ASSERT(n == 2, "both messages iterate");
+    ASSERT(e[0].id == 410 && strcmp(e[0].text, "discussion post") == 0,
+           "msg0 text");
+    ASSERT(e[0].complex == 0, "msg0 NOT complex");
+    ASSERT(e[1].id == 411 && strcmp(e[1].text, "next") == 0, "msg1 text");
+}
+
 static void test_history_null_args(void) {
     HistoryEntry e[1]; int n = 0;
     ASSERT(domain_get_history_self(NULL, NULL, NULL, 0, 5, e, &n) == -1,
@@ -598,5 +660,6 @@ void run_domain_history_tests(void) {
     RUN_TEST(test_history_stops_on_reply_markup);
     RUN_TEST(test_history_iterates_with_reply_markup);
     RUN_TEST(test_history_iterates_with_reactions);
+    RUN_TEST(test_history_iterates_with_replies_and_restriction);
     RUN_TEST(test_history_null_args);
 }

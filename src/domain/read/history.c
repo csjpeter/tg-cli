@@ -48,15 +48,8 @@ static int write_input_peer(TlWriter *w, const HistoryPeer *p) {
 #define MSG_FLAG_OUT              (1u << 1)
 #define MSG_FLAG_HAS_FROM_ID      (1u << 8)
 
-/* Flags that still block full Message iteration because the corresponding
- * nested type has no skipper yet. Media (flags.9) is handled via
- * tl_skip_message_media(). reply_markup (flags.6) is handled via
- * tl_skip_reply_markup. reactions (flags.20) is handled via
- * tl_skip_message_reactions. */
-#define MSG_FLAGS_STOP_ITER       ( \
-      (1u << 22)  /* restriction_reason */ \
-    | (1u << 23)  /* replies */      \
-    )
+/* All trailer flags now have skippers; only factcheck (flags2.3)
+ * still halts iteration. */
 
 static int build_request(const HistoryPeer *peer, int32_t offset_id, int limit,
                           uint8_t *buf, size_t cap, size_t *out_len) {
@@ -187,8 +180,8 @@ static int parse_message(TlReader *r, HistoryEntry *out) {
         if (r->len - r->pos < 8) { out->complex = 1; return -1; }
         tl_read_int32(r); tl_read_int32(r);
     }
-    if (flags & (1u << 23)) { /* replies — no skipper yet */
-        out->complex = 1; return -1;
+    if (flags & (1u << 23)) { /* replies */
+        if (tl_skip_message_replies(r) != 0) { out->complex = 1; return -1; }
     }
     if (flags & (1u << 15)) { /* edit_date */
         if (r->len - r->pos < 4) { out->complex = 1; return -1; }
@@ -204,8 +197,10 @@ static int parse_message(TlReader *r, HistoryEntry *out) {
     if (flags & (1u << 20)) { /* reactions */
         if (tl_skip_message_reactions(r) != 0) { out->complex = 1; return -1; }
     }
-    if (flags & (1u << 22)) { /* restriction_reason — no skipper yet */
-        out->complex = 1; return -1;
+    if (flags & (1u << 22)) { /* restriction_reason */
+        if (tl_skip_restriction_reason_vector(r) != 0) {
+            out->complex = 1; return -1;
+        }
     }
     if (flags & (1u << 25)) { /* ttl_period */
         if (r->len - r->pos < 4) { out->complex = 1; return -1; }
