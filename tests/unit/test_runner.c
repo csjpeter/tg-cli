@@ -41,6 +41,7 @@ void run_domain_edit_delete_forward_tests(void);
 void run_domain_upload_tests(void);
 void run_dc_config_tests(void);
 void run_session_store_tests(void);
+void run_dc_session_tests(void);
 
 int main() {
     printf("--- tg-cli Unit Test Suite ---\n\n");
@@ -81,6 +82,7 @@ int main() {
     RUN_TEST(run_domain_upload_tests);
     RUN_TEST(run_dc_config_tests);
     RUN_TEST(run_session_store_tests);
+    RUN_TEST(run_dc_session_tests);
 
     printf("\n--- Test Results ---\n");
     printf("Tests Run:    %d\n", g_tests_run);

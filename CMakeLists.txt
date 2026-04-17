@@ -92,6 +92,7 @@ add_library(tg-app STATIC
     src/app/auth_flow.c
     src/app/credentials.c
     src/app/session_store.c
+    src/app/dc_session.c
 )
 target_include_directories(tg-app PUBLIC src src/app)
 target_link_libraries(tg-app PUBLIC tg-proto tg-crypto)

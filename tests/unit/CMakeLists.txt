@@ -38,6 +38,7 @@ set(TEST_SOURCES
     test_domain_upload.c
     test_dc_config.c
     test_session_store.c
+    test_dc_session.c
     ../../tests/mocks/crypto.c
     ../../tests/mocks/socket.c
 )

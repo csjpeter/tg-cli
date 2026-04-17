@@ -73,7 +73,7 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
 `pq_factorize` UINT32_MAX guard.
 
 ## Quality
-- **2088 unit tests** passing (ASAN)
+- **2101 unit tests** passing (ASAN)
 - **150 functional tests** passing (real OpenSSL; SHA-512, PBKDF2,
   BN primitives, IGE, MTProto crypto round-trips, full SRP
   client↔server math roundtrip, kitchen-sink Message iteration)
