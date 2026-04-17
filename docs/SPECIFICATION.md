@@ -3,7 +3,7 @@
 > Living document. Captures the user's feature requests and design
 > constraints as stated during development. Keep compact and evergreen.
 
-Last updated: 2026-04-16
+Last updated: 2026-04-17
 
 ---
 
@@ -17,9 +17,9 @@ Aimed at terminal users who want scriptable access to their Telegram account.
 
 | Binary | Mode | Capabilities | Status |
 |--------|------|--------------|--------|
-| `tg-cli-ro` | **Batch, read-only** (forever) | list/read dialogs, history, self info, watch updates | MVP target |
-| `tg-tui` | **Interactive TUI** | read now, write (send, edit, delete, read-markers) later | after tg-cli-ro |
-| `tg-cli` | **Batch, read+write** | everything tg-cli-ro does + send/edit/delete | last |
+| `tg-cli-ro` | **Batch, read-only** (forever) | list/read dialogs, history, self info, watch updates, photo download | ✅ MVP shipped |
+| `tg-tui` | **Interactive TUI** | read + write (send, reply, edit, delete, forward, read, upload) | ✅ MVP shipped |
+| `tg-cli` | **Batch, read+write** | everything tg-cli-ro does + send / reply / edit / delete / forward / read / send-file | ✅ MVP shipped |
 
 `tg-cli-ro` is hard-guaranteed read-only — it must **never** issue API calls
 that mutate server state (no `messages.sendMessage`, no `messages.readHistory`,
@@ -54,8 +54,10 @@ All F-0x output respects:
 
 ## 5. Runtime expectations
 
-- **Auth:** phone number + SMS code (+2FA when server requests it). Persistent
-  auth key in `~/.config/tg-cli/auth.key` (mode 0600).
+- **Auth:** phone number + SMS code (+2FA SRP via account.getPassword +
+  auth.checkPassword when the server requests it). Persistent auth key
+  bundled in `~/.config/tg-cli/session.bin` (mode 0600) together with
+  `dc_id` and `server_salt`.
 - **Config:** `~/.config/tg-cli/config.ini` holds api_id, api_hash, current DC.
 - **Cache:** `~/.cache/tg-cli/` for messages and downloaded media; bounded
   by `cache_evict_stale`.

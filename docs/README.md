@@ -18,3 +18,5 @@ See the project [README](../README.md) for installation, configuration, interact
 - [ADR-0001: CLEAN Layered Architecture](adr/0001-clean-architecture.md)
 - [ADR-0002: RAII Memory Safety](adr/0002-raii-memory-safety.md)
 - [ADR-0003: Custom Test Framework](adr/0003-custom-test-framework.md)
+- [ADR-0004: Dependency Inversion for Testability](adr/0004-dependency-inversion.md)
+- [ADR-0005: Three-binary Architecture](adr/0005-three-binary-architecture.md)

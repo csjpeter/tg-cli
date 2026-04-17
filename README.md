@@ -1,14 +1,20 @@
 # tg-cli
 
-An **unofficial**, terminal-based, **read-only** Telegram user client written in C11.
+An **unofficial**, terminal-based Telegram user-client suite written in C11.
+Three binaries share one MTProto 2.0 codebase built from scratch
+(no TDLib, no HTTP, no JSON library):
 
-tg-cli connects to Telegram as a real user (not a bot) via the **MTProto 2.0** protocol,
-implemented from scratch with no third-party Telegram libraries.
-It provides read-only access to your chats — without any ability to send, delete, or
-otherwise modify data.
+| Binary | Mode | Capabilities |
+|--------|------|--------------|
+| `tg-cli-ro` | batch, read-only **by construction** | list dialogs, read history, self/user info, contacts, search, watch updates, download photos |
+| `tg-tui` | interactive REPL | everything `tg-cli-ro` does **plus** send, reply, edit, delete, forward, read-markers, file upload |
+| `tg-cli` | batch, read + write | same surface as the TUI from the command line, pipe-friendly (stdin → message body) |
 
-> **Status:** Early development. The MTProto protocol stack is being built from the
-> ground up. See [Implementation Progress](#implementation-progress) for details.
+`tg-cli-ro` can never mutate server state — the write-capable domain
+library is simply not linked into that target (ADR-0005).
+
+> **Status:** v1 MVP feature-complete. 1965 unit tests + 131
+> functional tests green; Valgrind clean.
 
 ---
 
@@ -92,13 +98,25 @@ Platform       →  src/platform/         (terminal + path abstraction for posix
 
 ## Security
 
-- **Read-only:** tg-cli only retrieves data. It never sends, deletes, or modifies messages.
-- **MTProto 2.0 encryption:** AES-256-IGE + SHA-256 for all client-server communication.
-- **Auth key:** 2048-bit key generated via DH exchange, stored locally with optional password protection.
-- **Credentials at rest:** Configuration file written with `0600` permissions.
-- **Local cache:** Fetched messages stored in `~/.cache/tg-cli/` with `0700` directory permissions.
-- **Logs:** Diagnostics in `~/.cache/tg-cli/logs/session.log`. May include API responses.
-- **Memory safety:** Tested with AddressSanitizer and Valgrind on every CI run.
+- **Read-only `tg-cli-ro` at link time:** the binary never links
+  `tg-domain-write`, so no mutation RPC is reachable even if an
+  arg-parse bug were exploited.
+- **MTProto 2.0 encryption:** AES-256-IGE + SHA-256 for every
+  client-server frame. MITM hardened via `new_nonce_hash1` verification
+  during the DH handshake.
+- **2FA / SRP:** `account.getPassword` + `auth.checkPassword` with
+  PBKDF2-HMAC-SHA-512 and the Telegram SRP variant.
+- **Auth key:** 2048-bit key generated via DH exchange, persisted
+  together with DC id and server salt in `~/.config/tg-cli/session.bin`
+  (mode 0600). `--logout` clears it.
+- **Credentials at rest:** `~/.config/tg-cli/config.ini` written
+  with `0600` permissions.
+- **Local cache:** `~/.cache/tg-cli/` with `0700` directory
+  permissions; downloaded media under `downloads/`.
+- **Logs:** diagnostics in `~/.cache/tg-cli/logs/session.log`. May
+  include API response bodies.
+- **Memory safety:** every CI run exercises the full suite under
+  AddressSanitizer and Valgrind — zero leaks or errors.
 
 ---
 
@@ -119,11 +137,11 @@ Everything is implemented from scratch.
 ## Building
 
 ```bash
-./manage.sh deps    # Install system dependencies (Ubuntu 24.04 / Rocky 9)
-./manage.sh build   # Release build → bin/tg-cli
-./manage.sh test    # Run unit tests with AddressSanitizer
-./manage.sh valgrind # Run tests with Valgrind
-./manage.sh coverage # Generate coverage report (>90% goal for core/infra)
+./manage.sh deps     # Install system dependencies (Ubuntu 24.04 / Rocky 9)
+./manage.sh build    # Release build — produces bin/tg-cli-ro, bin/tg-tui, bin/tg-cli
+./manage.sh test     # Unit tests under AddressSanitizer
+./manage.sh valgrind # Unit tests under Valgrind
+./manage.sh coverage # GCOV/LCOV report (~89% for core + infrastructure)
 ```
 
 ---
@@ -155,65 +173,93 @@ You need an **api_id** and **api_hash** from Telegram (free):
 
 ---
 
-## Planned Usage
+## Usage
 
-### Interactive TUI mode
+### Interactive REPL — `tg-tui`
 
 ```
-bin/tg-cli
+bin/tg-tui
 ```
 
-Opens a full-screen terminal UI with keyboard navigation (no mouse required).
+After login you land in a readline-backed prompt. Try `help` for the
+full command list. Highlights:
 
-### Batch mode
+```
+tg> dialogs 20
+tg> history @somechannel 50
+tg> send @user "hello there"
+tg> reply @user 12345 "nice"
+tg> edit  @user 12345 "fixed typo"
+tg> upload @user ~/docs/report.pdf "final version"
+tg> poll
+```
+
+### Batch read-only — `tg-cli-ro`
+
+Scriptable, guaranteed non-mutating:
 
 ```bash
-tg-cli list [--chat <id>] [--limit <n>] [--offset <n>] [--batch]
-tg-cli show <message_id>
-tg-cli chats [--tree]
-tg-cli help [command]
+tg-cli-ro --phone +15551234567 --code 12345 me
+tg-cli-ro dialogs --limit 20 --json
+tg-cli-ro history @peer --limit 50
+tg-cli-ro search "hello world" --json
+tg-cli-ro download @peer 12345 --out ~/pic.jpg
+tg-cli-ro watch
+```
+
+### Batch read + write — `tg-cli`
+
+```bash
+tg-cli send @peer "hi there"
+echo "msg from stdin" | tg-cli send @peer
+tg-cli send @peer --reply 12345 "threaded answer"
+tg-cli edit @peer 12345 "corrected"
+tg-cli delete @peer 12345 --revoke
+tg-cli forward @srcchannel @dstchat 12345
+tg-cli send-file @peer report.pdf --caption "final"
+tg-cli read @peer
 ```
 
 ### Media handling
 
-Media (photos, documents) is downloaded to local cache and displayed as file paths
-that can be opened in a browser or image viewer:
-
-```
-[photo: ~/.cache/tg-cli/media/photo_42.jpg]
-[document: ~/.cache/tg-cli/media/report.pdf]
-```
+Photos attached to messages in history are exposed via `download`.
+The default output path is
+`~/.cache/tg-cli/downloads/photo-<photo_id>.jpg`; override with `--out`.
 
 ---
 
 ## Implementation Progress
 
-### Already built (scaffold)
+See [docs/userstory/US-00-roadmap.md](docs/userstory/US-00-roadmap.md)
+for the authoritative status. Short version:
 
-- [x] Clean layered architecture (core → infrastructure → domain → application)
+### Built and tested
+- [x] CLEAN layered architecture (core → infrastructure → domain → app)
+- [x] Three binaries (`tg-cli-ro` / `tg-tui` / `tg-cli`) from one codebase
 - [x] RAII memory safety via `__attribute__((cleanup))`
-- [x] Logger with rotation and levels
-- [x] Filesystem utilities (mkdir_p, permissions)
-- [x] Config store (INI file, 0600 permissions)
-- [x] Generic cache store (category/key-based)
-- [x] Platform abstraction (terminal + path, posix/windows)
-- [x] Custom test framework (ASSERT / RUN_TEST macros)
-- [x] Build system (manage.sh + CMake)
+- [x] Logger + filesystem helpers + INI config store + cache store
+- [x] Platform abstraction (POSIX + MinGW-w64)
+- [x] Custom test framework; `./manage.sh test|valgrind|coverage`
+- [x] TL serialization + AES-256-IGE + MTProto encryption
+- [x] DH auth key exchange (PQ factorization, RSA_PAD, `new_nonce_hash1`)
+- [x] Session management + persistence + `bad_server_salt` retry +
+      service-frame draining
+- [x] Abridged TCP transport with 3-byte length prefix
+- [x] RPC framework; `api_call` wraps `invokeWithLayer` + `initConnection`
+- [x] Phone + SMS code login with DC migration
+- [x] 2FA via SRP (`account.getPassword` + `auth.checkPassword`)
+- [x] Read: me, dialogs, history (self + peer), search, user-info,
+      contacts, watch, photo download
+- [x] Write: send, reply, edit, delete, forward, read-markers,
+      file upload (≤10 MiB documents)
 
-### MTProto stack (in progress)
-
-- [ ] TL serialization (`tl_serial.h/c`)
-- [ ] AES-256-IGE (`ige_aes.h/c`)
-- [ ] MTProto encryption (`mtproto_crypto.h/c`)
-- [ ] Auth key generation — DH exchange (`mtproto_auth.h/c`)
-- [ ] Session management (`mtproto_session.h/c`)
-- [ ] TCP transport — Abridged encoding (`tl_transport.h/c`)
-- [ ] RPC framework (`mtproto_rpc.h/c`)
-- [ ] Telegram API methods (`telegram_api.h/c`)
-- [ ] User authentication (phone + SMS + 2FA)
-- [ ] Chat list, message history, media download
-- [ ] Real-time updates
-- [ ] Interactive TUI
+### Known follow-ups
+- `upload.saveBigFilePart` for files > 10 MiB + media-DC migration
+- Per-variant skippers for Poll / Story / Game / Invoice / Giveaway /
+  WebPage / PaidMedia media
+- ReplyMarkup / Reactions / Replies / RestrictionReason / FactCheck
+  trailers on Message objects
+- Curses-mode TUI (US-11 v2) with pane-based live redraw
 
 ---
 
@@ -222,16 +268,22 @@ that can be opened in a browser or image viewer:
 ```
 docs/
 ├── README.md                  ← index
-├── legal-research.md          ← licensing, ToS compliance, AI/ML clause analysis
+├── SPECIFICATION.md           ← product spec (living)
+├── legal-research.md          ← licensing, ToS compliance, AI/ML clause
+├── userstory/
+│   ├── US-00-roadmap.md       ← authoritative status / backlog
+│   └── US-*.md                ← per-feature user stories
 ├── dev/
-│   ├── mtproto-reference.md   ← MTProto 2.0 protocol details, implementation plan
+│   ├── mtproto-reference.md   ← MTProto 2.0 protocol notes
 │   ├── telegram-bot-api.md    ← Bot API reference (for comparison)
 │   ├── logging.md             ← log levels, rotation, traffic capture
-│   └── testing.md             ← unit tests, coverage requirements
+│   └── testing.md             ← unit / functional test layout
 ├── adr/
 │   ├── 0001-clean-architecture.md
 │   ├── 0002-raii-memory-safety.md
-│   └── 0003-custom-test-framework.md
+│   ├── 0003-custom-test-framework.md
+│   ├── 0004-dependency-inversion.md
+│   └── 0005-three-binary-architecture.md
 ```
 
 ---
