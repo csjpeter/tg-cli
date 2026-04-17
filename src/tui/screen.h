@@ -63,6 +63,12 @@ void screen_fill(Screen *s, int row, int col, int n, uint8_t attrs);
 int  screen_put_str(Screen *s, int row, int col,
                     const char *utf8, uint8_t attrs);
 
+/** Same as screen_put_str() but stops after at most @p max_cols columns of
+ *  visible output. Useful for writing inside a sub-rect (pane) narrower than
+ *  the screen. Pass max_cols <= 0 to disable the extra cap. */
+int  screen_put_str_n(Screen *s, int row, int col, int max_cols,
+                      const char *utf8, uint8_t attrs);
+
 /** Force the next screen_flip() to emit every non-blank cell again, as if
  *  the terminal's state were unknown (e.g. after SIGWINCH or an external
  *  process wrote to the tty). */

@@ -44,6 +44,7 @@ void run_session_store_tests(void);
 void run_dc_session_tests(void);
 void run_auth_transfer_tests(void);
 void test_tui_screen_run(void);
+void test_tui_pane_run(void);
 
 int main() {
     printf("--- tg-cli Unit Test Suite ---\n\n");
@@ -87,6 +88,7 @@ int main() {
     RUN_TEST(run_dc_session_tests);
     RUN_TEST(run_auth_transfer_tests);
     RUN_TEST(test_tui_screen_run);
+    RUN_TEST(test_tui_pane_run);
 
     printf("\n--- Test Results ---\n");
     printf("Tests Run:    %d\n", g_tests_run);

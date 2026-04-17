@@ -93,19 +93,21 @@ static int utf8_decode(const char *p, uint32_t *out_cp) {
     return 1;
 }
 
-int screen_put_str(Screen *s, int row, int col,
-                    const char *utf8, uint8_t attrs) {
+int screen_put_str_n(Screen *s, int row, int col, int max_cols,
+                      const char *utf8, uint8_t attrs) {
     if (!s || !utf8 || row < 0 || row >= s->rows
         || col < 0 || col >= s->cols) return 0;
     int start = col;
-    while (*utf8 && col < s->cols) {
+    int hard_stop = s->cols;
+    if (max_cols > 0 && col + max_cols < hard_stop) hard_stop = col + max_cols;
+    while (*utf8 && col < hard_stop) {
         uint32_t cp;
         int n = utf8_decode(utf8, &cp);
         if (n <= 0) break;
         utf8 += n;
         int w = terminal_wcwidth(cp);
         if (w <= 0) continue;
-        if (col + w > s->cols) break;
+        if (col + w > hard_stop) break;
         ScreenCell *lead = back_at(s, row, col);
         lead->cp = cp; lead->width = (uint8_t)w; lead->attrs = attrs; lead->_pad = 0;
         if (w == 2 && col + 1 < s->cols) {
@@ -115,6 +117,11 @@ int screen_put_str(Screen *s, int row, int col,
         col += w;
     }
     return col - start;
+}
+
+int screen_put_str(Screen *s, int row, int col,
+                    const char *utf8, uint8_t attrs) {
+    return screen_put_str_n(s, row, col, 0, utf8, attrs);
 }
 
 void screen_invalidate(Screen *s) {

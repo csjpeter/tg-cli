@@ -73,7 +73,7 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
 `pq_factorize` UINT32_MAX guard.
 
 ## Quality
-- **2233 unit tests** passing (ASAN)
+- **2301 unit tests** passing (ASAN)
 - **150 functional tests** passing (real OpenSSL; SHA-512, PBKDF2,
   BN primitives, IGE, MTProto crypto round-trips, full SRP
   client↔server math roundtrip, kitchen-sink Message iteration)
@@ -134,6 +134,14 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
      handling (wcwidth==2 occupies lead + zero-width trailer), cursor
      control (CUP + DECTCEM). Tests run against `open_memstream` so they
      assert on the exact ANSI bytes emitted.
+   - TUI-02 ✅ `tui/pane.{h,c}` viewport geometry + three-pane layout
+     (dialogs / history / status). `layout_compute` clamps left-width
+     to [20, 40] and shrinks it when the terminal is too narrow to keep
+     history ≥ 20 cols. `pane_put_str`, `pane_fill`, `pane_clear`
+     translate pane-relative coordinates to absolute screen cells and
+     clip strictly at the pane edge (no spill past the right border,
+     including partial wide-glyph cases). Layered cleanly on top of
+     TUI-01 via the new `screen_put_str_n` bounded variant.
 
 ## Current focus
 MVP feature set is complete; any further work is polish and

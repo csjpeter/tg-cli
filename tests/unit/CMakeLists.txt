@@ -41,6 +41,7 @@ set(TEST_SOURCES
     test_dc_session.c
     test_auth_transfer.c
     test_tui_screen.c
+    test_tui_pane.c
     ../../tests/mocks/crypto.c
     ../../tests/mocks/socket.c
 )
