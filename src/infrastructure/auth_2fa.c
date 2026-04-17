@@ -200,14 +200,21 @@ static void pack_g(int32_t g, uint8_t out[SRP_PRIME_LEN]) {
     out[SRP_PRIME_LEN - 1] = (uint8_t)(gu      );
 }
 
-/* Compute the SRP proof. Writes A[256] and M1[32] on success. */
+/* Compute the SRP proof. Writes A[256] and M1[32] on success.
+ * When @p a_in is non-NULL the caller pins the 256-byte client private
+ * exponent (used by functional tests). Otherwise we pull from
+ * crypto_rand_bytes. */
 static int srp_compute(const Account2faPassword *p, const char *password,
+                       const uint8_t *a_in,
                        uint8_t A_out[SRP_PRIME_LEN], uint8_t M1_out[32]) {
     uint8_t g_bytes[SRP_PRIME_LEN]; pack_g(p->g, g_bytes);
 
-    /* Random 256-byte a. */
     uint8_t a[SRP_PRIME_LEN];
-    if (crypto_rand_bytes(a, SRP_PRIME_LEN) != 0) return -1;
+    if (a_in) {
+        memcpy(a, a_in, SRP_PRIME_LEN);
+    } else if (crypto_rand_bytes(a, SRP_PRIME_LEN) != 0) {
+        return -1;
+    }
 
     CryptoBnCtx *ctx = crypto_bn_ctx_new();
     if (!ctx) return -1;
@@ -334,7 +341,7 @@ int auth_2fa_check_password(const ApiConfig *cfg,
     }
 
     uint8_t A[SRP_PRIME_LEN], M1[32];
-    if (srp_compute(params, password, A, M1) != 0) return -1;
+    if (srp_compute(params, password, NULL, A, M1) != 0) return -1;
 
     TlWriter w; tl_writer_init(&w);
     tl_write_uint32(&w, CRC_auth_checkPassword);
@@ -384,4 +391,14 @@ int auth_2fa_check_password(const ApiConfig *cfg,
         *user_id_out = 0;
     }
     return 0;
+}
+
+int auth_2fa_srp_compute(const Account2faPassword *params,
+                          const char *password,
+                          const unsigned char *a_priv_in,
+                          unsigned char A_out[SRP_PRIME_LEN],
+                          unsigned char M1_out[32]) {
+    if (!params || !password || !A_out || !M1_out) return -1;
+    if (!params->has_password) return -1;
+    return srp_compute(params, password, a_priv_in, A_out, M1_out);
 }

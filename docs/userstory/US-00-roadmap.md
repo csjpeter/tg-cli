@@ -74,8 +74,9 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
 
 ## Quality
 - **2055 unit tests** passing (ASAN)
-- **131 functional tests** passing (real OpenSSL; SHA-512, PBKDF2,
-  BN primitives, IGE, MTProto crypto round-trips)
+- **150 functional tests** passing (real OpenSSL; SHA-512, PBKDF2,
+  BN primitives, IGE, MTProto crypto round-trips, full SRP
+  client↔server math roundtrip, kitchen-sink Message iteration)
 - Valgrind: 0 leaks, 0 errors
 - Zero warnings under `-Wall -Wextra -Werror -pedantic`
 - Core+infra coverage: ~89% (TUI excluded)

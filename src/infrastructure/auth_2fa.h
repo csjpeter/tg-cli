@@ -75,4 +75,26 @@ int auth_2fa_check_password(const ApiConfig *cfg,
                              const char *password,
                              int64_t *user_id_out, RpcError *err);
 
+/**
+ * @brief Build the SRP proof (A + M1) from @p params + @p password.
+ *
+ * Normally the caller lets auth_2fa_check_password generate the
+ * client's private exponent via crypto_rand_bytes. Functional tests
+ * (and SRP known-answer checks) can pin @p a_priv_in to a known
+ * 256-byte value so the computation becomes deterministic.
+ *
+ * @param params      SRP parameters from auth_2fa_get_password.
+ * @param password    Plaintext 2FA password.
+ * @param a_priv_in   Optional 256-byte client private exponent.
+ *                    NULL = generate fresh via crypto_rand_bytes.
+ * @param A_out       Receives 256-byte A = g^a mod p.
+ * @param M1_out      Receives 32-byte M1 proof.
+ * @return 0 on success, -1 on error.
+ */
+int auth_2fa_srp_compute(const Account2faPassword *params,
+                          const char *password,
+                          const unsigned char *a_priv_in,
+                          unsigned char A_out[SRP_PRIME_LEN],
+                          unsigned char M1_out[32]);
+
 #endif /* AUTH_2FA_H */
