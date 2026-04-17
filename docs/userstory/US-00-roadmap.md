@@ -73,7 +73,7 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
 `pq_factorize` UINT32_MAX guard.
 
 ## Quality
-- **2142 unit tests** passing (ASAN)
+- **2233 unit tests** passing (ASAN)
 - **150 functional tests** passing (real OpenSSL; SHA-512, PBKDF2,
   BN primitives, IGE, MTProto crypto round-trips, full SRP
   client↔server math roundtrip, kitchen-sink Message iteration)
@@ -128,6 +128,12 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
    IV-article body (`webPage.cached_page`, `webPage.attributes`)
    is still outside the iteration surface.
 3. **Curses TUI (US-11 v2)** — pane-based live redraw.
+   - TUI-01 ✅ `tui/screen.{h,c}` double-buffered screen primitive:
+     UTF-8 put/fill/clear into a back grid, diff-based flip that emits
+     only changed cells, SGR attr tracking with trailing reset, wide-char
+     handling (wcwidth==2 occupies lead + zero-width trailer), cursor
+     control (CUP + DECTCEM). Tests run against `open_memstream` so they
+     assert on the exact ANSI bytes emitted.
 
 ## Current focus
 MVP feature set is complete; any further work is polish and

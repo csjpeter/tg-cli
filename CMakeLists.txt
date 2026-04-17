@@ -98,6 +98,15 @@ add_library(tg-app STATIC
 target_include_directories(tg-app PUBLIC src src/app)
 target_link_libraries(tg-app PUBLIC tg-proto tg-crypto)
 
+# ---- TUI: pane-based curses-style layer (US-11 v2) ----
+# Only linked by tg-tui. Other binaries are batch and do not need it.
+
+add_library(tg-tui-lib STATIC
+    src/tui/screen.c
+)
+target_include_directories(tg-tui-lib PUBLIC src src/tui)
+target_link_libraries(tg-tui-lib PUBLIC tg-proto)
+
 # ---- Domain: read-only module (tg-cli-ro, tg-tui, tg-cli all link this) ----
 # Sources will grow as US-04, US-05, US-06, US-07 land.
 
