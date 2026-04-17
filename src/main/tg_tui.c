@@ -563,12 +563,34 @@ static int run_tui_loop(const ApiConfig *cfg,
     }
     screen_cursor_visible(&app.screen, 0);
 
+    terminal_enable_resize_notifications();
+
     tui_app_paint(&app);
     screen_flip(&app.screen);
 
     int rc = 0;
     for (;;) {
         TermKey key = terminal_read_key();
+
+        /* A SIGWINCH may have just interrupted the read. Absorb the
+         * resize before handling the key so the new layout applies to
+         * any subsequent OPEN_DIALOG flow. */
+        if (terminal_consume_resize()) {
+            int nr = terminal_rows(); if (nr < 3)  nr = app.rows;
+            int nc = terminal_cols(); if (nc < 40) nc = app.cols;
+            if (nr != app.rows || nc != app.cols) {
+                if (tui_app_resize(&app, nr, nc) == 0) {
+                    screen_cursor_visible(&app.screen, 0);
+                    tui_app_paint(&app);
+                    screen_flip(&app.screen);
+                }
+            }
+            if (key == TERM_KEY_IGNORE && terminal_last_printable() == 0) {
+                /* read(2) returned EINTR — no real keystroke to process. */
+                continue;
+            }
+        }
+
         TuiEvent ev;
         if (key == TERM_KEY_IGNORE) {
             ev = tui_app_handle_char(&app, terminal_last_printable());

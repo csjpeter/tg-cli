@@ -1,6 +1,7 @@
 #include "test_helpers.h"
 #include "platform/terminal.h"
 #include "platform/path.h"
+#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -141,4 +142,24 @@ void test_platform(void) {
     ASSERT(strcmp(cfg, "/tmp/test-xdg-config") == 0,
            "platform_config_dir should respect XDG_CONFIG_HOME");
     unsetenv("XDG_CONFIG_HOME");
+
+    /* ── SIGWINCH resize notifications ──────────────────────────────── */
+
+    /* Before enabling the handler, consume should be a no-op. */
+    ASSERT(terminal_consume_resize() == 0,
+           "consume_resize before enable returns 0");
+
+    terminal_enable_resize_notifications();
+    /* Idempotent. */
+    terminal_enable_resize_notifications();
+
+    /* Still nothing pending until a signal is delivered. */
+    ASSERT(terminal_consume_resize() == 0,
+           "no resize pending right after enable");
+
+    /* Simulate a resize by raising SIGWINCH and let the handler run. */
+    raise(SIGWINCH);
+    ASSERT(terminal_consume_resize() == 1, "resize observed after SIGWINCH");
+    /* Flag should clear on first consume. */
+    ASSERT(terminal_consume_resize() == 0, "resize flag clears after read");
 }

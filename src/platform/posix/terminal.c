@@ -3,6 +3,7 @@
  * Uses termios(3), ioctl TIOCGWINSZ, wcwidth(3).
  */
 #include "../terminal.h"
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -176,6 +177,38 @@ TermKey terminal_read_key(void) {
 int terminal_wcwidth(uint32_t cp) {
     int w = wcwidth((wchar_t)cp);
     return (w < 0) ? 0 : w;
+}
+
+/* ---- SIGWINCH / resize notifications ---- */
+
+static volatile sig_atomic_t g_resize_pending = 0;
+static int g_resize_handler_installed = 0;
+
+static void resize_handler(int sig) {
+    (void)sig;
+    g_resize_pending = 1;
+}
+
+void terminal_enable_resize_notifications(void) {
+    if (g_resize_handler_installed) return;
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = resize_handler;
+    sigemptyset(&sa.sa_mask);
+    /* No SA_RESTART on purpose: we want blocking read(2) in
+     * terminal_read_key to return with EINTR so the TUI loop can
+     * observe the resize between keystrokes. */
+    sa.sa_flags = 0;
+    sigaction(SIGWINCH, &sa, NULL);
+    g_resize_handler_installed = 1;
+}
+
+int terminal_consume_resize(void) {
+    if (g_resize_pending) {
+        g_resize_pending = 0;
+        return 1;
+    }
+    return 0;
 }
 
 int terminal_read_password(const char *prompt, char *buf, size_t size) {

@@ -87,4 +87,19 @@ int terminal_wcwidth(uint32_t cp);
  */
 int terminal_read_password(const char *prompt, char *buf, size_t size);
 
+/**
+ * Enable terminal-resize notifications. On POSIX this installs a
+ * SIGWINCH handler that flips an internal flag; on Windows this is a
+ * no-op (resize is picked up on the next read via a different path).
+ * Safe to call multiple times.
+ */
+void terminal_enable_resize_notifications(void);
+
+/**
+ * If a terminal-resize event has occurred since the last call, clear
+ * the pending flag and return 1; otherwise return 0. Used by TUI
+ * loops to detect SIGWINCH between reads.
+ */
+int  terminal_consume_resize(void);
+
 #endif /* PLATFORM_TERMINAL_H */

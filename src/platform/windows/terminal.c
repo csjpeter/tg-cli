@@ -20,3 +20,5 @@ int terminal_wcwidth(uint32_t cp)            { (void)cp; return 1; }
 int terminal_read_password(const char *p, char *b, size_t n) {
     (void)p; (void)b; (void)n; return -1;
 }
+void terminal_enable_resize_notifications(void) { /* no-op on Windows */ }
+int  terminal_consume_resize(void)              { return 0; }
