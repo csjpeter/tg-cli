@@ -73,7 +73,7 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
 `pq_factorize` UINT32_MAX guard.
 
 ## Quality
-- **2030 unit tests** passing (ASAN)
+- **2048 unit tests** passing (ASAN)
 - **131 functional tests** passing (real OpenSSL; SHA-512, PBKDF2,
   BN primitives, IGE, MTProto crypto round-trips)
 - Valgrind: 0 leaks, 0 errors
@@ -81,10 +81,13 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
 - Core+infra coverage: ~89% (TUI excluded)
 
 ## Known v1 limitations (follow-ups, not blockers)
-- Rare MessageMedia variants (Poll, Story, Game, Invoice, Giveaway,
-  PaidMedia) still halt iteration — needs per-variant skippers.
-  WebPage (URL previews) now parses through for the common
-  text-only case; cached_page and attributes flags still bail.
+- Remaining MessageMedia variants that still halt iteration:
+  Game (needs Game skipper), PaidMedia (MessageExtendedMedia),
+  Invoice with a photo:WebDocument or extended_media flag,
+  Story with an inline StoryItem body. Poll / Invoice (no media) /
+  Story (peer+id) / Giveaway all iterate through; WebPage parses
+  the common text-only preview (cached_page and attributes still
+  bail).
 - File upload capped at `UPLOAD_MAX_SIZE = 10 MiB` — the
   `upload.saveBigFilePart` path (>10 MiB, media DCs) and
   cross-DC download of photos on other DCs are follow-ups

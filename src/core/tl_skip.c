@@ -83,12 +83,23 @@
 #define CRC_messageMediaGeoLive         0xb940c666u
 #define CRC_messageMediaDice            0x3f7ee58bu
 #define CRC_messageMediaWebPage         0xddf8c26eu
+#define CRC_messageMediaPoll            0x4bd6e798u
+#define CRC_messageMediaInvoice         0xf6a548d3u
+#define CRC_messageMediaStory           0x68cb6283u
+#define CRC_messageMediaGiveaway        0xaa073beeu
 
 /* WebPage variants (inside messageMediaWebPage). */
 #define CRC_webPage                     0xe89c45b2u
 #define CRC_webPageEmpty                0xeb1477e8u
 #define CRC_webPagePending              0xb0d13e47u
 #define CRC_webPageNotModified          0x7311ca11u
+
+/* Poll + PollAnswer + PollResults + PollAnswerVoters. */
+#define CRC_poll                        0x58747131u
+#define CRC_pollAnswer                  0x6ca9c2e9u
+#define CRC_pollResults                 0x7adc669du
+#define CRC_pollAnswerVoters            0x3b6ddad2u
+#define CRC_textWithEntities_poll       0x751f3146u
 
 /* ChatPhoto. */
 #define CRC_chatPhotoEmpty              0x37c1011cu
@@ -1223,8 +1234,114 @@ static int skip_webpage(TlReader *r) {
     }
 }
 
+/* Skip a textWithEntities#751f3146: text:string + Vector<MessageEntity>. */
+static int skip_text_with_entities(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    if (crc != CRC_textWithEntities_poll) {
+        logger_log(LOG_WARN, "skip_text_with_entities: unknown 0x%08x", crc);
+        return -1;
+    }
+    if (tl_skip_string(r) != 0) return -1;
+    return tl_skip_message_entities_vector(r);
+}
+
+/* Skip a Poll#58747131 object. */
+static int skip_poll(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    if (crc != CRC_poll) {
+        logger_log(LOG_WARN, "skip_poll: unknown 0x%08x", crc);
+        return -1;
+    }
+    if (r->len - r->pos < 12) return -1;
+    uint32_t flags = tl_read_uint32(r);
+    tl_read_int64(r);                                /* id */
+    if (skip_text_with_entities(r) != 0) return -1;  /* question */
+
+    /* answers:Vector<PollAnswer> */
+    if (r->len - r->pos < 8) return -1;
+    uint32_t vec_crc = tl_read_uint32(r);
+    if (vec_crc != TL_vector) return -1;
+    uint32_t n_answers = tl_read_uint32(r);
+    for (uint32_t i = 0; i < n_answers; i++) {
+        if (r->len - r->pos < 4) return -1;
+        uint32_t pa_crc = tl_read_uint32(r);
+        if (pa_crc != CRC_pollAnswer) {
+            logger_log(LOG_WARN, "skip_poll: bad PollAnswer 0x%08x", pa_crc);
+            return -1;
+        }
+        if (skip_text_with_entities(r) != 0) return -1;
+        if (tl_skip_string(r) != 0) return -1;       /* option:bytes */
+    }
+    if (flags & (1u << 4)) {
+        if (r->len - r->pos < 4) return -1;
+        tl_read_int32(r);                            /* close_period */
+    }
+    if (flags & (1u << 5)) {
+        if (r->len - r->pos < 4) return -1;
+        tl_read_int32(r);                            /* close_date */
+    }
+    return 0;
+}
+
+/* Skip a PollAnswerVoters#3b6ddad2. */
+static int skip_poll_answer_voters(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    if (crc != CRC_pollAnswerVoters) {
+        logger_log(LOG_WARN, "skip_poll_answer_voters: 0x%08x", crc);
+        return -1;
+    }
+    if (r->len - r->pos < 4) return -1;
+    tl_read_uint32(r);                               /* flags */
+    if (tl_skip_string(r) != 0) return -1;           /* option:bytes */
+    if (r->len - r->pos < 4) return -1;
+    tl_read_int32(r);                                /* voters */
+    return 0;
+}
+
+/* Skip a PollResults#7adc669d object. */
+static int skip_poll_results(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    if (crc != CRC_pollResults) {
+        logger_log(LOG_WARN, "skip_poll_results: 0x%08x", crc);
+        return -1;
+    }
+    if (r->len - r->pos < 4) return -1;
+    uint32_t flags = tl_read_uint32(r);
+    if (flags & (1u << 1)) {
+        if (r->len - r->pos < 8) return -1;
+        uint32_t vc = tl_read_uint32(r);
+        if (vc != TL_vector) return -1;
+        uint32_t n = tl_read_uint32(r);
+        for (uint32_t i = 0; i < n; i++) {
+            if (skip_poll_answer_voters(r) != 0) return -1;
+        }
+    }
+    if (flags & (1u << 2)) {
+        if (r->len - r->pos < 4) return -1;
+        tl_read_int32(r);                            /* total_voters */
+    }
+    if (flags & (1u << 3)) {
+        if (r->len - r->pos < 8) return -1;
+        uint32_t vc = tl_read_uint32(r);
+        if (vc != TL_vector) return -1;
+        uint32_t n = tl_read_uint32(r);
+        for (uint32_t i = 0; i < n; i++) {
+            if (tl_skip_peer(r) != 0) return -1;
+        }
+    }
+    if (flags & (1u << 4)) {
+        if (tl_skip_string(r) != 0) return -1;       /* solution */
+        if (tl_skip_message_entities_vector(r) != 0) return -1;
+    }
+    return 0;
+}
+
 /* ---- MessageMedia skipper ----
- * Common variants supported; unusual ones (Poll, Story, Game, Invoice,
+ * Common variants supported; unusual ones (Story, Game, Invoice,
  * Giveaway, PaidMedia, ...) bail with -1.
  */
 int tl_skip_message_media_ex(TlReader *r, MediaInfo *out) {
@@ -1298,6 +1415,92 @@ int tl_skip_message_media_ex(TlReader *r, MediaInfo *out) {
         uint32_t flags = tl_read_uint32(r);
         (void)flags;                              /* only boolean previews */
         return skip_webpage(r);
+    }
+
+    case CRC_messageMediaPoll: {
+        if (out) out->kind = MEDIA_POLL;
+        if (skip_poll(r) != 0) return -1;
+        return skip_poll_results(r);
+    }
+
+    case CRC_messageMediaInvoice: {
+        if (out) out->kind = MEDIA_INVOICE;
+        if (r->len - r->pos < 4) return -1;
+        uint32_t flags = tl_read_uint32(r);
+        if (tl_skip_string(r) != 0) return -1;    /* title */
+        if (tl_skip_string(r) != 0) return -1;    /* description */
+        if (flags & (1u << 0)) {
+            /* photo:WebDocument — not implemented. */
+            logger_log(LOG_WARN,
+                       "messageMediaInvoice: photo WebDocument not supported");
+            return -1;
+        }
+        if (flags & (1u << 2)) {
+            if (r->len - r->pos < 4) return -1;
+            tl_read_int32(r);                     /* receipt_msg_id */
+        }
+        if (tl_skip_string(r) != 0) return -1;    /* currency */
+        if (r->len - r->pos < 8) return -1;
+        tl_read_int64(r);                         /* total_amount */
+        if (tl_skip_string(r) != 0) return -1;    /* start_param */
+        if (flags & (1u << 4)) {
+            logger_log(LOG_WARN,
+                       "messageMediaInvoice: extended_media not supported");
+            return -1;
+        }
+        return 0;
+    }
+
+    case CRC_messageMediaStory: {
+        if (out) out->kind = MEDIA_STORY;
+        if (r->len - r->pos < 4) return -1;
+        uint32_t flags = tl_read_uint32(r);
+        if (tl_skip_peer(r) != 0) return -1;      /* peer */
+        if (r->len - r->pos < 4) return -1;
+        tl_read_int32(r);                         /* id */
+        if (flags & (1u << 0)) {
+            /* story:StoryItem — variants too numerous to walk here. */
+            logger_log(LOG_WARN,
+                       "messageMediaStory: inline StoryItem not supported");
+            return -1;
+        }
+        return 0;
+    }
+
+    case CRC_messageMediaGiveaway: {
+        if (out) out->kind = MEDIA_GIVEAWAY;
+        if (r->len - r->pos < 4) return -1;
+        uint32_t flags = tl_read_uint32(r);
+        /* channels:Vector<long> */
+        if (r->len - r->pos < 8) return -1;
+        uint32_t vc = tl_read_uint32(r);
+        if (vc != TL_vector) return -1;
+        uint32_t n_ch = tl_read_uint32(r);
+        if (r->len - r->pos < (size_t)n_ch * 8) return -1;
+        for (uint32_t i = 0; i < n_ch; i++) tl_read_int64(r);
+        if (flags & (1u << 1)) {
+            if (r->len - r->pos < 8) return -1;
+            uint32_t cvc = tl_read_uint32(r);
+            if (cvc != TL_vector) return -1;
+            uint32_t n_c = tl_read_uint32(r);
+            for (uint32_t i = 0; i < n_c; i++)
+                if (tl_skip_string(r) != 0) return -1;
+        }
+        if (flags & (1u << 3))
+            if (tl_skip_string(r) != 0) return -1;
+        if (r->len - r->pos < 4) return -1;
+        tl_read_int32(r);                         /* quantity */
+        if (flags & (1u << 4)) {
+            if (r->len - r->pos < 4) return -1;
+            tl_read_int32(r);                     /* months */
+        }
+        if (flags & (1u << 5)) {
+            if (r->len - r->pos < 8) return -1;
+            tl_read_int64(r);                     /* stars */
+        }
+        if (r->len - r->pos < 4) return -1;
+        tl_read_int32(r);                         /* until_date */
+        return 0;
     }
 
     case CRC_messageMediaDocument: {

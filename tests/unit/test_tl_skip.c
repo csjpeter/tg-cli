@@ -818,6 +818,191 @@ static void test_skip_factcheck_with_text(void) {
     tl_writer_free(&w);
 }
 
+/* ---- messageMediaPoll ---- */
+
+#define CRC_messageMediaPoll_t  0x4bd6e798u
+#define CRC_poll_t              0x58747131u
+#define CRC_pollAnswer_t        0x6ca9c2e9u
+#define CRC_pollResults_t       0x7adc669du
+#define CRC_textWithEntities_p  0x751f3146u
+
+static void write_textWithEntities(TlWriter *w, const char *text) {
+    tl_write_uint32(w, CRC_textWithEntities_p);
+    tl_write_string(w, text);
+    tl_write_uint32(w, TL_vector);
+    tl_write_uint32(w, 0);                       /* no entities */
+}
+
+static void test_skip_media_poll_minimal(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaPoll_t);
+    /* Poll */
+    tl_write_uint32(&w, CRC_poll_t);
+    tl_write_uint32(&w, 0);                      /* flags */
+    tl_write_int64 (&w, 1234567LL);              /* id */
+    write_textWithEntities(&w, "Favourite colour?");
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 2);
+    tl_write_uint32(&w, CRC_pollAnswer_t);
+    write_textWithEntities(&w, "Blue");
+    tl_write_string(&w, "b");
+    tl_write_uint32(&w, CRC_pollAnswer_t);
+    write_textWithEntities(&w, "Red");
+    tl_write_string(&w, "r");
+
+    /* PollResults: empty flags = no results, no voters, no solution */
+    tl_write_uint32(&w, CRC_pollResults_t);
+    tl_write_uint32(&w, 0);                      /* flags */
+    tl_write_int32 (&w, 0xC0FFEE);
+    TlReader r = tl_reader_init(w.data, w.len);
+    MediaInfo mi = {0};
+    ASSERT(tl_skip_message_media_ex(&r, &mi) == 0, "poll minimal ok");
+    ASSERT(mi.kind == MEDIA_POLL, "kind = poll");
+    ASSERT(tl_read_int32(&r) == 0xC0FFEE, "cursor past poll");
+    tl_writer_free(&w);
+}
+
+static void test_skip_media_poll_with_results(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaPoll_t);
+    /* Poll — quiz w/ close_date (flags.3 + flags.5) */
+    tl_write_uint32(&w, CRC_poll_t);
+    tl_write_uint32(&w, (1u << 3) | (1u << 5));
+    tl_write_int64 (&w, 9LL);
+    write_textWithEntities(&w, "2+2?");
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, CRC_pollAnswer_t);
+    write_textWithEntities(&w, "4");
+    tl_write_string(&w, "1");
+    tl_write_int32 (&w, 1700000000);            /* close_date */
+
+    /* PollResults with results + total_voters + recent_voters + solution */
+    tl_write_uint32(&w, CRC_pollResults_t);
+    tl_write_uint32(&w, (1u << 1) | (1u << 2) | (1u << 3) | (1u << 4));
+    /* results */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, 0x3b6ddad2u);            /* pollAnswerVoters */
+    tl_write_uint32(&w, (1u << 0) | (1u << 1));  /* chosen + correct */
+    tl_write_string(&w, "1");                    /* option:bytes */
+    tl_write_int32 (&w, 42);                     /* voters */
+    /* total_voters */
+    tl_write_int32 (&w, 42);
+    /* recent_voters */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, TL_peerUser);
+    tl_write_int64 (&w, 999LL);
+    /* solution + solution_entities */
+    tl_write_string(&w, "Trivia says 4.");
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 0);
+
+    tl_write_int32 (&w, 0xDEAD);
+    TlReader r = tl_reader_init(w.data, w.len);
+    MediaInfo mi = {0};
+    ASSERT(tl_skip_message_media_ex(&r, &mi) == 0, "poll w/ results ok");
+    ASSERT(mi.kind == MEDIA_POLL, "kind = poll");
+    ASSERT(tl_read_int32(&r) == 0xDEAD, "cursor past poll");
+    tl_writer_free(&w);
+}
+
+/* ---- messageMediaInvoice / Story / Giveaway ---- */
+
+#define CRC_messageMediaInvoice_t  0xf6a548d3u
+#define CRC_messageMediaStory_t    0x68cb6283u
+#define CRC_messageMediaGiveaway_t 0xaa073beeu
+
+static void test_skip_media_invoice_minimal(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaInvoice_t);
+    tl_write_uint32(&w, 0);                       /* flags */
+    tl_write_string(&w, "Pizza Margherita");
+    tl_write_string(&w, "1 piece");
+    tl_write_string(&w, "EUR");
+    tl_write_int64 (&w, 999);                     /* cents */
+    tl_write_string(&w, "start_abc");
+    tl_write_int32 (&w, 0xBEEF);
+    TlReader r = tl_reader_init(w.data, w.len);
+    MediaInfo mi = {0};
+    ASSERT(tl_skip_message_media_ex(&r, &mi) == 0, "invoice minimal ok");
+    ASSERT(mi.kind == MEDIA_INVOICE, "kind=invoice");
+    ASSERT(tl_read_int32(&r) == 0xBEEF, "cursor past invoice");
+    tl_writer_free(&w);
+}
+
+static void test_skip_media_invoice_photo_bails(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaInvoice_t);
+    tl_write_uint32(&w, (1u << 0));               /* photo flag */
+    tl_write_string(&w, "T"); tl_write_string(&w, "D");
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r, NULL) == -1,
+           "invoice photo still bails");
+    tl_writer_free(&w);
+}
+
+static void test_skip_media_story_minimal(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaStory_t);
+    tl_write_uint32(&w, 0);                       /* flags */
+    tl_write_uint32(&w, TL_peerUser);
+    tl_write_int64 (&w, 42LL);
+    tl_write_int32 (&w, 77);                      /* story id */
+    tl_write_int32 (&w, 0x1010);
+    TlReader r = tl_reader_init(w.data, w.len);
+    MediaInfo mi = {0};
+    ASSERT(tl_skip_message_media_ex(&r, &mi) == 0, "story minimal ok");
+    ASSERT(mi.kind == MEDIA_STORY, "kind=story");
+    ASSERT(tl_read_int32(&r) == 0x1010, "cursor past story");
+    tl_writer_free(&w);
+}
+
+static void test_skip_media_giveaway_minimal(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaGiveaway_t);
+    tl_write_uint32(&w, 0);                       /* flags */
+    /* channels vector */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 2);
+    tl_write_int64 (&w, 10LL);
+    tl_write_int64 (&w, 20LL);
+    tl_write_int32 (&w, 5);                       /* quantity */
+    tl_write_int32 (&w, 1700000999);              /* until_date */
+    tl_write_int32 (&w, 0xFACE);
+    TlReader r = tl_reader_init(w.data, w.len);
+    MediaInfo mi = {0};
+    ASSERT(tl_skip_message_media_ex(&r, &mi) == 0, "giveaway minimal ok");
+    ASSERT(mi.kind == MEDIA_GIVEAWAY, "kind=giveaway");
+    ASSERT(tl_read_int32(&r) == 0xFACE, "cursor past giveaway");
+    tl_writer_free(&w);
+}
+
+static void test_skip_media_giveaway_countries_prize(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaGiveaway_t);
+    tl_write_uint32(&w, (1u << 1) | (1u << 3) | (1u << 4));
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    tl_write_int64 (&w, 99LL);
+    /* countries_iso2 */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 2);
+    tl_write_string(&w, "HU");
+    tl_write_string(&w, "DE");
+    /* prize_description */
+    tl_write_string(&w, "Premium subscription");
+    tl_write_int32 (&w, 10);                      /* quantity */
+    tl_write_int32 (&w, 3);                       /* months (flag.4) */
+    tl_write_int32 (&w, 1700001000);              /* until_date */
+    tl_write_int32 (&w, 0xEEEE);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r, NULL) == 0, "giveaway rich ok");
+    ASSERT(tl_read_int32(&r) == 0xEEEE, "cursor past giveaway");
+    tl_writer_free(&w);
+}
+
 /* ---- messageMediaDocument with full Document ---- */
 
 #define CRC_messageMediaDocument_t    0x4cf4d72du
@@ -1022,4 +1207,11 @@ void run_tl_skip_tests(void) {
     RUN_TEST(test_skip_media_webpage_pending);
     RUN_TEST(test_skip_media_webpage_cached_page_bails);
     RUN_TEST(test_skip_media_document_full);
+    RUN_TEST(test_skip_media_poll_minimal);
+    RUN_TEST(test_skip_media_poll_with_results);
+    RUN_TEST(test_skip_media_invoice_minimal);
+    RUN_TEST(test_skip_media_invoice_photo_bails);
+    RUN_TEST(test_skip_media_story_minimal);
+    RUN_TEST(test_skip_media_giveaway_minimal);
+    RUN_TEST(test_skip_media_giveaway_countries_prize);
 }
