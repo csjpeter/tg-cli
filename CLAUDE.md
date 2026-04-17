@@ -2,6 +2,32 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Cost / token discipline (from usage review 2026-04-17)
+
+Observed patterns and their guardrails for every future session:
+
+1. **Minimise sub-agent spawning.** The usage report shows 100 %
+   of spend came from subagent-heavy sessions. Prefer direct tools
+   (Read / Grep / Glob / Edit) whenever the work fits in the main
+   context. Only spawn an Agent when the search is open-ended,
+   genuinely parallel, or would flood the main context with raw
+   output. If a subagent is unavoidable, pick the cheapest model
+   that does the job (Haiku for bulk reads, Sonnet for simple
+   edits) — do not default to the parent model.
+2. **Keep sessions shorter.** 97 % of spend came from sessions
+   active for 8+ hours. Run `/compact` mid-task once you've closed
+   out a logical unit; `/clear` when switching to an unrelated
+   area. Treat each feature ticket as its own session if possible.
+3. **Stay below the 150k-context danger line.** 83 % of spend was
+   at >150k context. Long sessions amortise cache but every new
+   turn multiplies that cached size. When the context counter is
+   approaching 150k, prefer `/compact` over one more ad-hoc read.
+4. **Commit small, often.** Each commit is a natural compaction
+   anchor — the test suite is tiny, so there's no reason to batch
+   ten features into one session.
+5. **Avoid re-reads.** Rely on the harness's file-state tracking;
+   don't Read a file again after editing it just to confirm.
+
 ## Build Commands
 
 ```bash
