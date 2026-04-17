@@ -1246,6 +1246,149 @@ static void test_skip_media_paid_wrapped_inner_media(void) {
     tl_writer_free(&w);
 }
 
+/* ---- messageMediaInvoice with WebDocument photo + extended_media ---- */
+
+#define CRC_webDocument_t         0x1c570ed1u
+#define CRC_webDocumentNoProxy_t  0xf9c8bcc6u
+#define CRC_documentAttributeFilename_test 0x15590068u
+
+static void test_skip_media_invoice_with_webdocument_photo(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaInvoice_t);
+    tl_write_uint32(&w, (1u << 0));             /* photo flag */
+    tl_write_string(&w, "Pro");
+    tl_write_string(&w, "Subscription");
+    /* webDocument with one Filename attribute */
+    tl_write_uint32(&w, CRC_webDocument_t);
+    tl_write_string(&w, "https://icon.example");
+    tl_write_int64 (&w, 0x12345LL);             /* access_hash */
+    tl_write_int32 (&w, 4096);                  /* size */
+    tl_write_string(&w, "image/png");
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, CRC_documentAttributeFilename_test);
+    tl_write_string(&w, "icon.png");
+    /* continuing messageMediaInvoice fields */
+    tl_write_string(&w, "EUR");
+    tl_write_int64 (&w, 1999);
+    tl_write_string(&w, "start");
+    tl_write_int32 (&w, 0xBEEF);
+    TlReader r = tl_reader_init(w.data, w.len);
+    MediaInfo mi = {0};
+    ASSERT(tl_skip_message_media_ex(&r, &mi) == 0,
+           "invoice + webDocument iterates");
+    ASSERT(mi.kind == MEDIA_INVOICE, "kind=invoice");
+    ASSERT(tl_read_int32(&r) == 0xBEEF, "cursor past invoice");
+    tl_writer_free(&w);
+}
+
+static void test_skip_media_invoice_noproxy_webdocument(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaInvoice_t);
+    tl_write_uint32(&w, (1u << 0));
+    tl_write_string(&w, "T"); tl_write_string(&w, "D");
+    /* webDocumentNoProxy — no access_hash */
+    tl_write_uint32(&w, CRC_webDocumentNoProxy_t);
+    tl_write_string(&w, "https://x");
+    tl_write_int32 (&w, 512);
+    tl_write_string(&w, "image/jpeg");
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 0);                     /* no attributes */
+    tl_write_string(&w, "USD");
+    tl_write_int64 (&w, 99);
+    tl_write_string(&w, "s");
+    tl_write_int32 (&w, 0xDEAD);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r, NULL) == 0, "noProxy variant ok");
+    ASSERT(tl_read_int32(&r) == (int32_t)0xDEAD, "cursor past");
+    tl_writer_free(&w);
+}
+
+static void test_skip_media_invoice_extended_media_preview(void) {
+    /* flags.4 (extended_media) now walks through messageExtendedMediaPreview. */
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaInvoice_t);
+    tl_write_uint32(&w, (1u << 4));             /* extended_media flag only */
+    tl_write_string(&w, "T"); tl_write_string(&w, "D");
+    tl_write_string(&w, "EUR");
+    tl_write_int64 (&w, 42);
+    tl_write_string(&w, "s");
+    /* extended_media: messageExtendedMediaPreview#ad628cc8 with no inner
+     * flags — just the flags int. */
+    tl_write_uint32(&w, 0xad628cc8u);
+    tl_write_uint32(&w, 0);
+    tl_write_int32 (&w, 0xBABE);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r, NULL) == 0,
+           "invoice.extended_media now handled");
+    ASSERT(tl_read_int32(&r) == (int32_t)0xBABE, "cursor past invoice");
+    tl_writer_free(&w);
+}
+
+/* ---- messageMediaStory with inline StoryItem variants ---- */
+
+#define CRC_storyItemDeleted_t 0x51e6ee4fu
+#define CRC_storyItemSkipped_t 0xffadc913u
+#define CRC_storyItem_t        0x79b26a24u
+
+static void test_skip_media_story_inline_deleted(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaStory_t);
+    tl_write_uint32(&w, (1u << 0));             /* inline story */
+    tl_write_uint32(&w, TL_peerUser);
+    tl_write_int64 (&w, 7LL);
+    tl_write_int32 (&w, 11);                    /* id */
+    /* storyItemDeleted */
+    tl_write_uint32(&w, CRC_storyItemDeleted_t);
+    tl_write_int32 (&w, 11);
+    tl_write_int32 (&w, 0xFACE);
+    TlReader r = tl_reader_init(w.data, w.len);
+    MediaInfo mi = {0};
+    ASSERT(tl_skip_message_media_ex(&r, &mi) == 0,
+           "inline storyItemDeleted iterates");
+    ASSERT(mi.kind == MEDIA_STORY, "kind=story");
+    ASSERT(tl_read_int32(&r) == (int32_t)0xFACE, "cursor past story");
+    tl_writer_free(&w);
+}
+
+static void test_skip_media_story_inline_skipped(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaStory_t);
+    tl_write_uint32(&w, (1u << 0));
+    tl_write_uint32(&w, TL_peerUser);
+    tl_write_int64 (&w, 7LL);
+    tl_write_int32 (&w, 11);
+    /* storyItemSkipped#ffadc913 flags:# id:int date:int expire_date:int */
+    tl_write_uint32(&w, CRC_storyItemSkipped_t);
+    tl_write_uint32(&w, 0);                     /* no close_friends flag */
+    tl_write_int32 (&w, 11);
+    tl_write_int32 (&w, 1700000000);
+    tl_write_int32 (&w, 1700086400);
+    tl_write_int32 (&w, 0xFEED);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r, NULL) == 0,
+           "inline storyItemSkipped iterates");
+    ASSERT(tl_read_int32(&r) == (int32_t)0xFEED, "cursor past story");
+    tl_writer_free(&w);
+}
+
+static void test_skip_media_story_full_still_bails(void) {
+    /* Full storyItem#79b26a24 is deliberately left out — verify it bails
+     * cleanly instead of mis-advancing the reader. */
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaStory_t);
+    tl_write_uint32(&w, (1u << 0));
+    tl_write_uint32(&w, TL_peerUser);
+    tl_write_int64 (&w, 7LL);
+    tl_write_int32 (&w, 11);
+    tl_write_uint32(&w, CRC_storyItem_t);
+    /* Further bytes unused; we expect an early bail on the CRC. */
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r, NULL) == -1,
+           "full storyItem bails (expected, future work)");
+    tl_writer_free(&w);
+}
+
 static void test_skip_media_paid_unknown_variant_bails(void) {
     TlWriter w; tl_writer_init(&w);
     tl_write_uint32(&w, CRC_messageMediaPaidMedia_t);
@@ -1356,4 +1499,10 @@ void run_tl_skip_tests(void) {
     RUN_TEST(test_skip_media_paid_preview_with_dims_and_thumb);
     RUN_TEST(test_skip_media_paid_wrapped_inner_media);
     RUN_TEST(test_skip_media_paid_unknown_variant_bails);
+    RUN_TEST(test_skip_media_invoice_with_webdocument_photo);
+    RUN_TEST(test_skip_media_invoice_noproxy_webdocument);
+    RUN_TEST(test_skip_media_invoice_extended_media_preview);
+    RUN_TEST(test_skip_media_story_inline_deleted);
+    RUN_TEST(test_skip_media_story_inline_skipped);
+    RUN_TEST(test_skip_media_story_full_still_bails);
 }

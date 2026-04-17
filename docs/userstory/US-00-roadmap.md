@@ -73,7 +73,7 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
 `pq_factorize` UINT32_MAX guard.
 
 ## Quality
-- **2123 unit tests** passing (ASAN)
+- **2136 unit tests** passing (ASAN)
 - **150 functional tests** passing (real OpenSSL; SHA-512, PBKDF2,
   BN primitives, IGE, MTProto crypto round-trips, full SRP
   client↔server math roundtrip, kitchen-sink Message iteration)
@@ -82,13 +82,14 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
 - Core+infra coverage: ~89% (TUI excluded)
 
 ## Known v1 limitations (follow-ups, not blockers)
-- Remaining MessageMedia variants that still halt iteration:
-  Invoice with a photo:WebDocument or extended_media flag,
-  Story with an inline StoryItem body. Poll / Invoice (no media) /
-  Story (peer+id) / Giveaway / Game (photo-only + with Document) /
-  PaidMedia (preview + inline MessageMedia recursion) all iterate
-  through; WebPage parses the common text-only preview (cached_page
-  and attributes still bail).
+- Remaining MessageMedia stoppers are now restricted to the heaviest
+  variants: full inline `storyItem#79b26a24` (carries StoryFwdHeader,
+  MediaArea, PrivacyRule, StoryViews, Reaction — none walked yet)
+  and `webPage` with `cached_page` or `attributes`. Everything else
+  — Invoice with WebDocument photo or extended_media, Story with
+  `storyItemDeleted`/`storyItemSkipped`, Poll, Giveaway, Game
+  (photo-only + with Document), PaidMedia, Photo, Document, Geo,
+  Contact, Venue, Dice, WebPage (text-only) — iterates cleanly.
 - File upload now handles both small files (<10 MiB via
   `upload.saveFilePart` + `InputFile`) and big files
   (`upload.saveBigFilePart` + `InputFileBig`, capped at
@@ -121,8 +122,10 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
      `messages.sendMedia` stays on the home DC (references the
      foreign-uploaded file_id). Cross-DC routing is now complete
      across all media I/O.
-2. **Remaining MessageMedia skippers** — Invoice-with-photo
-   (WebDocument), Story inline StoryItem.
+2. **Remaining MessageMedia skippers** — full inline
+   `storyItem#79b26a24` body (StoryFwdHeader + MediaArea +
+   PrivacyRule + StoryViews + Reaction skippers). Everything else
+   on the MessageMedia surface is now handled.
 3. **Curses TUI (US-11 v2)** — pane-based live redraw.
 
 ## Current focus

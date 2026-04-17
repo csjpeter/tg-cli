@@ -97,6 +97,15 @@
 #define CRC_messageExtendedMediaPreview 0xad628cc8u
 #define CRC_messageExtendedMedia        0xee479c64u
 
+/* WebDocument (inside messageMediaInvoice.photo). */
+#define CRC_webDocument                 0x1c570ed1u
+#define CRC_webDocumentNoProxy          0xf9c8bcc6u
+
+/* StoryItem variants (inside messageMediaStory when flags.0). */
+#define CRC_storyItemDeleted            0x51e6ee4fu
+#define CRC_storyItemSkipped            0xffadc913u
+#define CRC_storyItem                   0x79b26a24u
+
 /* WebPage variants (inside messageMediaWebPage). */
 #define CRC_webPage                     0xe89c45b2u
 #define CRC_webPageEmpty                0xeb1477e8u
@@ -1410,9 +1419,85 @@ static int skip_message_extended_media(TlReader *r) {
     }
 }
 
+/* ---- WebDocument ----
+ * webDocument#1c570ed1        url:string access_hash:long size:int
+ *                             mime_type:string attributes:Vector<DocumentAttribute>
+ * webDocumentNoProxy#f9c8bcc6 url:string size:int mime_type:string
+ *                             attributes:Vector<DocumentAttribute>
+ */
+static int skip_web_document(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    int has_access_hash;
+    switch (crc) {
+    case CRC_webDocument:        has_access_hash = 1; break;
+    case CRC_webDocumentNoProxy: has_access_hash = 0; break;
+    default:
+        logger_log(LOG_WARN, "skip_web_document: unknown 0x%08x", crc);
+        return -1;
+    }
+    if (tl_skip_string(r) != 0) return -1;                /* url */
+    if (has_access_hash) {
+        if (r->len - r->pos < 8) return -1;
+        tl_read_int64(r);                                 /* access_hash */
+    }
+    if (r->len - r->pos < 4) return -1;
+    tl_read_int32(r);                                     /* size */
+    if (tl_skip_string(r) != 0) return -1;                /* mime_type */
+    /* attributes:Vector<DocumentAttribute> */
+    if (r->len - r->pos < 8) return -1;
+    uint32_t vc = tl_read_uint32(r);
+    if (vc != TL_vector) return -1;
+    uint32_t n = tl_read_uint32(r);
+    for (uint32_t i = 0; i < n; i++) {
+        if (skip_document_attribute(r, NULL, 0) != 0) return -1;
+    }
+    return 0;
+}
+
+/* ---- StoryItem ----
+ * storyItemDeleted#51e6ee4f id:int
+ * storyItemSkipped#ffadc913 flags:# close_friends:flags.8?true
+ *                           id:int date:int expire_date:int
+ * storyItem#79b26a24 — full layout carries StoryFwdHeader, MediaArea,
+ *   PrivacyRule, StoryViews, Reaction. We do not walk those yet; this
+ *   skipper returns -1 so the caller stops iterating the enclosing
+ *   Message (same failure mode as pre-P10 days, just more targeted).
+ */
+static int skip_story_item(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    switch (crc) {
+    case CRC_storyItemDeleted:
+        if (r->len - r->pos < 4) return -1;
+        tl_read_int32(r);                                 /* id */
+        return 0;
+    case CRC_storyItemSkipped: {
+        if (r->len - r->pos < 4) return -1;
+        tl_read_uint32(r);                                /* flags */
+        if (r->len - r->pos < 12) return -1;
+        tl_read_int32(r);                                 /* id */
+        tl_read_int32(r);                                 /* date */
+        tl_read_int32(r);                                 /* expire_date */
+        return 0;
+    }
+    case CRC_storyItem:
+        logger_log(LOG_WARN,
+                   "skip_story_item: full storyItem#79b26a24 contains "
+                   "StoryFwdHeader / MediaArea / PrivacyRule that are "
+                   "not walked yet");
+        return -1;
+    default:
+        logger_log(LOG_WARN, "skip_story_item: unknown 0x%08x", crc);
+        return -1;
+    }
+}
+
 /* ---- MessageMedia skipper ----
- * Common variants supported; remaining unusual ones (Invoice with photo,
- * Story with inline StoryItem) still bail with -1.
+ * Covers all normal variants (photo, document, geo, contact, venue,
+ * poll, invoice, story-deleted/skipped, giveaway, game, paid, webpage).
+ * Returns -1 only on the heaviest variants: full inline storyItem and
+ * the rare Invoice extended_media with unknown ExtendedMedia CRCs.
  */
 int tl_skip_message_media_ex(TlReader *r, MediaInfo *out) {
     if (out) memset(out, 0, sizeof(*out));
@@ -1500,10 +1585,7 @@ int tl_skip_message_media_ex(TlReader *r, MediaInfo *out) {
         if (tl_skip_string(r) != 0) return -1;    /* title */
         if (tl_skip_string(r) != 0) return -1;    /* description */
         if (flags & (1u << 0)) {
-            /* photo:WebDocument — not implemented. */
-            logger_log(LOG_WARN,
-                       "messageMediaInvoice: photo WebDocument not supported");
-            return -1;
+            if (skip_web_document(r) != 0) return -1;
         }
         if (flags & (1u << 2)) {
             if (r->len - r->pos < 4) return -1;
@@ -1514,9 +1596,7 @@ int tl_skip_message_media_ex(TlReader *r, MediaInfo *out) {
         tl_read_int64(r);                         /* total_amount */
         if (tl_skip_string(r) != 0) return -1;    /* start_param */
         if (flags & (1u << 4)) {
-            logger_log(LOG_WARN,
-                       "messageMediaInvoice: extended_media not supported");
-            return -1;
+            if (skip_message_extended_media(r) != 0) return -1;
         }
         return 0;
     }
@@ -1529,10 +1609,7 @@ int tl_skip_message_media_ex(TlReader *r, MediaInfo *out) {
         if (r->len - r->pos < 4) return -1;
         tl_read_int32(r);                         /* id */
         if (flags & (1u << 0)) {
-            /* story:StoryItem — variants too numerous to walk here. */
-            logger_log(LOG_WARN,
-                       "messageMediaStory: inline StoryItem not supported");
-            return -1;
+            if (skip_story_item(r) != 0) return -1;
         }
         return 0;
     }
