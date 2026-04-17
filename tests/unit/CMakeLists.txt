@@ -45,6 +45,8 @@ set(TEST_SOURCES
     test_tui_list_view.c
     test_tui_dialog_pane.c
     test_tui_history_pane.c
+    test_tui_status_row.c
+    test_tui_app.c
     ../../tests/mocks/crypto.c
     ../../tests/mocks/socket.c
 )

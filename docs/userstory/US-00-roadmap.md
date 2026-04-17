@@ -73,7 +73,7 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
 `pq_factorize` UINT32_MAX guard.
 
 ## Quality
-- **2442 unit tests** passing (ASAN)
+- **2583 unit tests** passing (ASAN)
 - **150 functional tests** passing (real OpenSSL; SHA-512, PBKDF2,
   BN primitives, IGE, MTProto crypto round-trips, full SRP
   client↔server math roundtrip, kitchen-sink Message iteration)
@@ -165,6 +165,20 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
      `(select a dialog)` before load and `(no messages)` when the peer
      is loaded but empty. `history_pane_load` wraps
      `domain_get_history` with the peer descriptor.
+   - TUI-06 ✅ `tui/status_row.{h,c}` + `tui/app.{h,c}` event state
+     machine. The status row is a full-width reverse-video line with
+     a mode-sensitive hint ("[dialogs] j/k … Enter …" vs
+     "[history] j/k …") on the left and an optional right-aligned
+     message (loading / last error). `TuiApp` owns the screen, the
+     layout and the three panes, and exposes a pure state-machine API:
+     `tui_app_handle_key` / `tui_app_handle_char` map TermKey +
+     printable chars (q, Q, j, k, h, l, g, G) to high-level
+     `TuiEvent` values (REDRAW, OPEN_DIALOG, QUIT). Navigation always
+     targets the focused pane; Enter on a dialog emits OPEN_DIALOG and
+     pre-emptively moves focus to history so the status hint updates
+     before the network call. `tui_app_paint` stages the current UI
+     state into the back buffer without flipping — the event loop
+     (still to land in tg_tui.c) drives the actual terminal IO.
 
 ## Current focus
 MVP feature set is complete; any further work is polish and

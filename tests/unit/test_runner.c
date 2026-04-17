@@ -48,6 +48,8 @@ void test_tui_pane_run(void);
 void test_tui_list_view_run(void);
 void test_tui_dialog_pane_run(void);
 void test_tui_history_pane_run(void);
+void test_tui_status_row_run(void);
+void test_tui_app_run(void);
 
 int main() {
     printf("--- tg-cli Unit Test Suite ---\n\n");
@@ -95,6 +97,8 @@ int main() {
     RUN_TEST(test_tui_list_view_run);
     RUN_TEST(test_tui_dialog_pane_run);
     RUN_TEST(test_tui_history_pane_run);
+    RUN_TEST(test_tui_status_row_run);
+    RUN_TEST(test_tui_app_run);
 
     printf("\n--- Test Results ---\n");
     printf("Tests Run:    %d\n", g_tests_run);
