@@ -1131,6 +1131,183 @@ static void test_skip_media_document_full(void) {
     tl_writer_free(&w);
 }
 
+/* LIM-02: Document with thumbs (Vector<PhotoSize>) set via flags.0. */
+#define CRC_photoSize_t              0x75c78e60u
+static void test_skip_media_document_with_thumbs(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaDocument_t);
+    tl_write_uint32(&w, (1u << 0));
+    tl_write_uint32(&w, CRC_document_t);
+    tl_write_uint32(&w, (1u << 0));                /* thumbs present */
+    tl_write_int64 (&w, 777LL);
+    tl_write_int64 (&w, 888LL);
+    uint8_t fr[2] = { 0xaa, 0xbb };
+    tl_write_bytes (&w, fr, sizeof(fr));
+    tl_write_int32 (&w, 1700000000);
+    tl_write_string(&w, "video/mp4");
+    tl_write_int64 (&w, 42LL);
+    /* thumbs: [photoSize "m" 320x240 size=1234] */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, CRC_photoSize_t);
+    tl_write_string(&w, "m");
+    tl_write_int32 (&w, 320);
+    tl_write_int32 (&w, 240);
+    tl_write_int32 (&w, 1234);
+    tl_write_int32 (&w, 4);                        /* dc_id */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 0);                        /* no attributes */
+    tl_write_int32 (&w, 0x1234);
+    TlReader r = tl_reader_init(w.data, w.len);
+    MediaInfo mi = {0};
+    ASSERT(tl_skip_message_media_ex(&r, &mi) == 0,
+           "document with thumbs iterates");
+    ASSERT(mi.kind == MEDIA_DOCUMENT, "kind=document");
+    ASSERT(mi.document_id == 777LL, "id");
+    ASSERT(tl_read_int32(&r) == 0x1234, "cursor past document");
+    tl_writer_free(&w);
+}
+
+/* LIM-02: Document with video_thumbs (Vector<VideoSize>). */
+#define CRC_videoSize_t              0xde33b094u
+static void test_skip_media_document_with_video_thumbs(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaDocument_t);
+    tl_write_uint32(&w, (1u << 0));
+    tl_write_uint32(&w, CRC_document_t);
+    tl_write_uint32(&w, (1u << 1));                /* video_thumbs present */
+    tl_write_int64 (&w, 99LL);
+    tl_write_int64 (&w, 100LL);
+    uint8_t fr[1] = { 0x01 };
+    tl_write_bytes (&w, fr, sizeof(fr));
+    tl_write_int32 (&w, 1700000000);
+    tl_write_string(&w, "video/mp4");
+    tl_write_int64 (&w, 999LL);
+    /* video_thumbs: [videoSize flags=0 "u" 100x100 size=50] */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, CRC_videoSize_t);
+    tl_write_uint32(&w, 0);
+    tl_write_string(&w, "u");
+    tl_write_int32 (&w, 100);
+    tl_write_int32 (&w, 100);
+    tl_write_int32 (&w, 50);
+    tl_write_int32 (&w, 2);                        /* dc_id */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 0);
+    tl_write_int32 (&w, 0x5678);
+    TlReader r = tl_reader_init(w.data, w.len);
+    MediaInfo mi = {0};
+    ASSERT(tl_skip_message_media_ex(&r, &mi) == 0,
+           "document with video_thumbs iterates");
+    ASSERT(mi.kind == MEDIA_DOCUMENT, "kind=document");
+    ASSERT(tl_read_int32(&r) == 0x5678, "cursor past document");
+    tl_writer_free(&w);
+}
+
+/* LIM-02: Document with documentAttributeSticker (inputStickerSetID). */
+#define CRC_documentAttributeSticker_t  0x6319d612u
+#define CRC_inputStickerSetID_t         0x9de7a269u
+#define CRC_inputStickerSetEmpty_t      0xffb62b95u
+#define CRC_maskCoords_t                0xaed6dbb2u
+static void test_skip_media_document_sticker_attr(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaDocument_t);
+    tl_write_uint32(&w, (1u << 0));
+    tl_write_uint32(&w, CRC_document_t);
+    tl_write_uint32(&w, 0);                        /* no thumbs */
+    tl_write_int64 (&w, 1);
+    tl_write_int64 (&w, 2);
+    uint8_t fr[1] = { 0 };
+    tl_write_bytes (&w, fr, sizeof(fr));
+    tl_write_int32 (&w, 1700000000);
+    tl_write_string(&w, "image/webp");
+    tl_write_int64 (&w, 5000);
+    tl_write_int32 (&w, 2);
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, CRC_documentAttributeSticker_t);
+    tl_write_uint32(&w, 0);                        /* no mask, no mask_coords */
+    tl_write_string(&w, "🦊");                     /* alt */
+    tl_write_uint32(&w, CRC_inputStickerSetID_t);
+    tl_write_int64 (&w, 42);
+    tl_write_int64 (&w, 43);
+    tl_write_int32 (&w, 0x9ABC);
+    TlReader r = tl_reader_init(w.data, w.len);
+    MediaInfo mi = {0};
+    ASSERT(tl_skip_message_media_ex(&r, &mi) == 0,
+           "document with Sticker attr iterates");
+    ASSERT(mi.kind == MEDIA_DOCUMENT, "kind=document");
+    ASSERT(tl_read_int32(&r) == 0x9ABC, "cursor past document");
+    tl_writer_free(&w);
+}
+
+/* LIM-02: Document with documentAttributeSticker + mask_coords. */
+static void test_skip_media_document_sticker_with_mask(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaDocument_t);
+    tl_write_uint32(&w, (1u << 0));
+    tl_write_uint32(&w, CRC_document_t);
+    tl_write_uint32(&w, 0);
+    tl_write_int64 (&w, 1);
+    tl_write_int64 (&w, 2);
+    uint8_t fr[1] = { 0 };
+    tl_write_bytes (&w, fr, sizeof(fr));
+    tl_write_int32 (&w, 1700000000);
+    tl_write_string(&w, "image/webp");
+    tl_write_int64 (&w, 5000);
+    tl_write_int32 (&w, 2);
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, CRC_documentAttributeSticker_t);
+    tl_write_uint32(&w, (1u << 0));                /* mask_coords present */
+    tl_write_string(&w, "😀");
+    tl_write_uint32(&w, CRC_inputStickerSetEmpty_t);
+    tl_write_uint32(&w, CRC_maskCoords_t);
+    tl_write_int32 (&w, 1);                        /* n */
+    tl_write_double(&w, 0.5);                      /* x */
+    tl_write_double(&w, 0.25);                     /* y */
+    tl_write_double(&w, 1.5);                      /* zoom */
+    tl_write_int32 (&w, 0xDEF0);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r, NULL) == 0,
+           "sticker + mask_coords iterates");
+    ASSERT(tl_read_int32(&r) == 0xDEF0, "cursor past document");
+    tl_writer_free(&w);
+}
+
+/* LIM-02: Document with documentAttributeCustomEmoji. */
+#define CRC_documentAttributeCustomEmoji_t  0xfd149899u
+#define CRC_inputStickerSetShortName_t      0x861cc8a0u
+static void test_skip_media_document_custom_emoji_attr(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaDocument_t);
+    tl_write_uint32(&w, (1u << 0));
+    tl_write_uint32(&w, CRC_document_t);
+    tl_write_uint32(&w, 0);
+    tl_write_int64 (&w, 11);
+    tl_write_int64 (&w, 22);
+    uint8_t fr[1] = { 0 };
+    tl_write_bytes (&w, fr, sizeof(fr));
+    tl_write_int32 (&w, 1700000000);
+    tl_write_string(&w, "image/webp");
+    tl_write_int64 (&w, 123);
+    tl_write_int32 (&w, 2);
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, CRC_documentAttributeCustomEmoji_t);
+    tl_write_uint32(&w, 0);
+    tl_write_string(&w, "⚡");
+    tl_write_uint32(&w, CRC_inputStickerSetShortName_t);
+    tl_write_string(&w, "animated_pack");
+    tl_write_int32 (&w, 0xFACE);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r, NULL) == 0,
+           "document with CustomEmoji attr iterates");
+    ASSERT(tl_read_int32(&r) == 0xFACE, "cursor past document");
+    tl_writer_free(&w);
+}
+
 /* ---- MessageMediaWebPage ---- */
 
 #define CRC_messageMediaWebPage_test 0xddf8c26eu
@@ -1944,6 +2121,11 @@ void run_tl_skip_tests(void) {
     RUN_TEST(test_skip_media_webpage_attributes_unknown);
     RUN_TEST(test_skip_media_webpage_cached_page_plus_attributes);
     RUN_TEST(test_skip_media_document_full);
+    RUN_TEST(test_skip_media_document_with_thumbs);
+    RUN_TEST(test_skip_media_document_with_video_thumbs);
+    RUN_TEST(test_skip_media_document_sticker_attr);
+    RUN_TEST(test_skip_media_document_sticker_with_mask);
+    RUN_TEST(test_skip_media_document_custom_emoji_attr);
     RUN_TEST(test_skip_media_poll_minimal);
     RUN_TEST(test_skip_media_poll_with_results);
     RUN_TEST(test_skip_media_invoice_minimal);

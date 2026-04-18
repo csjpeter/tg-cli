@@ -1062,6 +1062,134 @@ int tl_skip_photo(TlReader *r) {
 #define CRC_documentAttributeFilename    0x15590068u
 #define CRC_documentAttributeVideo       0x43c57c48u
 #define CRC_documentAttributeAudio       0x9852f9c6u
+#define CRC_documentAttributeSticker     0x6319d612u
+#define CRC_documentAttributeCustomEmoji 0xfd149899u
+
+/* InputStickerSet variants (documentAttributeSticker / CustomEmoji). */
+#define CRC_inputStickerSetEmpty                    0xffb62b95u
+#define CRC_inputStickerSetID                       0x9de7a269u
+#define CRC_inputStickerSetShortName                0x861cc8a0u
+#define CRC_inputStickerSetAnimatedEmoji            0x028703c8u
+#define CRC_inputStickerSetDice                     0xe67f520eu
+#define CRC_inputStickerSetAnimatedEmojiAnimations  0x0cde3739u
+#define CRC_inputStickerSetPremiumGifts             0xc88b3b02u
+#define CRC_inputStickerSetEmojiGenericAnimations   0x04c4d4ceu
+#define CRC_inputStickerSetEmojiDefaultStatuses     0x29d0f5eeu
+#define CRC_inputStickerSetEmojiDefaultTopicIcons   0x44c1f8e9u
+#define CRC_inputStickerSetEmojiChannelDefaultStatuses 0x49748553u
+
+/* MaskCoords (documentAttributeSticker.mask_coords). */
+#define CRC_maskCoords                   0xaed6dbb2u
+
+/* VideoSize variants (document.video_thumbs, flags.1). */
+#define CRC_videoSize                    0xde33b094u
+#define CRC_videoSizeEmojiMarkup         0xf85c413cu
+#define CRC_videoSizeStickerMarkup       0x0da082feu
+
+/* Skip an InputStickerSet variant. Used by documentAttributeSticker /
+ * CustomEmoji. Handles every declared variant; on unknown ones we bail. */
+static int skip_input_sticker_set(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    switch (crc) {
+    case CRC_inputStickerSetEmpty:
+    case CRC_inputStickerSetAnimatedEmoji:
+    case CRC_inputStickerSetAnimatedEmojiAnimations:
+    case CRC_inputStickerSetPremiumGifts:
+    case CRC_inputStickerSetEmojiGenericAnimations:
+    case CRC_inputStickerSetEmojiDefaultStatuses:
+    case CRC_inputStickerSetEmojiDefaultTopicIcons:
+    case CRC_inputStickerSetEmojiChannelDefaultStatuses:
+        return 0;
+    case CRC_inputStickerSetID:
+        if (r->len - r->pos < 16) return -1;
+        tl_read_int64(r);                            /* id */
+        tl_read_int64(r);                            /* access_hash */
+        return 0;
+    case CRC_inputStickerSetShortName:
+        return tl_skip_string(r);
+    case CRC_inputStickerSetDice:
+        return tl_skip_string(r);                    /* emoticon */
+    default:
+        logger_log(LOG_WARN,
+                   "skip_input_sticker_set: unknown 0x%08x", crc);
+        return -1;
+    }
+}
+
+/* Skip a MaskCoords#aed6dbb2: n:int + 3 doubles. */
+static int skip_mask_coords(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    if (crc != CRC_maskCoords) {
+        logger_log(LOG_WARN, "skip_mask_coords: unknown 0x%08x", crc);
+        return -1;
+    }
+    if (r->len - r->pos < 4 + 3 * 8) return -1;
+    tl_read_int32(r);                                /* n */
+    tl_read_double(r); tl_read_double(r); tl_read_double(r); /* x, y, zoom */
+    return 0;
+}
+
+/* Skip a single VideoSize variant (document.video_thumbs element). */
+static int skip_video_size(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    switch (crc) {
+    case CRC_videoSize: {
+        /* flags:# type:string w:int h:int size:int video_start_ts:flags.0?double */
+        if (r->len - r->pos < 4) return -1;
+        uint32_t flags = tl_read_uint32(r);
+        if (tl_skip_string(r) != 0) return -1;
+        if (r->len - r->pos < 12) return -1;
+        tl_read_int32(r); tl_read_int32(r); tl_read_int32(r);
+        if (flags & (1u << 0)) {
+            if (r->len - r->pos < 8) return -1;
+            tl_read_double(r);
+        }
+        return 0;
+    }
+    case CRC_videoSizeEmojiMarkup: {
+        if (r->len - r->pos < 8) return -1;
+        tl_read_int64(r);                            /* emoji_id */
+        /* background_colors:Vector<int> */
+        if (r->len - r->pos < 8) return -1;
+        uint32_t vec = tl_read_uint32(r);
+        if (vec != TL_vector) return -1;
+        uint32_t n = tl_read_uint32(r);
+        if (r->len - r->pos < (size_t)n * 4) return -1;
+        for (uint32_t i = 0; i < n; i++) tl_read_int32(r);
+        return 0;
+    }
+    case CRC_videoSizeStickerMarkup: {
+        if (skip_input_sticker_set(r) != 0) return -1;
+        if (r->len - r->pos < 8) return -1;
+        tl_read_int64(r);                            /* sticker_id */
+        if (r->len - r->pos < 8) return -1;
+        uint32_t vec = tl_read_uint32(r);
+        if (vec != TL_vector) return -1;
+        uint32_t n = tl_read_uint32(r);
+        if (r->len - r->pos < (size_t)n * 4) return -1;
+        for (uint32_t i = 0; i < n; i++) tl_read_int32(r);
+        return 0;
+    }
+    default:
+        logger_log(LOG_WARN, "skip_video_size: unknown 0x%08x", crc);
+        return -1;
+    }
+}
+
+/* Skip a Vector<VideoSize>. */
+static int skip_video_size_vector(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 8) return -1;
+    uint32_t vec = tl_read_uint32(r);
+    if (vec != TL_vector) return -1;
+    uint32_t n = tl_read_uint32(r);
+    for (uint32_t i = 0; i < n; i++) {
+        if (skip_video_size(r) != 0) return -1;
+    }
+    return 0;
+}
 
 /* Skip a single DocumentAttribute, optionally extracting the filename. */
 static int skip_document_attribute(TlReader *r,
@@ -1118,6 +1246,26 @@ static int skip_document_attribute(TlReader *r,
         if (flags & (1u << 2))
             if (tl_skip_string(r) != 0) return -1;       /* waveform:bytes */
         return 0;
+    }
+    case CRC_documentAttributeSticker: {
+        /* flags:# mask:flags.1?true alt:string stickerset:InputStickerSet
+         *        mask_coords:flags.0?MaskCoords */
+        if (r->len - r->pos < 4) return -1;
+        uint32_t flags = tl_read_uint32(r);
+        if (tl_skip_string(r) != 0) return -1;           /* alt */
+        if (skip_input_sticker_set(r) != 0) return -1;
+        if (flags & (1u << 0)) {
+            if (skip_mask_coords(r) != 0) return -1;
+        }
+        return 0;
+    }
+    case CRC_documentAttributeCustomEmoji: {
+        /* flags:# free:flags.0?true text_color:flags.1?true alt:string
+         *        stickerset:InputStickerSet */
+        if (r->len - r->pos < 4) return -1;
+        (void)tl_read_uint32(r);                         /* flags */
+        if (tl_skip_string(r) != 0) return -1;           /* alt */
+        return skip_input_sticker_set(r);
     }
     default:
         logger_log(LOG_WARN, "skip_document_attribute: unknown 0x%08x", crc);
@@ -1178,12 +1326,10 @@ static int document_inner(TlReader *r, MediaInfo *out) {
     if (out) out->document_size = size;
 
     if (flags & (1u << 0)) {
-        logger_log(LOG_WARN, "tl_skip_document: thumbs vector not supported");
-        return -1;
+        if (tl_skip_photo_size_vector(r) != 0) return -1;
     }
     if (flags & (1u << 1)) {
-        logger_log(LOG_WARN, "tl_skip_document: video_thumbs not supported");
-        return -1;
+        if (skip_video_size_vector(r) != 0) return -1;
     }
 
     if (r->len - r->pos < 4) return -1;
