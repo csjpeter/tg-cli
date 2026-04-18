@@ -1,3 +1,8 @@
+[![CI](https://github.com/csjpeter/tg-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/csjpeter/tg-cli/actions/workflows/ci.yml)
+[![Valgrind](https://github.com/csjpeter/tg-cli/actions/workflows/valgrind.yml/badge.svg)](https://github.com/csjpeter/tg-cli/actions/workflows/valgrind.yml)
+[![Coverage](https://csjpeter.github.io/tg-cli/coverage-badge.svg)](https://csjpeter.github.io/tg-cli/)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+
 # tg-cli
 
 An **unofficial**, terminal-based Telegram user-client suite written in C11.
