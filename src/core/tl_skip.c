@@ -155,7 +155,7 @@
 /* Page (webPage.cached_page, flags.10). */
 #define CRC_page                        0x98657f0du
 
-/* PageBlock subset supported for cached_page iteration. */
+/* PageBlock variants — full set for cached_page iteration. */
 #define CRC_pageBlockUnsupported        0x13567e8au
 #define CRC_pageBlockTitle              0x70abc3fdu
 #define CRC_pageBlockSubtitle           0x8ffa9a1fu
@@ -168,6 +168,34 @@
 #define CRC_pageBlockDivider            0xdb20b188u
 #define CRC_pageBlockAnchor             0xce0d37b0u
 #define CRC_pageBlockAuthorDate         0xbaafe5e0u
+#define CRC_pageBlockBlockquote         0x263d7c26u
+#define CRC_pageBlockPullquote          0x4f4456d5u
+#define CRC_pageBlockPhoto              0x1759c560u
+#define CRC_pageBlockVideo              0x7c8fe7b6u
+#define CRC_pageBlockAudio              0x804361eau
+#define CRC_pageBlockCover              0x39f23300u
+#define CRC_pageBlockChannel            0xef1751b5u
+#define CRC_pageBlockMap                0xa44f3ef6u
+#define CRC_pageBlockList               0xe4e88011u
+#define CRC_pageBlockOrderedList        0x9a8ae1e1u
+#define CRC_pageBlockCollage            0x65a0fa4du
+#define CRC_pageBlockSlideshow          0x031f9590u
+#define CRC_pageBlockDetails            0x76768bedu
+#define CRC_pageBlockRelatedArticles    0x16115a96u
+#define CRC_pageBlockTable              0xbf4dea82u
+#define CRC_pageBlockEmbed              0xa8718dc5u
+#define CRC_pageBlockEmbedPost          0xf259a80bu
+
+/* PageCaption, PageListItem, PageListOrderedItem, PageTableRow/Cell,
+ * PageRelatedArticle — all reached from PageBlock variants. */
+#define CRC_pageCaption                 0x6f747657u
+#define CRC_pageListItemText            0xb92fb6cdu
+#define CRC_pageListItemBlocks          0x25e073fcu
+#define CRC_pageListOrderedItemText     0x5e068047u
+#define CRC_pageListOrderedItemBlocks   0x98dd8936u
+#define CRC_pageTableRow                0xe0c0c5e5u
+#define CRC_pageTableCell               0x34566b6au
+#define CRC_pageRelatedArticle          0xb390dc08u
 
 /* RichText variants — full tree so every supported PageBlock can walk
  * its RichText payload. */
@@ -1383,6 +1411,12 @@ static int skip_geo_point(TlReader *r) {
  * the MessageMedia switch) and is re-used by webPageAttributeStory. */
 static int skip_story_item(TlReader *r);
 
+/* Forward decls: PageBlock recursion (Cover → PageBlock, Details →
+ * Vector<PageBlock>, EmbedPost → Vector<PageBlock>, List item blocks,
+ * etc.) and reliance on skip_geo_point for pageBlockMap. */
+static int skip_page_block(TlReader *r);
+static int skip_geo_point(TlReader *r);
+
 /* RichText tree (used by cached_page's PageBlock variants). Recursive:
  * wrap-type variants contain a nested RichText. textConcat is a vector. */
 static int skip_rich_text(TlReader *r) {
@@ -1441,15 +1475,137 @@ static int skip_rich_text(TlReader *r) {
     }
 }
 
-/* Skip a single PageBlock variant. Only a whitelisted simple subset is
- * supported; complex blocks (Cover, Collage, Slideshow, Details,
- * RelatedArticles, Table, Embed, Photo, Video, Audio, Map, Channel,
- * List, OrderedList, Blockquote, Pullquote) return -1 so the caller
- * stops iterating the Page.
- *
- * This subset covers simple article-style Instant View pages
- * (header + paragraphs + author + footer + anchors) which is enough to
- * not fail outright on most modern webPage.cached_page payloads. */
+/* Skip a pageCaption#6f747657 text:RichText credit:RichText. */
+static int skip_page_caption(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    if (crc != CRC_pageCaption) {
+        logger_log(LOG_WARN, "skip_page_caption: unknown 0x%08x", crc);
+        return -1;
+    }
+    if (skip_rich_text(r) != 0) return -1;
+    return skip_rich_text(r);
+}
+
+/* Skip a Vector<PageBlock> — recursive into skip_page_block. */
+static int skip_page_block_vector(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 8) return -1;
+    uint32_t vec = tl_read_uint32(r);
+    if (vec != TL_vector) return -1;
+    uint32_t n = tl_read_uint32(r);
+    for (uint32_t i = 0; i < n; i++) {
+        if (skip_page_block(r) != 0) return -1;
+    }
+    return 0;
+}
+
+/* Skip a single PageListItem. */
+static int skip_page_list_item(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    switch (crc) {
+    case CRC_pageListItemText:
+        return skip_rich_text(r);
+    case CRC_pageListItemBlocks:
+        return skip_page_block_vector(r);
+    default:
+        logger_log(LOG_WARN, "skip_page_list_item: unknown 0x%08x", crc);
+        return -1;
+    }
+}
+
+static int skip_page_list_ordered_item(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    switch (crc) {
+    case CRC_pageListOrderedItemText:
+        if (tl_skip_string(r) != 0) return -1;       /* num */
+        return skip_rich_text(r);
+    case CRC_pageListOrderedItemBlocks:
+        if (tl_skip_string(r) != 0) return -1;       /* num */
+        return skip_page_block_vector(r);
+    default:
+        logger_log(LOG_WARN,
+                   "skip_page_list_ordered_item: unknown 0x%08x", crc);
+        return -1;
+    }
+}
+
+/* pageTableCell#34566b6a flags:# header/align/valign:flags
+ *   text:flags.7?RichText colspan:flags.1?int rowspan:flags.2?int */
+static int skip_page_table_cell(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    if (crc != CRC_pageTableCell) {
+        logger_log(LOG_WARN, "skip_page_table_cell: unknown 0x%08x", crc);
+        return -1;
+    }
+    if (r->len - r->pos < 4) return -1;
+    uint32_t flags = tl_read_uint32(r);
+    if (flags & (1u << 7)) {
+        if (skip_rich_text(r) != 0) return -1;
+    }
+    if (flags & (1u << 1)) {
+        if (r->len - r->pos < 4) return -1;
+        tl_read_int32(r);                            /* colspan */
+    }
+    if (flags & (1u << 2)) {
+        if (r->len - r->pos < 4) return -1;
+        tl_read_int32(r);                            /* rowspan */
+    }
+    return 0;
+}
+
+/* pageTableRow#e0c0c5e5 cells:Vector<PageTableCell>. */
+static int skip_page_table_row(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    if (crc != CRC_pageTableRow) {
+        logger_log(LOG_WARN, "skip_page_table_row: unknown 0x%08x", crc);
+        return -1;
+    }
+    if (r->len - r->pos < 8) return -1;
+    uint32_t vec = tl_read_uint32(r);
+    if (vec != TL_vector) return -1;
+    uint32_t n = tl_read_uint32(r);
+    for (uint32_t i = 0; i < n; i++) {
+        if (skip_page_table_cell(r) != 0) return -1;
+    }
+    return 0;
+}
+
+/* pageRelatedArticle#b390dc08 flags:# url:string webpage_id:long
+ *   title:flags.0?string description:flags.1?string
+ *   photo_id:flags.2?long author:flags.3?string
+ *   published_date:flags.4?int */
+static int skip_page_related_article(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    if (crc != CRC_pageRelatedArticle) {
+        logger_log(LOG_WARN,
+                   "skip_page_related_article: unknown 0x%08x", crc);
+        return -1;
+    }
+    if (r->len - r->pos < 4) return -1;
+    uint32_t flags = tl_read_uint32(r);
+    if (tl_skip_string(r) != 0) return -1;           /* url */
+    if (r->len - r->pos < 8) return -1;
+    tl_read_int64(r);                                /* webpage_id */
+    if (flags & (1u << 0)) if (tl_skip_string(r) != 0) return -1;
+    if (flags & (1u << 1)) if (tl_skip_string(r) != 0) return -1;
+    if (flags & (1u << 2)) {
+        if (r->len - r->pos < 8) return -1;
+        tl_read_int64(r);                            /* photo_id */
+    }
+    if (flags & (1u << 3)) if (tl_skip_string(r) != 0) return -1;
+    if (flags & (1u << 4)) {
+        if (r->len - r->pos < 4) return -1;
+        tl_read_int32(r);                            /* published_date */
+    }
+    return 0;
+}
+
+/* Skip a single PageBlock — full coverage of the PageBlock tree. */
 static int skip_page_block(TlReader *r) {
     if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
     uint32_t crc = tl_read_uint32(r);
@@ -1476,6 +1632,127 @@ static int skip_page_block(TlReader *r) {
         if (r->len - r->pos < 4) return -1;
         tl_read_int32(r);                            /* published_date */
         return 0;
+    }
+    case CRC_pageBlockBlockquote:
+    case CRC_pageBlockPullquote: {
+        if (skip_rich_text(r) != 0) return -1;       /* text */
+        return skip_rich_text(r);                    /* caption */
+    }
+    case CRC_pageBlockPhoto: {
+        if (r->len - r->pos < 4) return -1;
+        uint32_t flags = tl_read_uint32(r);
+        if (r->len - r->pos < 8) return -1;
+        tl_read_int64(r);                            /* photo_id */
+        if (skip_page_caption(r) != 0) return -1;
+        if (flags & (1u << 0)) {
+            if (tl_skip_string(r) != 0) return -1;   /* url */
+            if (r->len - r->pos < 8) return -1;
+            tl_read_int64(r);                        /* webpage_id */
+        }
+        return 0;
+    }
+    case CRC_pageBlockVideo: {
+        if (r->len - r->pos < 12) return -1;
+        tl_read_uint32(r);                           /* flags (autoplay/loop only) */
+        tl_read_int64(r);                            /* video_id */
+        return skip_page_caption(r);
+    }
+    case CRC_pageBlockAudio: {
+        if (r->len - r->pos < 8) return -1;
+        tl_read_int64(r);                            /* audio_id */
+        return skip_page_caption(r);
+    }
+    case CRC_pageBlockCover:
+        return skip_page_block(r);
+    case CRC_pageBlockChannel:
+        return tl_skip_chat(r);
+    case CRC_pageBlockMap: {
+        if (skip_geo_point(r) != 0) return -1;
+        if (r->len - r->pos < 12) return -1;
+        tl_read_int32(r);                            /* zoom */
+        tl_read_int32(r); tl_read_int32(r);          /* w, h */
+        return skip_page_caption(r);
+    }
+    case CRC_pageBlockList: {
+        if (r->len - r->pos < 8) return -1;
+        uint32_t vec = tl_read_uint32(r);
+        if (vec != TL_vector) return -1;
+        uint32_t n = tl_read_uint32(r);
+        for (uint32_t i = 0; i < n; i++) {
+            if (skip_page_list_item(r) != 0) return -1;
+        }
+        return 0;
+    }
+    case CRC_pageBlockOrderedList: {
+        if (r->len - r->pos < 8) return -1;
+        uint32_t vec = tl_read_uint32(r);
+        if (vec != TL_vector) return -1;
+        uint32_t n = tl_read_uint32(r);
+        for (uint32_t i = 0; i < n; i++) {
+            if (skip_page_list_ordered_item(r) != 0) return -1;
+        }
+        return 0;
+    }
+    case CRC_pageBlockCollage:
+    case CRC_pageBlockSlideshow: {
+        if (skip_page_block_vector(r) != 0) return -1;
+        return skip_page_caption(r);
+    }
+    case CRC_pageBlockDetails: {
+        if (r->len - r->pos < 4) return -1;
+        tl_read_uint32(r);                           /* flags (open only) */
+        if (skip_page_block_vector(r) != 0) return -1;
+        return skip_rich_text(r);                    /* title */
+    }
+    case CRC_pageBlockRelatedArticles: {
+        if (skip_rich_text(r) != 0) return -1;       /* title */
+        if (r->len - r->pos < 8) return -1;
+        uint32_t vec = tl_read_uint32(r);
+        if (vec != TL_vector) return -1;
+        uint32_t n = tl_read_uint32(r);
+        for (uint32_t i = 0; i < n; i++) {
+            if (skip_page_related_article(r) != 0) return -1;
+        }
+        return 0;
+    }
+    case CRC_pageBlockTable: {
+        if (r->len - r->pos < 4) return -1;
+        tl_read_uint32(r);                           /* flags (bordered/striped) */
+        if (skip_rich_text(r) != 0) return -1;       /* title */
+        if (r->len - r->pos < 8) return -1;
+        uint32_t vec = tl_read_uint32(r);
+        if (vec != TL_vector) return -1;
+        uint32_t n = tl_read_uint32(r);
+        for (uint32_t i = 0; i < n; i++) {
+            if (skip_page_table_row(r) != 0) return -1;
+        }
+        return 0;
+    }
+    case CRC_pageBlockEmbed: {
+        if (r->len - r->pos < 4) return -1;
+        uint32_t flags = tl_read_uint32(r);
+        if (flags & (1u << 1)) if (tl_skip_string(r) != 0) return -1;
+        if (flags & (1u << 2)) if (tl_skip_string(r) != 0) return -1;
+        if (flags & (1u << 4)) {
+            if (r->len - r->pos < 8) return -1;
+            tl_read_int64(r);                        /* poster_photo_id */
+        }
+        if (flags & (1u << 5)) {
+            if (r->len - r->pos < 8) return -1;
+            tl_read_int32(r); tl_read_int32(r);      /* w, h */
+        }
+        return skip_page_caption(r);
+    }
+    case CRC_pageBlockEmbedPost: {
+        if (tl_skip_string(r) != 0) return -1;       /* url */
+        if (r->len - r->pos < 16) return -1;
+        tl_read_int64(r);                            /* webpage_id */
+        tl_read_int64(r);                            /* author_photo_id */
+        if (tl_skip_string(r) != 0) return -1;       /* author */
+        if (r->len - r->pos < 4) return -1;
+        tl_read_int32(r);                            /* date */
+        if (skip_page_block_vector(r) != 0) return -1;
+        return skip_page_caption(r);
     }
     default:
         logger_log(LOG_WARN, "skip_page_block: unsupported 0x%08x", crc);

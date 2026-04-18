@@ -1464,6 +1464,263 @@ static void test_skip_media_webpage_cached_page_textconcat(void) {
     tl_writer_free(&w);
 }
 
+/* LIM-03: PageBlock CRCs beyond the TUI-11 whitelist. */
+#define CRC_pageCaption_t                0x6f747657u
+#define CRC_pageBlockBlockquote_t        0x263d7c26u
+#define CRC_pageBlockPullquote_t         0x4f4456d5u
+#define CRC_pageBlockPhoto_t             0x1759c560u
+#define CRC_pageBlockVideo_t             0x7c8fe7b6u
+#define CRC_pageBlockAudio_t             0x804361eau
+#define CRC_pageBlockCover_t             0x39f23300u
+#define CRC_pageBlockChannel_t           0xef1751b5u
+#define CRC_pageBlockMap_t               0xa44f3ef6u
+#define CRC_pageBlockList_t              0xe4e88011u
+#define CRC_pageBlockOrderedList_t       0x9a8ae1e1u
+#define CRC_pageBlockCollage_t           0x65a0fa4du
+#define CRC_pageBlockSlideshow_t         0x031f9590u
+#define CRC_pageBlockDetails_t           0x76768bedu
+#define CRC_pageBlockRelatedArticles_t   0x16115a96u
+#define CRC_pageBlockTable_t             0xbf4dea82u
+#define CRC_pageBlockEmbed_t             0xa8718dc5u
+#define CRC_pageBlockEmbedPost_t         0xf259a80bu
+#define CRC_pageListItemText_t           0xb92fb6cdu
+#define CRC_pageListItemBlocks_t         0x25e073fcu
+#define CRC_pageListOrderedItemText_t    0x5e068047u
+#define CRC_pageTableRow_t               0xe0c0c5e5u
+#define CRC_pageTableCell_t              0x34566b6au
+#define CRC_pageRelatedArticle_t         0xb390dc08u
+#define CRC_geoPointEmpty_t              0x1117dd5fu
+#define CRC_chatEmpty_t                  0x29562865u
+
+/* Helper: wraps @p builder output into messageMediaWebPage + webPage
+ *         with flags.10 (cached_page) set, writes sentinel 0xCAFE after.
+ *         @p builder emits the Page body (flags, url, vectors). */
+static void run_cached_page_roundtrip(void (*builder)(TlWriter *)) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaWebPage_test);
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, CRC_webPage_test);
+    tl_write_uint32(&w, (1u << 10));
+    tl_write_int64 (&w, 1);
+    tl_write_string(&w, "u");
+    tl_write_string(&w, "u");
+    tl_write_int32 (&w, 1);
+    /* Page wrapper. */
+    tl_write_uint32(&w, CRC_page_test);
+    tl_write_uint32(&w, 0);
+    tl_write_string(&w, "x");
+    builder(&w);
+    /* photos + documents — empty. */
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 0);
+    tl_write_int32(&w, 0xCAFE);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r, NULL) == 0, "cached_page iterates");
+    ASSERT(tl_read_int32(&r) == 0xCAFE, "cursor past media");
+    tl_writer_free(&w);
+}
+
+static void empty_caption(TlWriter *w) {
+    tl_write_uint32(w, CRC_pageCaption_t);
+    tl_write_uint32(w, CRC_textEmpty_test);
+    tl_write_uint32(w, CRC_textEmpty_test);
+}
+
+static void build_blockquote(TlWriter *w) {
+    tl_write_uint32(w, TL_vector); tl_write_uint32(w, 1);
+    tl_write_uint32(w, CRC_pageBlockBlockquote_t);
+    tl_write_uint32(w, CRC_textPlain_test); tl_write_string(w, "quote");
+    tl_write_uint32(w, CRC_textPlain_test); tl_write_string(w, "credit");
+}
+static void test_skip_cached_page_blockquote(void) {
+    run_cached_page_roundtrip(build_blockquote);
+}
+
+static void build_photo_block(TlWriter *w) {
+    tl_write_uint32(w, TL_vector); tl_write_uint32(w, 1);
+    tl_write_uint32(w, CRC_pageBlockPhoto_t);
+    tl_write_uint32(w, 0);                 /* no url */
+    tl_write_int64 (w, 99LL);
+    empty_caption(w);
+}
+static void test_skip_cached_page_photo(void) {
+    run_cached_page_roundtrip(build_photo_block);
+}
+
+static void build_video_block(TlWriter *w) {
+    tl_write_uint32(w, TL_vector); tl_write_uint32(w, 1);
+    tl_write_uint32(w, CRC_pageBlockVideo_t);
+    tl_write_uint32(w, 0);
+    tl_write_int64 (w, 42LL);
+    empty_caption(w);
+}
+static void test_skip_cached_page_video(void) {
+    run_cached_page_roundtrip(build_video_block);
+}
+
+static void build_audio_block(TlWriter *w) {
+    tl_write_uint32(w, TL_vector); tl_write_uint32(w, 1);
+    tl_write_uint32(w, CRC_pageBlockAudio_t);
+    tl_write_int64 (w, 7LL);
+    empty_caption(w);
+}
+static void test_skip_cached_page_audio(void) {
+    run_cached_page_roundtrip(build_audio_block);
+}
+
+static void build_cover_block(TlWriter *w) {
+    tl_write_uint32(w, TL_vector); tl_write_uint32(w, 1);
+    tl_write_uint32(w, CRC_pageBlockCover_t);
+    /* nested: paragraph(textEmpty) */
+    tl_write_uint32(w, CRC_pageBlockParagraph_test);
+    tl_write_uint32(w, CRC_textEmpty_test);
+}
+static void test_skip_cached_page_cover(void) {
+    run_cached_page_roundtrip(build_cover_block);
+}
+
+static void build_channel_block(TlWriter *w) {
+    tl_write_uint32(w, TL_vector); tl_write_uint32(w, 1);
+    tl_write_uint32(w, CRC_pageBlockChannel_t);
+    tl_write_uint32(w, CRC_chatEmpty_t);
+    tl_write_int64 (w, 123LL);
+}
+static void test_skip_cached_page_channel(void) {
+    run_cached_page_roundtrip(build_channel_block);
+}
+
+static void build_map_block(TlWriter *w) {
+    tl_write_uint32(w, TL_vector); tl_write_uint32(w, 1);
+    tl_write_uint32(w, CRC_pageBlockMap_t);
+    tl_write_uint32(w, CRC_geoPointEmpty_t);
+    tl_write_int32 (w, 14);                /* zoom */
+    tl_write_int32 (w, 800);               /* w */
+    tl_write_int32 (w, 600);               /* h */
+    empty_caption(w);
+}
+static void test_skip_cached_page_map(void) {
+    run_cached_page_roundtrip(build_map_block);
+}
+
+static void build_list_block(TlWriter *w) {
+    tl_write_uint32(w, TL_vector); tl_write_uint32(w, 1);
+    tl_write_uint32(w, CRC_pageBlockList_t);
+    tl_write_uint32(w, TL_vector); tl_write_uint32(w, 2);
+    tl_write_uint32(w, CRC_pageListItemText_t);
+    tl_write_uint32(w, CRC_textPlain_test); tl_write_string(w, "one");
+    tl_write_uint32(w, CRC_pageListItemBlocks_t);
+    tl_write_uint32(w, TL_vector); tl_write_uint32(w, 1);
+    tl_write_uint32(w, CRC_pageBlockParagraph_test);
+    tl_write_uint32(w, CRC_textPlain_test); tl_write_string(w, "two");
+}
+static void test_skip_cached_page_list(void) {
+    run_cached_page_roundtrip(build_list_block);
+}
+
+static void build_ordered_list_block(TlWriter *w) {
+    tl_write_uint32(w, TL_vector); tl_write_uint32(w, 1);
+    tl_write_uint32(w, CRC_pageBlockOrderedList_t);
+    tl_write_uint32(w, TL_vector); tl_write_uint32(w, 1);
+    tl_write_uint32(w, CRC_pageListOrderedItemText_t);
+    tl_write_string(w, "1.");
+    tl_write_uint32(w, CRC_textPlain_test); tl_write_string(w, "first");
+}
+static void test_skip_cached_page_ordered_list(void) {
+    run_cached_page_roundtrip(build_ordered_list_block);
+}
+
+static void build_collage_block(TlWriter *w) {
+    tl_write_uint32(w, TL_vector); tl_write_uint32(w, 1);
+    tl_write_uint32(w, CRC_pageBlockCollage_t);
+    /* items: empty vector (still covers Collage's structure) */
+    tl_write_uint32(w, TL_vector); tl_write_uint32(w, 0);
+    empty_caption(w);
+}
+static void test_skip_cached_page_collage(void) {
+    run_cached_page_roundtrip(build_collage_block);
+}
+
+static void build_slideshow_block(TlWriter *w) {
+    tl_write_uint32(w, TL_vector); tl_write_uint32(w, 1);
+    tl_write_uint32(w, CRC_pageBlockSlideshow_t);
+    tl_write_uint32(w, TL_vector); tl_write_uint32(w, 1);
+    tl_write_uint32(w, CRC_pageBlockParagraph_test);
+    tl_write_uint32(w, CRC_textPlain_test); tl_write_string(w, "slide");
+    empty_caption(w);
+}
+static void test_skip_cached_page_slideshow(void) {
+    run_cached_page_roundtrip(build_slideshow_block);
+}
+
+static void build_details_block(TlWriter *w) {
+    tl_write_uint32(w, TL_vector); tl_write_uint32(w, 1);
+    tl_write_uint32(w, CRC_pageBlockDetails_t);
+    tl_write_uint32(w, 0);
+    tl_write_uint32(w, TL_vector); tl_write_uint32(w, 1);
+    tl_write_uint32(w, CRC_pageBlockParagraph_test);
+    tl_write_uint32(w, CRC_textEmpty_test);
+    tl_write_uint32(w, CRC_textPlain_test); tl_write_string(w, "Title");
+}
+static void test_skip_cached_page_details(void) {
+    run_cached_page_roundtrip(build_details_block);
+}
+
+static void build_related_articles_block(TlWriter *w) {
+    tl_write_uint32(w, TL_vector); tl_write_uint32(w, 1);
+    tl_write_uint32(w, CRC_pageBlockRelatedArticles_t);
+    tl_write_uint32(w, CRC_textPlain_test); tl_write_string(w, "Related");
+    tl_write_uint32(w, TL_vector); tl_write_uint32(w, 1);
+    tl_write_uint32(w, CRC_pageRelatedArticle_t);
+    tl_write_uint32(w, 0);                 /* flags */
+    tl_write_string(w, "https://a");
+    tl_write_int64 (w, 111LL);
+}
+static void test_skip_cached_page_related_articles(void) {
+    run_cached_page_roundtrip(build_related_articles_block);
+}
+
+static void build_table_block(TlWriter *w) {
+    tl_write_uint32(w, TL_vector); tl_write_uint32(w, 1);
+    tl_write_uint32(w, CRC_pageBlockTable_t);
+    tl_write_uint32(w, 0);
+    tl_write_uint32(w, CRC_textEmpty_test);
+    tl_write_uint32(w, TL_vector); tl_write_uint32(w, 1);
+    tl_write_uint32(w, CRC_pageTableRow_t);
+    tl_write_uint32(w, TL_vector); tl_write_uint32(w, 1);
+    tl_write_uint32(w, CRC_pageTableCell_t);
+    tl_write_uint32(w, (1u << 7));         /* text:flags.7 */
+    tl_write_uint32(w, CRC_textPlain_test); tl_write_string(w, "cell");
+}
+static void test_skip_cached_page_table(void) {
+    run_cached_page_roundtrip(build_table_block);
+}
+
+static void build_embed_block(TlWriter *w) {
+    tl_write_uint32(w, TL_vector); tl_write_uint32(w, 1);
+    tl_write_uint32(w, CRC_pageBlockEmbed_t);
+    tl_write_uint32(w, (1u << 1));         /* url present */
+    tl_write_string(w, "https://example/e");
+    empty_caption(w);
+}
+static void test_skip_cached_page_embed(void) {
+    run_cached_page_roundtrip(build_embed_block);
+}
+
+static void build_embed_post_block(TlWriter *w) {
+    tl_write_uint32(w, TL_vector); tl_write_uint32(w, 1);
+    tl_write_uint32(w, CRC_pageBlockEmbedPost_t);
+    tl_write_string(w, "https://p");
+    tl_write_int64 (w, 1);                 /* webpage_id */
+    tl_write_int64 (w, 2);                 /* author_photo_id */
+    tl_write_string(w, "author");
+    tl_write_int32 (w, 1700000000);
+    tl_write_uint32(w, TL_vector); tl_write_uint32(w, 0);
+    empty_caption(w);
+}
+static void test_skip_cached_page_embed_post(void) {
+    run_cached_page_roundtrip(build_embed_post_block);
+}
+
 /* TUI-11: cached_page with an unsupported PageBlock (Cover etc.) bails. */
 static void test_skip_media_webpage_cached_page_unsupported(void) {
     TlWriter w; tl_writer_init(&w);
@@ -2114,6 +2371,22 @@ void run_tl_skip_tests(void) {
     RUN_TEST(test_skip_media_webpage_cached_page_simple);
     RUN_TEST(test_skip_media_webpage_cached_page_textconcat);
     RUN_TEST(test_skip_media_webpage_cached_page_unsupported);
+    RUN_TEST(test_skip_cached_page_blockquote);
+    RUN_TEST(test_skip_cached_page_photo);
+    RUN_TEST(test_skip_cached_page_video);
+    RUN_TEST(test_skip_cached_page_audio);
+    RUN_TEST(test_skip_cached_page_cover);
+    RUN_TEST(test_skip_cached_page_channel);
+    RUN_TEST(test_skip_cached_page_map);
+    RUN_TEST(test_skip_cached_page_list);
+    RUN_TEST(test_skip_cached_page_ordered_list);
+    RUN_TEST(test_skip_cached_page_collage);
+    RUN_TEST(test_skip_cached_page_slideshow);
+    RUN_TEST(test_skip_cached_page_details);
+    RUN_TEST(test_skip_cached_page_related_articles);
+    RUN_TEST(test_skip_cached_page_table);
+    RUN_TEST(test_skip_cached_page_embed);
+    RUN_TEST(test_skip_cached_page_embed_post);
     RUN_TEST(test_skip_media_webpage_attributes_theme);
     RUN_TEST(test_skip_media_webpage_attributes_stickerset);
     RUN_TEST(test_skip_media_webpage_attributes_story_noinline);
