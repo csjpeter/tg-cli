@@ -231,4 +231,24 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
 All documented v1 limitations are closed (LIM-01..LIM-04):
 photo upload, full Document iteration (incl. stickers / custom
 emojis / thumbs), full cached_page PageBlock tree, and a recursion
-guard on storyItem → messageMedia. No obvious next step.
+guard on storyItem → messageMedia.
+
+### Next: functional-test expansion (US-17, FT-01..07)
+The existing 150-case functional suite is crypto-only. Broadening it
+to cover every user-visible behaviour end-to-end against a mock
+Telegram server:
+1. **FT-01** — use-case inventory + US doc refresh (done: this commit
+   marks every US-03..US-16 as done and adds the missing US-13..16).
+2. **FT-02** — scriptable mock Telegram server emulator on top of
+   `tests/mocks/socket.c`: encrypted envelope parsing, RPC dispatch
+   registry, canned response builders.
+3. **FT-03** — login flow tests (SMS, 2FA, PHONE_MIGRATE, bad_salt,
+   session persist, `--logout`).
+4. **FT-04** — read-path tests (dialogs, history, search, user-info,
+   contacts, resolve-username, watch).
+5. **FT-05** — write-path tests (send, reply, edit, delete, forward,
+   read markers).
+6. **FT-06** — upload/download tests (small/big file, photo,
+   cross-DC FILE_MIGRATE + NETWORK_MIGRATE).
+7. **FT-07** — separate lcov run for functional tests, GitHub Pages
+   hosting for the report, dedicated README coverage badge.

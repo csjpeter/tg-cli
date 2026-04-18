@@ -2,6 +2,10 @@
 
 Applies to: all three binaries (shared by `src/app/auth.c`).
 
+**Status:** done — `auth.sendCode`, `auth.signIn`, PHONE_MIGRATE_X
+rerouting, `account.getPassword` + SRP + `auth.checkPassword` for 2FA,
+session persistence and `--logout` all shipped (P3-02, P3-03, P4-04).
+
 ## Story
 As a user running tg-cli-ro or tg-tui for the first time, I want to
 authenticate with my phone number and the received code so that I can access

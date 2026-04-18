@@ -1,6 +1,10 @@
-# US-11 — Interactive TUI (read-only MVP)
+# US-11 — Interactive TUI (read + write, curses-style `--tui`)
 
 Applies to: `tg-tui`.
+
+**Status:** done — three-pane curses layout (dialogs / history / status),
+j/k/h/l/g/G/Enter/q navigation, SIGWINCH resize, 5 s idle poll via
+`updates.getDifference`, webPage cached_page iteration (TUI-01..11).
 
 ## Story
 As a user I want an interactive terminal UI where I can navigate my dialogs

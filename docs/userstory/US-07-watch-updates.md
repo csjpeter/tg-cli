@@ -2,6 +2,9 @@
 
 Applies to: `tg-cli-ro`, `tg-tui`.
 
+**Status:** done — `updates.getState` seed + `updates.getDifference` poll
+loop in tg-cli-ro `watch` and TUI idle-poll (TUI-10).
+
 ## Story
 As an authenticated user I want to run a command that shows me new messages
 as they arrive so that I can monitor a channel or feed without opening an

@@ -2,6 +2,9 @@
 
 Applies to: `tg-cli-ro`, `tg-tui`.
 
+**Status:** done — `messages.searchGlobal` (no peer) and
+`messages.search` (per-peer) both wired (P5-05).
+
 ## Story
 As a user I want to search for a text fragment across all chats or inside
 one peer so that I can find a remembered message without scrolling.

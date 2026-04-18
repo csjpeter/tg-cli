@@ -2,6 +2,9 @@
 
 Applies to: `tg-cli-ro`, `tg-tui` (read-only).
 
+**Status:** done — `messages.getDialogs` with user/chat join, title + @username
+extraction, `access_hash` threaded for later open (P5-01, TUI-08).
+
 ## Story
 As an authenticated user I want to list my chats (DMs, groups, channels) so
 that I can find the peer I want to inspect.

@@ -1,5 +1,11 @@
 # US-02 — TUI modules become testable headlessly
 
+**Status:** done — every curses-TUI module (`screen`, `pane`, `list_view`,
+`dialog_pane`, `history_pane`, `status_row`, `app`) drives
+`open_memstream` and the state-machine `TuiEvent` surface, which runs
+headlessly in CI (TUI-01..09). Pure POSIX `readline.c` PTY coverage is
+the still-deferred piece (see Acceptance).
+
 ## Story
 As a developer, I want `readline.c` and `platform/posix/terminal.c` to be
 unit-testable without a TTY so that line-editing and raw-mode logic can be

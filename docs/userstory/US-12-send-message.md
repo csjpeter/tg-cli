@@ -1,6 +1,10 @@
-# US-12 — Send message (batch + TUI)
+# US-12 — Send message + read markers
 
-Applies to: `tg-tui` first, then `tg-cli` (batch). **Never** `tg-cli-ro`.
+Applies to: `tg-tui`, `tg-cli`. **Never** `tg-cli-ro`.
+
+**Status:** done — `messages.sendMessage` (plain + `--reply` +
+stdin-pipe), `messages.readHistory` / `channels.readHistory` dispatched
+by peer kind (P5-03, P5-04, P8-03).
 
 ## Story
 As a user I want to send a plain-text message from the TUI or from a batch

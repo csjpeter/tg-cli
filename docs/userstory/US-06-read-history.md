@@ -2,6 +2,10 @@
 
 Applies to: `tg-cli-ro`, `tg-tui`.
 
+**Status:** done — `messages.getHistory` for self + @peer, text + media
+kind + photo_id/document_id extraction via `tl_skip_message_media_ex`
+(P5-02, P5-07, P5-09).
+
 ## Story
 As an authenticated user I want to scroll back through the messages of a
 peer so that I can read past conversations or channel posts.

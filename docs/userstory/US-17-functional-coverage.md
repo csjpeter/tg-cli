@@ -1,0 +1,41 @@
+# US-17 — Functional test coverage for every use case
+
+Applies to: `tests/functional/`.
+
+**Status:** in progress — tracked under FT-01..FT-07.
+
+## Story
+As a contributor I want the functional test suite to exercise every
+user-visible behaviour (US-03..US-16) end-to-end against a mock
+Telegram server so that a regression in the RPC layer, auth flow, or
+media pipeline surfaces in CI before it reaches a real account.
+
+## Scope
+The functional harness today covers crypto primitives only
+(SHA-512, PBKDF2, IGE, MTProto crypto, SRP math/roundtrip, TL skip).
+This story adds:
+
+- A full scriptable Telegram server emulator on top of
+  `tests/mocks/socket.c` — handshake, encrypted envelope
+  parsing (auth_key_id routing, msg_key + IGE), RPC dispatch registry
+  keyed by CRC32, canned response builders, salt/session/msg_id
+  bookkeeping.
+- Functional tests for login (SMS, 2FA, PHONE_MIGRATE, logout),
+  read path (dialogs, history, search, user-info, contacts, watch),
+  write path (send, edit, delete, forward, read markers), upload
+  path (small/big file, photo, cross-DC), download path (photo,
+  cross-DC FILE_MIGRATE).
+- Separate lcov run producing `functional_coverage.info` + badge,
+  hosted alongside the existing unit-test coverage on GitHub Pages.
+
+## Acceptance
+- Every US-03..US-16 acceptance bullet has at least one functional
+  test asserting the observable signal.
+- Zero reliance on real network or real OpenSSL — mock crypto for
+  determinism.
+- Dedicated coverage badge in `README.md` next to the existing
+  `coverage-badge.svg`.
+
+## Dependencies
+FT-01 (inventory) · FT-02 (mock server) · FT-03..FT-06 (tests) ·
+FT-07 (coverage infra + badge).

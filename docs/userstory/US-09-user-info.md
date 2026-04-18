@@ -2,6 +2,9 @@
 
 Applies to: `tg-cli-ro`, `tg-tui`.
 
+**Status:** done — `contacts.getContacts`, `contacts.resolveUsername`,
+`users.getFullUser` (P7-01, P7-02, P7-03).
+
 ## Story
 As a user I want to resolve a username to a user/channel and look up its
 public info so that I can confirm who/what I am talking to.

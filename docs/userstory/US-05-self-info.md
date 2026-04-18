@@ -2,6 +2,9 @@
 
 Applies to: `tg-cli-ro`, `tg-tui`.
 
+**Status:** done — `users.getUsers([inputUserSelf])` wired end-to-end
+(batch `me` + REPL `me`).
+
 ## Story
 As an authenticated user I want to confirm which account I am logged in as
 so that I know my session is still valid and on the right identity.
