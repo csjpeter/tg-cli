@@ -2449,10 +2449,33 @@ static int skip_story_item(TlReader *r) {
 /* ---- MessageMedia skipper ----
  * Covers all normal variants (photo, document, geo, contact, venue,
  * poll, invoice, story-deleted/skipped, giveaway, game, paid, webpage).
- * Returns -1 only on the heaviest variants: full inline storyItem and
- * the rare Invoice extended_media with unknown ExtendedMedia CRCs.
+ *
+ * The dispatcher is re-entrant via messageMediaStory → storyItem →
+ * inner media:MessageMedia. An adversarial server could attempt
+ * unbounded recursion by chaining messageMediaStory inside itself.
+ * A depth counter caps the recursion at MEDIA_RECURSION_MAX; beyond
+ * that we bail with -1 and the caller stops iterating the enclosing
+ * Message. Realistic payloads never exceed depth 2.
  */
+#define MEDIA_RECURSION_MAX 4
+
+static int skip_message_media_body(TlReader *r, MediaInfo *out);
+
 int tl_skip_message_media_ex(TlReader *r, MediaInfo *out) {
+    static int recursion_depth = 0;
+    if (recursion_depth >= MEDIA_RECURSION_MAX) {
+        logger_log(LOG_WARN,
+            "tl_skip_message_media_ex: recursion depth limit (%d) reached",
+            MEDIA_RECURSION_MAX);
+        return -1;
+    }
+    recursion_depth++;
+    int rc = skip_message_media_body(r, out);
+    recursion_depth--;
+    return rc;
+}
+
+static int skip_message_media_body(TlReader *r, MediaInfo *out) {
     if (out) memset(out, 0, sizeof(*out));
     if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
     uint32_t crc = tl_read_uint32(r);

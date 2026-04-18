@@ -73,7 +73,7 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
 `pq_factorize` UINT32_MAX guard.
 
 ## Quality
-- **2639 unit tests** passing (ASAN)
+- **2703 unit tests** passing (ASAN)
 - **150 functional tests** passing (real OpenSSL; SHA-512, PBKDF2,
   BN primitives, IGE, MTProto crypto round-trips, full SRP
   client↔server math roundtrip, kitchen-sink Message iteration)
@@ -82,24 +82,26 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
 - Core+infra coverage: ~89% (TUI excluded)
 
 ## Known v1 limitations (follow-ups, not blockers)
-- MessageMedia iteration is effectively complete for the read surface.
-  Since TUI-11 every modern MessageMedia with a `webPage` having
-  `attributes` (theme / stickerSet / story) iterates, and a simple
-  `cached_page` (Instant View body built only from Title / Header /
-  Subheader / Kicker / Paragraph / Subtitle / Footer / Preformatted /
-  Divider / Anchor / AuthorDate blocks with standard RichText
-  wrappers) iterates too. Complex IV blocks (Cover, Collage,
-  Slideshow, Details, RelatedArticles, Table, Embed, Photo, Video,
-  Audio, Map, Channel, List, OrderedList, Blockquote, Pullquote)
-  still bail. Unknown `WebPageAttribute` variants also bail. The only
-  other remaining stopper is the recursive edge case of a `storyItem`
-  whose own `media:MessageMedia` lands on an already-unsupported
-  sub-variant. Everything else now iterates: Photo, Document, Geo,
-  Contact, Venue, Dice, WebPage (incl. cached_page + attributes),
-  Poll, Invoice (with WebDocument photo or MessageExtendedMedia),
-  Story (deleted / skipped / full with StoryFwdHeader + MediaArea +
-  PrivacyRule + StoryViews + Reaction), Giveaway, Game (photo-only
-  or with Document), PaidMedia.
+- MessageMedia iteration is complete for every declared modern
+  variant. LIM-01..LIM-04 closed the remaining gaps: photo upload
+  via scaled InputMedia (`inputMediaUploadedPhoto`); document
+  download for sticker / customEmoji with populated thumbs and
+  video_thumbs vectors; the full PageBlock tree inside
+  `webPage.cached_page` (Cover, Collage, Slideshow, Details,
+  RelatedArticles, Table, Embed, EmbedPost, Photo, Video, Audio,
+  Map, Channel, List, OrderedList, Blockquote, Pullquote) on top
+  of the simple blocks + 15-variant RichText; and a recursion
+  guard on the storyItem → messageMedia → storyItem cycle so an
+  adversarial server can't infinite-recurse the skipper. Unknown
+  WebPageAttribute variants still bail — they're rare and without
+  a schema we have no way to know their wire size. All standard
+  MessageMedia variants iterate: Photo, Document (incl. stickers,
+  custom emojis, any thumb layout), Geo, Contact, Venue, Dice,
+  WebPage (incl. cached_page + attributes), Poll, Invoice (with
+  WebDocument photo or MessageExtendedMedia), Story (deleted /
+  skipped / full with StoryFwdHeader + MediaArea + PrivacyRule +
+  StoryViews + Reaction + inner MessageMedia up to the recursion
+  cap), Giveaway, Game (photo-only or with Document), PaidMedia.
 - File upload now handles both small files (<10 MiB via
   `upload.saveFilePart` + `InputFile`) and big files
   (`upload.saveBigFilePart` + `InputFileBig`, capped at
@@ -226,5 +228,7 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
      modern-webPage gap in MessageMedia iteration.
 
 ## Current focus
-MVP feature set and US-11 v2 TUI polish (TUI-08..TUI-11) are
-complete; any further work is edge-case polish. No obvious next step.
+All documented v1 limitations are closed (LIM-01..LIM-04):
+photo upload, full Document iteration (incl. stickers / custom
+emojis / thumbs), full cached_page PageBlock tree, and a recursion
+guard on storyItem → messageMedia. No obvious next step.

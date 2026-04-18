@@ -2229,6 +2229,61 @@ static void test_skip_media_story_full_with_views(void) {
     tl_writer_free(&w);
 }
 
+/* LIM-04: storyItem whose inner media is a supported variant (photo /
+ * document / webpage / empty) must iterate end-to-end. */
+static void test_skip_media_story_inner_media_photo(void) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messageMediaStory_t);
+    tl_write_uint32(&w, (1u << 0));
+    tl_write_uint32(&w, TL_peerUser);
+    tl_write_int64 (&w, 1LL);
+    tl_write_int32 (&w, 1);
+    tl_write_uint32(&w, CRC_storyItem_t);
+    tl_write_uint32(&w, 0);
+    tl_write_int32 (&w, 1);
+    tl_write_int32 (&w, 1700000000);
+    tl_write_int32 (&w, 1700086400);
+    /* inner media: messageMediaPhoto with photoEmpty. */
+    tl_write_uint32(&w, 0x695150d7u);             /* CRC_messageMediaPhoto */
+    tl_write_uint32(&w, (1u << 0));               /* photo flag set */
+    tl_write_uint32(&w, CRC_photoEmpty);          /* photoEmpty body */
+    tl_write_int64 (&w, 42LL);
+    tl_write_int32 (&w, 0xBEE);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r, NULL) == 0,
+           "storyItem with inner photoEmpty iterates");
+    ASSERT(tl_read_int32(&r) == 0xBEE, "cursor past outer story");
+    tl_writer_free(&w);
+}
+
+/* LIM-04: doubly-nested storyItem is blocked by the recursion guard
+ * (returns -1) instead of blowing the stack. */
+static void test_skip_media_story_nested_recursion_guard(void) {
+    TlWriter w; tl_writer_init(&w);
+    /* depth 1: messageMediaStory with inline storyItem whose inner
+     * media is another messageMediaStory (depth 2) … up to 6 levels to
+     * exceed the configured MEDIA_RECURSION_MAX (4). */
+    const int DEPTH = 6;
+    for (int d = 0; d < DEPTH; d++) {
+        tl_write_uint32(&w, CRC_messageMediaStory_t);
+        tl_write_uint32(&w, (1u << 0));
+        tl_write_uint32(&w, TL_peerUser);
+        tl_write_int64 (&w, 1LL);
+        tl_write_int32 (&w, 1);
+        tl_write_uint32(&w, CRC_storyItem_t);
+        tl_write_uint32(&w, 0);
+        tl_write_int32 (&w, 1);
+        tl_write_int32 (&w, 1700000000);
+        tl_write_int32 (&w, 1700086400);
+        /* inner media will be written by next iteration, or final Empty. */
+    }
+    tl_write_uint32(&w, CRC_messageMediaEmpty); /* terminator */
+    TlReader r = tl_reader_init(w.data, w.len);
+    int rc = tl_skip_message_media_ex(&r, NULL);
+    ASSERT(rc == -1, "nested recursion beyond guard bails");
+    tl_writer_free(&w);
+}
+
 /* Full storyItem with a privacy list + a media_area. */
 static void test_skip_media_story_full_with_privacy_and_area(void) {
     TlWriter w; tl_writer_init(&w);
@@ -2421,5 +2476,7 @@ void run_tl_skip_tests(void) {
     RUN_TEST(test_skip_media_story_truncated_full_bails);
     RUN_TEST(test_skip_media_story_full_minimal);
     RUN_TEST(test_skip_media_story_full_with_views);
+    RUN_TEST(test_skip_media_story_inner_media_photo);
+    RUN_TEST(test_skip_media_story_nested_recursion_guard);
     RUN_TEST(test_skip_media_story_full_with_privacy_and_area);
 }
