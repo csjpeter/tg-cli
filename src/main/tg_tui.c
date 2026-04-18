@@ -361,12 +361,17 @@ static void do_upload(const ApiConfig *cfg, MtProtoSession *s, Transport *t,
         printf("upload: cannot resolve '%s'\n", arg); return;
     }
     RpcError err = {0};
-    if (domain_send_file(cfg, s, t, &peer, path,
-                          *caption ? caption : NULL, NULL, &err) != 0) {
+    int as_photo = domain_path_is_image(path);
+    int rc = as_photo
+        ? domain_send_photo(cfg, s, t, &peer, path,
+                             *caption ? caption : NULL, &err)
+        : domain_send_file (cfg, s, t, &peer, path,
+                             *caption ? caption : NULL, NULL, &err);
+    if (rc != 0) {
         printf("upload: failed (%d: %s)\n", err.error_code, err.error_msg);
         return;
     }
-    printf("uploaded %s\n", path);
+    printf("uploaded %s as %s\n", path, as_photo ? "photo" : "document");
 }
 
 static void do_read(const ApiConfig *cfg, MtProtoSession *s, Transport *t,

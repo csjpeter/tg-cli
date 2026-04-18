@@ -47,4 +47,30 @@ int domain_send_file(const ApiConfig *cfg,
                       const char *mime_type,
                       RpcError *err);
 
+/**
+ * @brief Upload @p file_path and attach it as a photo (scaled InputMedia).
+ *
+ * The server rescales / recompresses the image — no client-side
+ * decoding happens. The file is chunk-uploaded like a document, then
+ * sent via messages.sendMedia + inputMediaUploadedPhoto so Telegram
+ * clients render it inline instead of as a file.
+ *
+ * @return 0 on success, -1 on error.
+ */
+int domain_send_photo(const ApiConfig *cfg,
+                       MtProtoSession *s, Transport *t,
+                       const HistoryPeer *peer,
+                       const char *file_path,
+                       const char *caption,
+                       RpcError *err);
+
+/**
+ * @brief Heuristic: does the path's extension look like an image?
+ *
+ * Returns 1 for .jpg/.jpeg/.png/.webp/.gif (case-insensitive),
+ * 0 otherwise. Used by the CLI/TUI `upload` command to dispatch
+ * photo-upload vs document-upload automatically.
+ */
+int domain_path_is_image(const char *path);
+
 #endif /* DOMAIN_WRITE_UPLOAD_H */

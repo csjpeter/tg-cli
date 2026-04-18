@@ -181,16 +181,23 @@ static int cmd_send_file(const ArgResult *args) {
         transport_close(&t); return 1;
     }
     RpcError err = {0};
-    int rc = domain_send_file(&cfg, &s, &t, &peer, args->out_path,
-                                args->message, NULL, &err);
+    int as_photo = domain_path_is_image(args->out_path);
+    int rc = as_photo
+        ? domain_send_photo(&cfg, &s, &t, &peer, args->out_path,
+                             args->message, &err)
+        : domain_send_file (&cfg, &s, &t, &peer, args->out_path,
+                             args->message, NULL, &err);
     transport_close(&t);
     if (rc != 0) {
         fprintf(stderr, "tg-cli send-file: failed (%d: %s)\n",
                 err.error_code, err.error_msg);
         return 1;
     }
-    if (args->json) printf("{\"uploaded\":\"%s\"}\n", args->out_path);
-    else if (!args->quiet) printf("uploaded %s\n", args->out_path);
+    if (args->json) printf("{\"uploaded\":\"%s\",\"kind\":\"%s\"}\n",
+                            args->out_path, as_photo ? "photo" : "document");
+    else if (!args->quiet) printf("uploaded %s as %s\n",
+                                   args->out_path,
+                                   as_photo ? "photo" : "document");
     return 0;
 }
 

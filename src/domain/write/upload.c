@@ -24,6 +24,7 @@
 #define CRC_inputFile                     0xf52ff27fu
 #define CRC_inputFileBig                  0xfa4f0bb5u
 #define CRC_inputMediaUploadedDocument    0x5b38c6c1u
+#define CRC_inputMediaUploadedPhoto       0x1e287d04u
 #define CRC_documentAttributeFilename     0x15590068u
 
 static int write_input_peer(TlWriter *w, const HistoryPeer *p) {
@@ -144,17 +145,42 @@ static const char *basename_of(const char *path) {
     return slash ? slash + 1 : path;
 }
 
-int domain_send_file(const ApiConfig *cfg,
-                      MtProtoSession *s, Transport *t,
-                      const HistoryPeer *peer,
-                      const char *file_path,
-                      const char *caption,
-                      const char *mime_type,
-                      RpcError *err) {
-    if (!cfg || !s || !t || !peer || !file_path) return -1;
-    if (!mime_type) mime_type = "application/octet-stream";
-    if (!caption)   caption   = "";
+int domain_path_is_image(const char *path) {
+    if (!path) return 0;
+    const char *dot = strrchr(path, '.');
+    if (!dot) return 0;
+    const char *ext = dot + 1;
+    /* Case-insensitive extension match. */
+    char buf[8] = {0};
+    size_t n = strlen(ext);
+    if (n == 0 || n >= sizeof(buf)) return 0;
+    for (size_t i = 0; i < n; i++) {
+        unsigned c = (unsigned char)ext[i];
+        if (c >= 'A' && c <= 'Z') c += 32;
+        buf[i] = (char)c;
+    }
+    return (strcmp(buf, "jpg")  == 0 ||
+            strcmp(buf, "jpeg") == 0 ||
+            strcmp(buf, "png")  == 0 ||
+            strcmp(buf, "webp") == 0 ||
+            strcmp(buf, "gif")  == 0) ? 1 : 0;
+}
 
+/* Chunked upload step: open @p file_path, generate a random file_id,
+ * push every part via upload_all_parts (with cross-DC migration), and
+ * hand the resulting (file_id, part_count, is_big) back to the caller
+ * so it can compose the second-phase messages.sendMedia. */
+typedef struct {
+    int64_t  file_id;
+    int32_t  part_count;
+    int      is_big;
+    char     file_name[256];
+} UploadedFile;
+
+static int upload_chunk_phase(const ApiConfig *cfg,
+                               MtProtoSession *s, Transport *t,
+                               const char *file_path,
+                               UploadedFile *uf) {
     struct stat st;
     if (stat(file_path, &st) != 0 || !S_ISREG(st.st_mode)) {
         logger_log(LOG_ERROR, "upload: cannot stat %s", file_path);
@@ -194,8 +220,6 @@ int domain_send_file(const ApiConfig *cfg,
             logger_log(LOG_ERROR, "upload: non-migrate failure");
             return -1;
         }
-        /* Migrate: open the target DC, authorize, pick a fresh file_id
-         * (partial uploads on the old DC are discarded), retry. */
         logger_log(LOG_INFO,
                    "upload: NETWORK/FILE_MIGRATE_%d, retrying on DC%d",
                    home_migrate, home_migrate);
@@ -225,52 +249,38 @@ int domain_send_file(const ApiConfig *cfg,
         }
     }
 
-    /* Second phase: messages.sendMedia with InputMediaUploadedDocument. */
-    uint8_t rand_rnd[8] = {0};
-    int64_t random_id = 0;
-    if (crypto_rand_bytes(rand_rnd, 8) == 0) memcpy(&random_id, rand_rnd, 8);
+    uf->file_id    = file_id;
+    uf->part_count = part_idx;
+    uf->is_big     = is_big;
+    const char *bn = basename_of(file_path);
+    size_t bn_n = strlen(bn);
+    if (bn_n >= sizeof(uf->file_name)) bn_n = sizeof(uf->file_name) - 1;
+    memcpy(uf->file_name, bn, bn_n);
+    uf->file_name[bn_n] = '\0';
+    return 0;
+}
 
-    const char *file_name = basename_of(file_path);
-
-    TlWriter w; tl_writer_init(&w);
-    tl_write_uint32(&w, CRC_messages_sendMedia);
-    tl_write_uint32(&w, 0);                       /* flags = 0 */
-    if (write_input_peer(&w, peer) != 0) {
-        tl_writer_free(&w);
-        return -1;
-    }
-    /* media: InputMediaUploadedDocument */
-    tl_write_uint32(&w, CRC_inputMediaUploadedDocument);
-    tl_write_uint32(&w, 0);                       /* inner flags */
-    /* file: InputFile (small, with md5="") or InputFileBig. */
-    if (is_big) {
-        tl_write_uint32(&w, CRC_inputFileBig);
-        tl_write_int64 (&w, file_id);
-        tl_write_int32 (&w, part_idx);            /* parts */
-        tl_write_string(&w, file_name);
+/* Serialise an InputFile / InputFileBig reference body into @p w. */
+static void write_input_file(TlWriter *w, const UploadedFile *uf) {
+    if (uf->is_big) {
+        tl_write_uint32(w, CRC_inputFileBig);
+        tl_write_int64 (w, uf->file_id);
+        tl_write_int32 (w, uf->part_count);
+        tl_write_string(w, uf->file_name);
     } else {
-        tl_write_uint32(&w, CRC_inputFile);
-        tl_write_int64 (&w, file_id);
-        tl_write_int32 (&w, part_idx);            /* parts */
-        tl_write_string(&w, file_name);
-        tl_write_string(&w, "");                  /* md5_checksum */
+        tl_write_uint32(w, CRC_inputFile);
+        tl_write_int64 (w, uf->file_id);
+        tl_write_int32 (w, uf->part_count);
+        tl_write_string(w, uf->file_name);
+        tl_write_string(w, "");                   /* md5_checksum */
     }
-    tl_write_string(&w, mime_type);
-    /* attributes: Vector<DocumentAttribute> with a single filename. */
-    tl_write_uint32(&w, TL_vector);
-    tl_write_uint32(&w, 1);
-    tl_write_uint32(&w, CRC_documentAttributeFilename);
-    tl_write_string(&w, file_name);
+}
 
-    tl_write_string(&w, caption);                 /* message */
-    tl_write_int64 (&w, random_id);
-
-    RAII_STRING uint8_t *query = (uint8_t *)malloc(w.len);
-    if (!query) { tl_writer_free(&w); return -1; }
-    memcpy(query, w.data, w.len);
-    size_t qlen = w.len;
-    tl_writer_free(&w);
-
+/* Dispatch messages.sendMedia and drain the response. */
+static int send_media_call(const ApiConfig *cfg,
+                            MtProtoSession *s, Transport *t,
+                            const uint8_t *query, size_t qlen,
+                            RpcError *err) {
     uint8_t resp[4096]; size_t resp_len = 0;
     if (api_call(cfg, s, t, query, qlen, resp, sizeof(resp), &resp_len) != 0) {
         logger_log(LOG_ERROR, "upload: sendMedia api_call failed");
@@ -288,4 +298,95 @@ int domain_send_file(const ApiConfig *cfg,
     }
     logger_log(LOG_WARN, "upload: unexpected sendMedia top 0x%08x", top);
     return 0;
+}
+
+int domain_send_file(const ApiConfig *cfg,
+                      MtProtoSession *s, Transport *t,
+                      const HistoryPeer *peer,
+                      const char *file_path,
+                      const char *caption,
+                      const char *mime_type,
+                      RpcError *err) {
+    if (!cfg || !s || !t || !peer || !file_path) return -1;
+    if (!mime_type) mime_type = "application/octet-stream";
+    if (!caption)   caption   = "";
+
+    UploadedFile uf = {0};
+    if (upload_chunk_phase(cfg, s, t, file_path, &uf) != 0) return -1;
+
+    uint8_t rand_rnd[8] = {0};
+    int64_t random_id = 0;
+    if (crypto_rand_bytes(rand_rnd, 8) == 0) memcpy(&random_id, rand_rnd, 8);
+
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messages_sendMedia);
+    tl_write_uint32(&w, 0);                       /* flags = 0 */
+    if (write_input_peer(&w, peer) != 0) {
+        tl_writer_free(&w);
+        return -1;
+    }
+    /* media: InputMediaUploadedDocument */
+    tl_write_uint32(&w, CRC_inputMediaUploadedDocument);
+    tl_write_uint32(&w, 0);                       /* inner flags */
+    write_input_file(&w, &uf);
+    tl_write_string(&w, mime_type);
+    /* attributes: Vector<DocumentAttribute> with a single filename. */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, CRC_documentAttributeFilename);
+    tl_write_string(&w, uf.file_name);
+
+    tl_write_string(&w, caption);                 /* message */
+    tl_write_int64 (&w, random_id);
+
+    RAII_STRING uint8_t *query = (uint8_t *)malloc(w.len);
+    if (!query) { tl_writer_free(&w); return -1; }
+    memcpy(query, w.data, w.len);
+    size_t qlen = w.len;
+    tl_writer_free(&w);
+
+    return send_media_call(cfg, s, t, query, qlen, err);
+}
+
+int domain_send_photo(const ApiConfig *cfg,
+                       MtProtoSession *s, Transport *t,
+                       const HistoryPeer *peer,
+                       const char *file_path,
+                       const char *caption,
+                       RpcError *err) {
+    if (!cfg || !s || !t || !peer || !file_path) return -1;
+    if (!caption) caption = "";
+
+    UploadedFile uf = {0};
+    if (upload_chunk_phase(cfg, s, t, file_path, &uf) != 0) return -1;
+
+    uint8_t rand_rnd[8] = {0};
+    int64_t random_id = 0;
+    if (crypto_rand_bytes(rand_rnd, 8) == 0) memcpy(&random_id, rand_rnd, 8);
+
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_messages_sendMedia);
+    tl_write_uint32(&w, 0);                       /* outer flags = 0 */
+    if (write_input_peer(&w, peer) != 0) {
+        tl_writer_free(&w);
+        return -1;
+    }
+    /* media: InputMediaUploadedPhoto#1e287d04 flags:# spoiler:flags.2?true
+     *   file:InputFile stickers:flags.0?Vector<InputDocument>
+     *   ttl_seconds:flags.1?int
+     * All optional flags are clear here; server rescales. */
+    tl_write_uint32(&w, CRC_inputMediaUploadedPhoto);
+    tl_write_uint32(&w, 0);                       /* inner flags */
+    write_input_file(&w, &uf);
+
+    tl_write_string(&w, caption);
+    tl_write_int64 (&w, random_id);
+
+    RAII_STRING uint8_t *query = (uint8_t *)malloc(w.len);
+    if (!query) { tl_writer_free(&w); return -1; }
+    memcpy(query, w.data, w.len);
+    size_t qlen = w.len;
+    tl_writer_free(&w);
+
+    return send_media_call(cfg, s, t, query, qlen, err);
 }

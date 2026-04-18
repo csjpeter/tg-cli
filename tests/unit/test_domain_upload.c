@@ -317,6 +317,69 @@ static void test_upload_non_migrate_error_bails(void) {
     unlink(path);
 }
 
+/* ---- LIM-01: photo upload ---- */
+
+static void test_path_is_image_detects_common_extensions(void) {
+    ASSERT(domain_path_is_image("foo.jpg") == 1, "jpg is image");
+    ASSERT(domain_path_is_image("/a/b.JPEG") == 1, "JPEG case-insensitive");
+    ASSERT(domain_path_is_image("/abc/x.png") == 1, "png is image");
+    ASSERT(domain_path_is_image("/abc/x.Webp") == 1, "Webp case");
+    ASSERT(domain_path_is_image("a.gif") == 1, "gif is image");
+    ASSERT(domain_path_is_image("a.pdf") == 0, "pdf not image");
+    ASSERT(domain_path_is_image("a.txt") == 0, "txt not image");
+    ASSERT(domain_path_is_image("noext")  == 0, "no extension not image");
+    ASSERT(domain_path_is_image("")       == 0, "empty not image");
+    ASSERT(domain_path_is_image(NULL)     == 0, "NULL safe");
+}
+
+static void test_send_photo_small_success(void) {
+    mock_crypto_reset();
+    const char *path = "/tmp/tg-cli-photo.jpg";
+    unlink(path);
+    uint8_t body[256];
+    for (size_t i = 0; i < sizeof(body); i++) body[i] = (uint8_t)(i * 3);
+    write_temp(path, body, sizeof(body));
+
+    seed_two_frame_response();
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    fix_session(&s); fix_transport(&t); fix_cfg(&cfg);
+    HistoryPeer peer = { .kind = HISTORY_PEER_SELF };
+    RpcError err = {0};
+    int rc = domain_send_photo(&cfg, &s, &t, &peer, path, "cheese", &err);
+    ASSERT(rc == 0, "photo upload ok");
+
+    size_t sent_len = 0;
+    const uint8_t *sent = mock_socket_get_sent(&sent_len);
+
+    /* inputMediaUploadedPhoto CRC must appear — not the document one. */
+    uint32_t photo_crc = 0x1e287d04u;
+    uint32_t doc_crc   = 0x5b38c6c1u;
+    int found_photo = 0, found_doc = 0;
+    for (size_t i = 0; i + 4 <= sent_len; i++) {
+        if (memcmp(sent + i, &photo_crc, 4) == 0) found_photo = 1;
+        if (memcmp(sent + i, &doc_crc,   4) == 0) found_doc = 1;
+    }
+    ASSERT(found_photo, "inputMediaUploadedPhoto on the wire");
+    ASSERT(!found_doc, "inputMediaUploadedDocument NOT on the wire");
+
+    unlink(path);
+}
+
+static void test_send_photo_null_args(void) {
+    ASSERT(domain_send_photo(NULL, NULL, NULL, NULL, NULL, NULL, NULL) == -1,
+           "null args rejected");
+}
+
+static void test_send_photo_rejects_missing_file(void) {
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    fix_session(&s); fix_transport(&t); fix_cfg(&cfg);
+    HistoryPeer peer = { .kind = HISTORY_PEER_SELF };
+    int rc = domain_send_photo(&cfg, &s, &t, &peer,
+                                "/tmp/tg-cli-no-such-photo", NULL, NULL);
+    ASSERT(rc == -1, "missing photo rejected");
+}
+
 void run_domain_upload_tests(void) {
     RUN_TEST(test_upload_small_file_success);
     RUN_TEST(test_upload_rejects_missing_file);
@@ -326,4 +389,8 @@ void run_domain_upload_tests(void) {
     RUN_TEST(test_upload_big_file_uses_saveBigFilePart);
     RUN_TEST(test_upload_rejects_oversized_file);
     RUN_TEST(test_upload_non_migrate_error_bails);
+    RUN_TEST(test_path_is_image_detects_common_extensions);
+    RUN_TEST(test_send_photo_small_success);
+    RUN_TEST(test_send_photo_null_args);
+    RUN_TEST(test_send_photo_rejects_missing_file);
 }
