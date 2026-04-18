@@ -94,15 +94,17 @@ int rpc_send_encrypted(MtProtoSession *s, Transport *t,
     tl_write_uint32(&plain, (uint32_t)len);
     tl_write_raw(&plain, data, len);
 
-    /* Compute msg_key from the same plaintext buffer */
-    uint8_t msg_key[16];
-    mtproto_compute_msg_key(s->auth_key, plain.data, plain.len, 0, msg_key);
-
-    /* Encrypt with MTProto crypto */
+    /* Encrypt with MTProto crypto. The msg_key is computed over the PADDED
+     * plaintext inside mtproto_encrypt and returned via msg_key_out — the
+     * spec requires that the wire msg_key match what was used to derive
+     * the AES keys, so we cannot compute it independently here (the
+     * padding bytes are random and generated inside mtproto_encrypt). */
     RAII_STRING uint8_t *encrypted = (uint8_t *)malloc(RPC_BUF_SIZE);
     if (!encrypted) { tl_writer_free(&plain); return -1; }
     size_t enc_len = 0;
-    mtproto_encrypt(plain.data, plain.len, s->auth_key, 0, encrypted, &enc_len);
+    uint8_t msg_key[16];
+    mtproto_encrypt(plain.data, plain.len, s->auth_key, 0,
+                    encrypted, &enc_len, msg_key);
     tl_writer_free(&plain);
 
     /* Wire format: auth_key_id(8) + msg_key(16) + encrypted_data */

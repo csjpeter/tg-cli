@@ -31,8 +31,14 @@ This story adds:
 ## Acceptance
 - Every US-03..US-16 acceptance bullet has at least one functional
   test asserting the observable signal.
-- Zero reliance on real network or real OpenSSL — mock crypto for
-  determinism.
+- **Real OpenSSL on both sides.** The mock Telegram server runs
+  in-process with the client and does its own AES-256-IGE +
+  SHA-256 against the real `libssl` — the only thing mocked is the
+  socket transport (in-memory buffer swap), so every functional
+  test exercises the exact production crypto code paths. Handshake
+  is usually bypassed via a pre-seeded `session.bin` with a known
+  `auth_key`; one dedicated test still drives the full DH handshake
+  via a fake server RSA keypair.
 - Dedicated coverage badge in `README.md` next to the existing
   `coverage-badge.svg`.
 

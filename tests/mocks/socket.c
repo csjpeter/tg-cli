@@ -39,6 +39,10 @@ static struct {
     int short_send_at;
     int send_call_n;     /* call counters */
     int recv_call_n;
+
+    /* Emulator hook: runs after every successful send, lets the fake
+     * server parse + reply before the next recv. */
+    void (*on_sent)(const uint8_t *, size_t);
 } g_mock_socket;
 
 /* ---- Test accessor functions ---- */
@@ -83,6 +87,10 @@ void mock_socket_fail_connect(void)     { g_mock_socket.fail_connect = 1; }
 void mock_socket_fail_send_at(int n)    { g_mock_socket.fail_send_at = n; }
 void mock_socket_fail_recv_at(int n)    { g_mock_socket.fail_recv_at = n; }
 void mock_socket_short_send_at(int n)   { g_mock_socket.short_send_at = n; }
+
+void mock_socket_set_on_sent(void (*fn)(const uint8_t *, size_t)) {
+    g_mock_socket.on_sent = fn;
+}
 
 /* ---- socket.h interface implementation ---- */
 
@@ -129,7 +137,16 @@ ssize_t sys_socket_send(int fd, const void *buf, size_t len) {
     if (g_mock_socket.short_send_at &&
         g_mock_socket.send_call_n == g_mock_socket.short_send_at && len > 1) {
         g_mock_socket.short_send_at = 0;
+        /* Hook fires after short send too so the server can react to
+         * the partial frame exactly as the real DC would. */
+        if (g_mock_socket.on_sent) {
+            g_mock_socket.on_sent(g_mock_socket.sent, g_mock_socket.sent_len);
+        }
         return (ssize_t)(len - 1);
+    }
+
+    if (g_mock_socket.on_sent) {
+        g_mock_socket.on_sent(g_mock_socket.sent, g_mock_socket.sent_len);
     }
     return (ssize_t)len;
 }

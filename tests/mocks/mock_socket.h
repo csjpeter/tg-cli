@@ -18,6 +18,18 @@ void        mock_socket_set_response(const uint8_t *data, size_t len);
 void        mock_socket_append_response(const uint8_t *data, size_t len);
 void        mock_socket_clear_sent(void);
 
+/**
+ * @brief Register a callback that fires after every successful `sys_socket_send`.
+ *
+ * The mock server emulator uses this hook to parse each frame the client
+ * pushes onto the sent buffer, run RPC dispatch, and append an encrypted
+ * reply via `mock_socket_append_response` before the next `sys_socket_recv`
+ * consumes bytes. The callback receives the full sent buffer + length so it
+ * can maintain its own parse cursor; pass NULL to disarm.
+ */
+typedef void (*MockSocketOnSentFn)(const uint8_t *sent_buf, size_t sent_len);
+void        mock_socket_set_on_sent(MockSocketOnSentFn fn);
+
 /* Failure injection for error-path coverage.
  * Each "fail_*_at" setter primes the Nth call (1-based) to return -1.
  * Use 0 to disable (default).

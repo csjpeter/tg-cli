@@ -20,6 +20,7 @@ void run_crypto_kdf_functional_tests(void);
 void run_srp_math_functional_tests(void);
 void run_srp_roundtrip_functional_tests(void);
 void run_tl_skip_message_functional_tests(void);
+void run_mt_server_smoke_tests(void);
 
 int main(void) {
     run_ige_aes_functional_tests();
@@ -28,6 +29,7 @@ int main(void) {
     run_srp_math_functional_tests();
     run_srp_roundtrip_functional_tests();
     run_tl_skip_message_functional_tests();
+    run_mt_server_smoke_tests();
 
     printf("\n--- Functional Test Results ---\n");
     printf("Tests Run:    %d\n", g_tests_run);

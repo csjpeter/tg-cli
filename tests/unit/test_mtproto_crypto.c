@@ -114,7 +114,8 @@ void test_encrypt_output_structure(void) {
     memset(encrypted, 0, sizeof(encrypted));
     for (int i = 0; i < 64; i++) plain[i] = (uint8_t)(i * 3);
 
-    mtproto_encrypt(plain, 64, auth_key, 0, encrypted, &enc_len);
+    uint8_t used_msg_key[16];
+    mtproto_encrypt(plain, 64, auth_key, 0, encrypted, &enc_len, used_msg_key);
 
     /* Verify structural properties */
     ASSERT(enc_len >= 64, "encrypted length should be >= plaintext");
@@ -167,7 +168,8 @@ void test_decrypt_wrong_msg_key(void) {
     memset(auth_key, 0x42, 256);
     memset(plain, 0xAA, 32);
 
-    mtproto_encrypt(plain, 32, auth_key, 0, encrypted, &enc_len);
+    uint8_t real_msg_key[16];
+    mtproto_encrypt(plain, 32, auth_key, 0, encrypted, &enc_len, real_msg_key);
 
     /* Use wrong msg_key */
     uint8_t wrong_key[16];

@@ -50,18 +50,24 @@ size_t mtproto_gen_padding(size_t plain_len, uint8_t *padding_out);
 /**
  * @brief Encrypt a plaintext message (MTProto 2.0).
  *
- * Computes msg_key → derives AES keys → pads plaintext → AES-IGE encrypt.
+ * Pads plaintext → computes msg_key over (plain + padding) → derives AES
+ * keys → AES-IGE encrypts. The msg_key the caller must put on the wire is
+ * returned in @p msg_key_out — the spec requires it be computed over the
+ * padded plaintext (which this function synthesises internally), so the
+ * caller cannot derive it independently.
  *
- * @param plain     Plaintext.
- * @param plain_len Plaintext length.
- * @param auth_key  256-byte auth key.
- * @param direction 0 or 8.
- * @param out       Output buffer (must hold plain_len + 1024 bytes).
- * @param out_len   Receives total output length.
+ * @param plain       Plaintext.
+ * @param plain_len   Plaintext length.
+ * @param auth_key    256-byte auth key.
+ * @param direction   0 or 8.
+ * @param out         Output buffer (must hold plain_len + 1024 bytes).
+ * @param out_len     Receives total output length.
+ * @param msg_key_out Receives the 16-byte msg_key used to encrypt.
  */
 void mtproto_encrypt(const uint8_t *plain, size_t plain_len,
                      const uint8_t *auth_key, int direction,
-                     uint8_t *out, size_t *out_len);
+                     uint8_t *out, size_t *out_len,
+                     uint8_t msg_key_out[16]);
 
 /**
  * @brief Decrypt an MTProto 2.0 message.

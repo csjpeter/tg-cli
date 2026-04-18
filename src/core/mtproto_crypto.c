@@ -147,8 +147,9 @@ size_t mtproto_gen_padding(size_t plain_len, uint8_t *padding_out) {
  */
 void mtproto_encrypt(const uint8_t *plain, size_t plain_len,
                      const uint8_t *auth_key, int x,
-                     uint8_t *out, size_t *out_len) {
-    if (!plain || !auth_key || !out || !out_len) return;
+                     uint8_t *out, size_t *out_len,
+                     uint8_t msg_key_out[16]) {
+    if (!plain || !auth_key || !out || !out_len || !msg_key_out) return;
 
     /* Generate padding */
     uint8_t padding[1024];
@@ -164,13 +165,14 @@ void mtproto_encrypt(const uint8_t *plain, size_t plain_len,
     memcpy(padded, plain, plain_len);
     if (pad_len > 0) memcpy(padded + plain_len, padding, pad_len);
 
-    /* Compute msg_key from padded plaintext (spec: includes padding) */
-    uint8_t msg_key[MSG_KEY_SIZE];
-    mtproto_compute_msg_key(auth_key, padded, padded_len, x, msg_key);
+    /* Compute msg_key from padded plaintext (spec: includes padding) and
+     * return it to the caller so the wire frame carries the exact value
+     * that was used to derive the AES keys. */
+    mtproto_compute_msg_key(auth_key, padded, padded_len, x, msg_key_out);
 
     /* Derive AES key + IV */
     uint8_t aes_key[AES_KEY_SIZE], aes_iv[AES_KEY_SIZE];
-    mtproto_derive_keys(auth_key, msg_key, x, aes_key, aes_iv);
+    mtproto_derive_keys(auth_key, msg_key_out, x, aes_key, aes_iv);
 
     /* AES-IGE encrypt */
     aes_ige_encrypt(padded, padded_len, aes_key, aes_iv, out);
