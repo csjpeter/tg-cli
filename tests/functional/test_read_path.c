@@ -1524,6 +1524,63 @@ static void test_search_limit_respected(void) {
     mt_server_reset();
 }
 
+/* TEST-25: updates.getDifference error-then-success path.
+ *
+ * First call: mock returns rpc_error(500, "INTERNAL").
+ * Second call: mock returns updates.differenceEmpty.
+ * Assert first call returns -1, second returns 0.
+ * Verify two getDifference frames hit the server. */
+
+static int g_diff_call_seq = 0;
+
+static void on_diff_error_then_empty(MtRpcContext *ctx) {
+    g_diff_call_seq++;
+    if (g_diff_call_seq == 1) {
+        /* First call: simulate a transient server error. */
+        mt_server_reply_error(ctx, 500, "INTERNAL_SERVER_ERROR");
+    } else {
+        /* Subsequent calls: return differenceEmpty. */
+        TlWriter w;
+        tl_writer_init(&w);
+        tl_write_uint32(&w, TL_updates_differenceEmpty);
+        tl_write_int32 (&w, 1700000500);   /* date */
+        tl_write_int32 (&w, 2);            /* seq */
+        mt_server_reply_result(ctx, w.data, w.len);
+        tl_writer_free(&w);
+    }
+}
+
+static void test_watch_backoff_then_succeed(void) {
+    with_tmp_home("upd-backoff");
+    mt_server_init(); mt_server_reset();
+    g_diff_call_seq = 0;
+    MtProtoSession s; load_session(&s);
+    mt_server_expect(CRC_updates_getDifference, on_diff_error_then_empty, NULL);
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    UpdatesState prev = { .pts = 100, .qts = 5, .date = 1700000000, .seq = 1 };
+
+    /* First call: server returns 500 — domain must return -1. */
+    UpdatesDifference diff1 = {0};
+    ASSERT(domain_updates_difference(&cfg, &s, &t, &prev, &diff1) == -1,
+           "first getDifference returns -1 on RPC error");
+
+    /* Second call: server returns differenceEmpty — domain must return 0. */
+    UpdatesDifference diff2 = {0};
+    ASSERT(domain_updates_difference(&cfg, &s, &t, &prev, &diff2) == 0,
+           "second getDifference succeeds after error");
+    ASSERT(diff2.is_empty == 1, "second call marked empty");
+
+    /* Verify the server received exactly two getDifference frames. */
+    ASSERT(mt_server_request_crc_count(CRC_updates_getDifference) == 2,
+           "two getDifference frames sent to server");
+
+    transport_close(&t);
+    mt_server_reset();
+}
+
 void run_read_path_tests(void) {
     RUN_TEST(test_get_self);
     RUN_TEST(test_get_self_premium);
@@ -1554,4 +1611,5 @@ void run_read_path_tests(void) {
     RUN_TEST(test_search_global_happy);
     RUN_TEST(test_search_per_peer_happy);
     RUN_TEST(test_search_limit_respected);
+    RUN_TEST(test_watch_backoff_then_succeed);
 }
