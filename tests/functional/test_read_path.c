@@ -367,6 +367,101 @@ static void on_updates_diff_empty(MtRpcContext *ctx) {
     tl_writer_free(&w);
 }
 
+/* updates.difference#00f49d63 with one plain message (id=501, date=1700001000,
+ * text="hello from diff").  After the new_messages vector we include the
+ * remaining required vectors (new_encrypted_messages, other_updates, chats,
+ * users) as empty so the wire is well-formed. */
+static void on_updates_diff_with_messages(MtRpcContext *ctx) {
+    TlWriter w;
+    tl_writer_init(&w);
+    tl_write_uint32(&w, TL_updates_difference);
+
+    /* new_messages: Vector<Message> — one entry */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    /* message#94345242 flags=0 flags2=0 id=501 peer=peerUser(1) date=1700001000
+     * message="hello from diff" */
+    tl_write_uint32(&w, TL_message);
+    tl_write_uint32(&w, 0);              /* flags = 0 */
+    tl_write_uint32(&w, 0);              /* flags2 = 0 */
+    tl_write_int32 (&w, 501);            /* id */
+    tl_write_uint32(&w, TL_peerUser);
+    tl_write_int64 (&w, 1LL);            /* peer user id */
+    tl_write_int32 (&w, 1700001000);     /* date */
+    tl_write_string(&w, "hello from diff"); /* message text */
+
+    /* new_encrypted_messages: empty */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 0);
+    /* other_updates: empty */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 0);
+    /* chats: empty */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 0);
+    /* users: empty */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 0);
+    /* state: updates.state pts=110 qts=5 date=1700001000 seq=2 unread=0 */
+    tl_write_uint32(&w, TL_updates_state);
+    tl_write_int32 (&w, 110);
+    tl_write_int32 (&w, 5);
+    tl_write_int32 (&w, 1700001000);
+    tl_write_int32 (&w, 2);
+    tl_write_int32 (&w, 0);
+
+    mt_server_reply_result(ctx, w.data, w.len);
+    tl_writer_free(&w);
+}
+
+/* updates.differenceSlice#a8fb1981 with two plain messages.
+ * Same shape as difference but uses the Slice constructor and an
+ * intermediate_state instead of state. */
+static void on_updates_diff_slice_with_messages(MtRpcContext *ctx) {
+    TlWriter w;
+    tl_writer_init(&w);
+    tl_write_uint32(&w, TL_updates_differenceSlice);
+
+    /* new_messages: Vector<Message> — two entries */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 2);
+
+    /* message 0: id=601 date=1700002000 text="first slice msg" */
+    tl_write_uint32(&w, TL_message);
+    tl_write_uint32(&w, 0); tl_write_uint32(&w, 0);
+    tl_write_int32 (&w, 601);
+    tl_write_uint32(&w, TL_peerUser); tl_write_int64(&w, 1LL);
+    tl_write_int32 (&w, 1700002000);
+    tl_write_string(&w, "first slice msg");
+
+    /* message 1: id=602 date=1700002001 text="second slice msg" */
+    tl_write_uint32(&w, TL_message);
+    tl_write_uint32(&w, 0); tl_write_uint32(&w, 0);
+    tl_write_int32 (&w, 602);
+    tl_write_uint32(&w, TL_peerUser); tl_write_int64(&w, 2LL);
+    tl_write_int32 (&w, 1700002001);
+    tl_write_string(&w, "second slice msg");
+
+    /* new_encrypted_messages: empty */
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 0);
+    /* other_updates: empty */
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 0);
+    /* chats: empty */
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 0);
+    /* users: empty */
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 0);
+    /* intermediate_state (differenceSlice uses this instead of state) */
+    tl_write_uint32(&w, TL_updates_state);
+    tl_write_int32 (&w, 120);
+    tl_write_int32 (&w, 5);
+    tl_write_int32 (&w, 1700002001);
+    tl_write_int32 (&w, 3);
+    tl_write_int32 (&w, 0);
+
+    mt_server_reply_result(ctx, w.data, w.len);
+    tl_writer_free(&w);
+}
+
 /* Generic handler for asserting RPC errors propagate. */
 static void on_generic_500(MtRpcContext *ctx) {
     mt_server_reply_error(ctx, 500, "INTERNAL_SERVER_ERROR");
@@ -816,6 +911,64 @@ static void test_updates_difference_empty(void) {
     ASSERT(diff.next_state.date == 1700000500, "date advanced");
     ASSERT(diff.next_state.seq == 2, "seq advanced");
     ASSERT(diff.new_messages_count == 0, "no new messages");
+
+    transport_close(&t);
+    mt_server_reset();
+}
+
+/* TEST-24a: updates.getDifference returns TL_updates_difference with one
+ * real message.  Assert new_messages_count == 1 and the message fields. */
+static void test_updates_difference_with_messages(void) {
+    with_tmp_home("upd-diff-msg");
+    mt_server_init(); mt_server_reset();
+    MtProtoSession s; load_session(&s);
+    mt_server_expect(CRC_updates_getDifference,
+                     on_updates_diff_with_messages, NULL);
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    UpdatesState prev = { .pts = 100, .qts = 5, .date = 1700000000, .seq = 1 };
+    UpdatesDifference diff = {0};
+    ASSERT(domain_updates_difference(&cfg, &s, &t, &prev, &diff) == 0,
+           "getDifference with messages ok");
+    ASSERT(diff.is_empty == 0, "not marked empty");
+    ASSERT(diff.new_messages_count == 1, "one new message");
+    ASSERT(diff.new_messages[0].id == 501, "message id == 501");
+    ASSERT(diff.new_messages[0].date == 1700001000, "message date correct");
+    ASSERT(strcmp(diff.new_messages[0].text, "hello from diff") == 0,
+           "message text matches");
+
+    transport_close(&t);
+    mt_server_reset();
+}
+
+/* TEST-24b: updates.getDifference returns TL_updates_differenceSlice with two
+ * messages.  Asserts both messages are parsed correctly. */
+static void test_updates_differenceSlice_with_messages(void) {
+    with_tmp_home("upd-diff-slice");
+    mt_server_init(); mt_server_reset();
+    MtProtoSession s; load_session(&s);
+    mt_server_expect(CRC_updates_getDifference,
+                     on_updates_diff_slice_with_messages, NULL);
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    UpdatesState prev = { .pts = 100, .qts = 5, .date = 1700000000, .seq = 1 };
+    UpdatesDifference diff = {0};
+    ASSERT(domain_updates_difference(&cfg, &s, &t, &prev, &diff) == 0,
+           "getDifferenceSlice with messages ok");
+    ASSERT(diff.is_empty == 0, "not marked empty");
+    ASSERT(diff.new_messages_count == 2, "two new messages");
+    ASSERT(diff.new_messages[0].id == 601, "first message id == 601");
+    ASSERT(diff.new_messages[0].date == 1700002000, "first message date correct");
+    ASSERT(strcmp(diff.new_messages[0].text, "first slice msg") == 0,
+           "first message text matches");
+    ASSERT(diff.new_messages[1].id == 602, "second message id == 602");
+    ASSERT(diff.new_messages[1].date == 1700002001, "second message date correct");
+    ASSERT(strcmp(diff.new_messages[1].text, "second slice msg") == 0,
+           "second message text matches");
 
     transport_close(&t);
     mt_server_reset();
@@ -1395,6 +1548,8 @@ void run_read_path_tests(void) {
     RUN_TEST(test_get_full_user_happy);
     RUN_TEST(test_updates_state);
     RUN_TEST(test_updates_difference_empty);
+    RUN_TEST(test_updates_difference_with_messages);
+    RUN_TEST(test_updates_differenceSlice_with_messages);
     RUN_TEST(test_rpc_error_propagation);
     RUN_TEST(test_search_global_happy);
     RUN_TEST(test_search_per_peer_happy);
