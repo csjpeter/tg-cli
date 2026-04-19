@@ -95,8 +95,12 @@ List contacts (US-09).
 .BI info " <@peer>"
 Resolve and show peer info (US-09 + US-16).
 .TP
-.BI search " <query>"
-Global message search, top 20 results (US-10).
+.BI search " [<peer>] <query>"
+Message search, top 20 results (US-10, FEAT-09).
+Without \fIpeer\fR, runs a global search (\fBmessages.searchGlobal\fR).
+With a peer (\fB@username\fR, numeric id, or \fBself\fR), runs a
+per-peer search (\fBmessages.search\fR) scoped to that dialog.
+Output: one line per hit \(em \fIid  date  text\fR.
 .TP
 .B poll
 One-shot
@@ -207,6 +211,8 @@ Then, inside the REPL:
 .EX
 tg> dialogs 20
 tg> history @somechannel 50
+tg> search hello world
+tg> search @somechannel release notes
 tg> send @user "hello there"
 tg> reply @user 12345 "nice"
 tg> edit  @user 12345 "fixed typo"

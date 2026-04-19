@@ -206,17 +206,74 @@ static void do_info(const ApiConfig *cfg, MtProtoSession *s, Transport *t,
            r.have_hash ? "present" : "none");
 }
 
+/* Returns 1 if the token looks like a peer specifier:
+ *   @username, a numeric id, or the literal "self". */
+static int is_peer_token(const char *tok) {
+    if (!tok || !*tok) return 0;
+    if (*tok == '@') return tok[1] != '\0';
+    if (!strcmp(tok, "self")) return 1;
+    /* Pure numeric (possibly negative) → peer id */
+    const char *p = tok;
+    if (*p == '-') p++;
+    if (!*p) return 0;
+    while (*p >= '0' && *p <= '9') p++;
+    return (*p == '\0');
+}
+
 static void do_search(const ApiConfig *cfg, MtProtoSession *s, Transport *t,
-                      const char *query) {
-    if (!query || !*query) { puts("usage: search <query>"); return; }
-    HistoryEntry e[20] = {0};
-    int n = 0;
-    if (domain_search_global(cfg, s, t, query, 20, e, &n) != 0) {
-        puts("search: request failed");
+                      char *arg) {
+    if (!arg || !*arg) {
+        puts("usage: search [<peer>] <query>\n"
+             "  <peer>  @username, numeric id, or 'self' (omit for global search)");
         return;
     }
+
+    /* Split arg on the first whitespace to check for an optional peer token. */
+    char peer_buf[128] = "";
+    const char *query = arg;
+    char *space = arg;
+    while (*space && *space != ' ' && *space != '\t') space++;
+    if (*space) {
+        /* There is a second token — check if the first is a peer. */
+        size_t pn = (size_t)(space - arg);
+        char first[128] = "";
+        if (pn < sizeof(first)) { memcpy(first, arg, pn); first[pn] = '\0'; }
+        if (is_peer_token(first)) {
+            memcpy(peer_buf, first, pn + 1);
+            query = space;
+            while (*query == ' ' || *query == '\t') query++;
+        }
+    }
+
+    if (!*query) {
+        puts("usage: search [<peer>] <query>");
+        return;
+    }
+
+    HistoryEntry e[20] = {0};
+    int n = 0;
+
+    if (peer_buf[0]) {
+        /* Per-peer search */
+        HistoryPeer peer = {0};
+        if (resolve_history_peer(cfg, s, t, peer_buf, &peer) != 0) {
+            printf("search: cannot resolve '%s'\n", peer_buf);
+            return;
+        }
+        if (domain_search_peer(cfg, s, t, &peer, query, 20, e, &n) != 0) {
+            puts("search: request failed");
+            return;
+        }
+    } else {
+        /* Global search */
+        if (domain_search_global(cfg, s, t, query, 20, e, &n) != 0) {
+            puts("search: request failed");
+            return;
+        }
+    }
+
     for (int i = 0; i < n; i++) {
-        printf("[%d] %s\n", e[i].id,
+        printf("%d  %d  %s\n", e[i].id, e[i].date,
                e[i].complex ? "(complex)" : e[i].text);
     }
     if (n == 0) puts("(no matches)");
@@ -416,7 +473,7 @@ static void print_help(void) {
         "  history [<peer>] [N]         Saved Messages by default, or <peer>\n"
         "  contacts                     List my contacts\n"
         "  info <@peer>                 Resolve peer info\n"
-        "  search <query>               Global message search (top 20)\n"
+        "  search [<peer>] <query>       Message search: per-peer or global (top 20)\n"
         "  poll                         One-shot updates.getDifference\n"
         "  read <peer>                  Mark peer's history as read\n"
         "\n"
@@ -504,7 +561,7 @@ static int repl(const ApiConfig *cfg, MtProtoSession *s, Transport *t,
         }
         if (!strcmp(cmd, "contacts")) { do_contacts(cfg, s, t); continue; }
         if (!strcmp(cmd, "info"))     { do_info(cfg, s, t, arg); continue; }
-        if (!strcmp(cmd, "search"))   { do_search(cfg, s, t, arg); continue; }
+        if (!strcmp(cmd, "search"))   { do_search(cfg, s, t, arg); continue; }  /* arg is mutable */
         if (!strcmp(cmd, "poll"))     { do_poll(cfg, s, t); continue; }
         if (!strcmp(cmd, "send"))     { do_send(cfg, s, t, arg); continue; }
         if (!strcmp(cmd, "reply"))    { do_reply(cfg, s, t, arg); continue; }

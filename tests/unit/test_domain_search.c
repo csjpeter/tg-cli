@@ -126,9 +126,37 @@ static void test_search_null_args(void) {
     ASSERT(domain_search_peer(NULL, NULL, NULL, NULL, "x", 3, e, &n) == -1, "peer nulls");
 }
 
+/* Validate FEAT-09: per-peer search called with a user peer (not just self).
+ * This exercises the HISTORY_PEER_USER branch of write_input_peer inside
+ * domain_search_peer — the path taken by `search @user <query>` in tg-tui. */
+static void test_search_peer_user_kind(void) {
+    mock_socket_reset(); mock_crypto_reset();
+
+    uint8_t payload[256];
+    size_t plen = make_messages_response(payload, sizeof(payload), 99);
+    uint8_t resp[1024]; size_t rlen = 0;
+    build_fake_encrypted_response(payload, plen, resp, &rlen);
+    mock_socket_set_response(resp, rlen);
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    fix_session(&s); fix_transport(&t); fix_cfg(&cfg);
+
+    HistoryPeer peer = {
+        .kind        = HISTORY_PEER_USER,
+        .peer_id     = 123456789,
+        .access_hash = 0xdeadbeefcafe0000LL,
+    };
+    HistoryEntry e[5] = {0}; int n = 0;
+    int rc = domain_search_peer(&cfg, &s, &t, &peer, "hello", 5, e, &n);
+    ASSERT(rc == 0, "per-peer user search succeeded");
+    ASSERT(n == 1,  "one result returned");
+    ASSERT(e[0].id == 99, "result id matches");
+}
+
 void run_domain_search_tests(void) {
     RUN_TEST(test_search_global);
     RUN_TEST(test_search_peer);
     RUN_TEST(test_search_rpc_error);
     RUN_TEST(test_search_null_args);
+    RUN_TEST(test_search_peer_user_kind);
 }
