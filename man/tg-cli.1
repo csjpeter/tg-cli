@@ -46,14 +46,14 @@ to read the message body from standard input.
 .B --batch
 Non-interactive batch mode (the default for \fBtg-cli\fR). No prompts.
 .TP
+.BI --config " path"
+Use a non-default config file path (default: \fB~/.config/tg-cli/config.ini\fR).
+.TP
 .B --json
 Emit machine-readable JSON on stdout where supported.
 .TP
 .B --quiet
 Suppress informational/diagnostic text on stdout.
-.TP
-.BI --config " path"
-Use a non-default config file path (default: \fB~/.config/tg-cli/config.ini\fR).
 .TP
 .BI --phone " number"
 Phone number in E.164 form (e.g. \fB+15551234567\fR). Used for the first
@@ -177,13 +177,32 @@ If set to \fB1\fR, the logger will include plaintext TL bodies at
 .B HOME
 Used to locate the config, cache, and session directories.
 
+.SH DIAGNOSTICS
+The following server errors (from \fBrpc_error\fR) are propagated to stdout/stderr
+with a non-zero exit:
+.TP
+.B FLOOD_WAIT_X
+Rate limit; the server requested a \fIX\fR-second delay before the next request.
+All commands (send, edit, delete, forward, upload) surface this with exit code 1.
+.TP
+.B MESSAGE_ID_INVALID
+The message id does not exist or is inaccessible. Returned by \fBedit\fR,
+\fBdelete\fR, and \fBforward\fR (US-13).
+.TP
+.B MESSAGE_AUTHOR_REQUIRED
+The user is not the author and cannot edit the message. Returned by \fBedit\fR (US-13).
+.TP
+.B PEER_ID_INVALID
+The peer identifier is invalid or inaccessible. May be returned by any write command.
+
 .SH EXIT STATUS
 .TP
 .B 0
 Success.
 .TP
 .B 1
-Arg-parse error, bootstrap failure, missing credentials, or RPC error.
+Arg-parse error, bootstrap failure, missing credentials, or RPC error
+(including FLOOD_WAIT_X and message/peer validation errors).
 
 .SH EXAMPLES
 .PP
