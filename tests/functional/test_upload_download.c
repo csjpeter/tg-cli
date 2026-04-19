@@ -714,6 +714,97 @@ static void test_download_document_cache_reuse(void) {
     mt_server_reset();
 }
 
+/* ================================================================ */
+/* Invalid-path tests (TEST-17)                                     */
+/* ================================================================ */
+
+/**
+ * NULL path: domain_send_file must return -1 immediately without
+ * touching the wire.
+ */
+static void test_upload_null_path(void) {
+    with_tmp_home("up-null");
+    mt_server_init(); mt_server_reset();
+    reset_counters();
+    MtProtoSession s; load_session(&s);
+    /* No responders registered — any RPC would cause the mock to fail. */
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    HistoryPeer self = { .kind = HISTORY_PEER_SELF };
+    RpcError err = {0};
+    ASSERT(domain_send_file(&cfg, &s, &t, &self, NULL,
+                            NULL, NULL, &err) == -1,
+           "NULL path returns -1");
+    ASSERT(mt_server_rpc_call_count() == 0,
+           "NULL path: no RPC fired");
+
+    transport_close(&t);
+    mt_server_reset();
+}
+
+/**
+ * Non-existent path: stat() fails with ENOENT so upload_chunk_phase
+ * returns -1 before any RPC.
+ */
+static void test_upload_nonexistent_path(void) {
+    with_tmp_home("up-noent");
+    mt_server_init(); mt_server_reset();
+    reset_counters();
+    MtProtoSession s; load_session(&s);
+    /* No responders registered. */
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    HistoryPeer self = { .kind = HISTORY_PEER_SELF };
+    RpcError err = {0};
+    const char *missing = "/tmp/tg-cli-this-file-does-not-exist-TEST17.bin";
+    unlink(missing); /* ensure it really is absent */
+    ASSERT(domain_send_file(&cfg, &s, &t, &self, missing,
+                            NULL, NULL, &err) == -1,
+           "non-existent path returns -1");
+    ASSERT(mt_server_rpc_call_count() == 0,
+           "non-existent path: no RPC fired");
+
+    transport_close(&t);
+    mt_server_reset();
+}
+
+/**
+ * Empty file (0 bytes): upload_chunk_phase rejects st_size == 0 before
+ * any RPC is issued.
+ */
+static void test_upload_empty_file(void) {
+    with_tmp_home("up-empty");
+    mt_server_init(); mt_server_reset();
+    reset_counters();
+    MtProtoSession s; load_session(&s);
+    /* No responders registered. */
+
+    /* Create a genuine 0-byte file. */
+    const char *empty_path = "/tmp/tg-cli-fixture-empty-TEST17.bin";
+    FILE *fp = fopen(empty_path, "wb");
+    ASSERT(fp != NULL, "empty tempfile created");
+    fclose(fp);
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    HistoryPeer self = { .kind = HISTORY_PEER_SELF };
+    RpcError err = {0};
+    ASSERT(domain_send_file(&cfg, &s, &t, &self, empty_path,
+                            NULL, NULL, &err) == -1,
+           "empty file returns -1");
+    ASSERT(mt_server_rpc_call_count() == 0,
+           "empty file: no RPC fired");
+
+    unlink(empty_path);
+    transport_close(&t);
+    mt_server_reset();
+}
+
 void run_upload_download_tests(void) {
     RUN_TEST(test_upload_small_document);
     RUN_TEST(test_upload_multi_chunk_document);
@@ -730,4 +821,7 @@ void run_upload_download_tests(void) {
     RUN_TEST(test_download_document_cache_reuse);
     RUN_TEST(test_send_file_caption_propagates);
     RUN_TEST(test_send_file_no_caption_empty_string);
+    RUN_TEST(test_upload_null_path);
+    RUN_TEST(test_upload_nonexistent_path);
+    RUN_TEST(test_upload_empty_file);
 }
