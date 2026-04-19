@@ -46,6 +46,7 @@ static void build_fake_encrypted_response(const uint8_t *payload, size_t plen,
 
 static void session_setup(MtProtoSession *s) {
     mtproto_session_init(s);
+    s->session_id = 0; /* match the zero session_id in fake encrypted frames */
     uint8_t key[256] = {0};
     mtproto_session_set_auth_key(s, key);
     mtproto_session_set_salt(s, 0x1122334455667788ULL);

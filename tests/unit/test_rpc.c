@@ -378,6 +378,109 @@ void test_rpc_parse_error_null_args(void) {
     ASSERT(rpc_parse_error(data, 16, NULL) == -1, "NULL err");
 }
 
+/* ---- rpc_recv_encrypted validation tests ---- */
+
+/**
+ * Build a minimal valid encrypted wire frame and put it in the mock socket.
+ *
+ * With mock crypto:
+ *  - SHA256 always returns 32 zero bytes, so auth_key_id = 0 and msg_key = 0.
+ *  - AES decrypt is an identity transform, so decrypted == ciphertext.
+ *  - msg_key verification inside mtproto_decrypt passes when msg_key == 0.
+ *
+ * The plaintext layout:
+ *   salt(8) | session_id(8) | msg_id(8) | seq_no(4) | data_len(4) | data(4) | pad(16)
+ *   = 52 bytes total → round to 64 (multiple of 16 for AES).
+ *
+ * @param session_id_override  Value to write into the session_id field of the frame.
+ * @param auth_key_id_override Value to write into the outer auth_key_id field.
+ * @param local_session_id     Session's actual session_id.
+ */
+static void build_encrypted_frame(uint64_t auth_key_id_override,
+                                  uint64_t session_id_in_frame,
+                                  Transport *t) {
+    /* Plaintext: must be multiple of 16. We use 64 bytes. */
+    uint8_t plain[64];
+    memset(plain, 0, sizeof(plain));
+
+    uint64_t salt = 0;
+    memcpy(plain + 0,  &salt,                 8); /* salt */
+    memcpy(plain + 8,  &session_id_in_frame,  8); /* session_id */
+    /* msg_id, seq_no, data_len, data, padding stay zero */
+
+    /* With mock crypto, AES-IGE decrypt is identity: cipher == plain. */
+    uint8_t cipher[64];
+    memcpy(cipher, plain, 64);
+
+    /* Wire frame: auth_key_id(8) + msg_key(16, zeros) + cipher(64) = 88 bytes */
+    uint8_t frame[88];
+    memcpy(frame + 0,  &auth_key_id_override, 8);  /* auth_key_id */
+    memset(frame + 8,  0, 16);                      /* msg_key = zeros */
+    memcpy(frame + 24, cipher, 64);
+
+    /* Abridged encoding: length in 4-byte units = 88/4 = 22 → fits in 1 byte */
+    uint8_t wire[89];
+    wire[0] = 22;
+    memcpy(wire + 1, frame, 88);
+    mock_socket_set_response(wire, 89);
+
+    (void)t;
+}
+
+void test_recv_encrypted_wrong_auth_key_id(void) {
+    mock_socket_reset();
+    mock_crypto_reset();
+
+    MtProtoSession s;
+    mtproto_session_init(&s);
+    s.has_auth_key = 1;
+    memset(s.auth_key, 0, 256);
+    /* With mock SHA256 = zeros, the expected auth_key_id is 0.
+     * We deliberately use a non-zero auth_key_id to trigger rejection. */
+    uint64_t wrong_id = 0xDEADBEEFCAFEBABEULL;
+
+    Transport t;
+    transport_init(&t);
+    transport_connect(&t, "localhost", 443);
+    mock_socket_clear_sent();
+
+    build_encrypted_frame(wrong_id, s.session_id, &t);
+
+    uint8_t out[256];
+    size_t out_len = 0;
+    int rc = rpc_recv_encrypted(&s, &t, out, sizeof(out), &out_len);
+    ASSERT(rc == -1, "wrong auth_key_id must be rejected");
+
+    transport_close(&t);
+}
+
+void test_recv_encrypted_wrong_session_id(void) {
+    mock_socket_reset();
+    mock_crypto_reset();
+
+    MtProtoSession s;
+    mtproto_session_init(&s);
+    s.has_auth_key = 1;
+    memset(s.auth_key, 0, 256);
+    /* Correct auth_key_id = 0 (mock SHA256 zeros); wrong session_id in frame. */
+    uint64_t correct_auth_key_id = 0ULL;
+    uint64_t wrong_session_id    = s.session_id ^ 0xFFFFFFFFFFFFFFFFULL;
+
+    Transport t;
+    transport_init(&t);
+    transport_connect(&t, "localhost", 443);
+    mock_socket_clear_sent();
+
+    build_encrypted_frame(correct_auth_key_id, wrong_session_id, &t);
+
+    uint8_t out[256];
+    size_t out_len = 0;
+    int rc = rpc_recv_encrypted(&s, &t, out, sizeof(out), &out_len);
+    ASSERT(rc == -1, "wrong session_id must be rejected");
+
+    transport_close(&t);
+}
+
 void test_rpc(void) {
     RUN_TEST(test_rpc_send_unencrypted_framing);
     RUN_TEST(test_rpc_recv_unencrypted);
@@ -391,6 +494,10 @@ void test_rpc(void) {
     RUN_TEST(test_container_too_many_msgs);
     RUN_TEST(test_container_null_args);
     RUN_TEST(test_container_unaligned_body_len);
+
+    /* rpc_recv_encrypted validation */
+    RUN_TEST(test_recv_encrypted_wrong_auth_key_id);
+    RUN_TEST(test_recv_encrypted_wrong_session_id);
 
     /* rpc_result / rpc_error */
     RUN_TEST(test_rpc_unwrap_result);

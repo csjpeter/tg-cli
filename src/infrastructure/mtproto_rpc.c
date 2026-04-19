@@ -147,13 +147,27 @@ int rpc_recv_encrypted(MtProtoSession *s, Transport *t,
     if (buf_len < 24) return -1;
 
     TlReader r = tl_reader_init(buf, buf_len);
-    tl_read_uint64(&r); /* auth_key_id — skip */
+    uint64_t recv_auth_key_id = tl_read_uint64(&r);
 
     uint8_t msg_key[16];
     tl_read_raw(&r, msg_key, 16);
 
     size_t cipher_len = buf_len - 24;
     const uint8_t *cipher = buf + 24;
+
+    /* Verify auth_key_id: must equal SHA256(auth_key)[24:32]. */
+    uint8_t key_hash[32];
+    crypto_sha256(s->auth_key, 256, key_hash);
+    uint64_t expected_auth_key_id;
+    memcpy(&expected_auth_key_id, key_hash + 24, 8);
+    if (recv_auth_key_id != expected_auth_key_id) {
+        logger_log(LOG_ERROR,
+                   "rpc_recv_encrypted: auth_key_id mismatch "
+                   "(got %016llx, expected %016llx) — dropping frame",
+                   (unsigned long long)recv_auth_key_id,
+                   (unsigned long long)expected_auth_key_id);
+        return -1;
+    }
 
     /* Decrypt (heap-allocated) */
     RAII_STRING uint8_t *decrypted = (uint8_t *)malloc(RPC_BUF_SIZE);
@@ -168,7 +182,17 @@ int rpc_recv_encrypted(MtProtoSession *s, Transport *t,
 
     TlReader pr = tl_reader_init(decrypted, dec_len);
     tl_read_uint64(&pr); /* salt */
-    tl_read_uint64(&pr); /* session_id */
+    uint64_t recv_session_id = tl_read_uint64(&pr);
+
+    /* Verify session_id against the local session. */
+    if (recv_session_id != s->session_id) {
+        logger_log(LOG_ERROR,
+                   "rpc_recv_encrypted: session_id mismatch "
+                   "(got %016llx, expected %016llx) — dropping frame",
+                   (unsigned long long)recv_session_id,
+                   (unsigned long long)s->session_id);
+        return -1;
+    }
     tl_read_uint64(&pr); /* msg_id */
     tl_read_uint32(&pr); /* seq_no */
     uint32_t data_len = tl_read_uint32(&pr);

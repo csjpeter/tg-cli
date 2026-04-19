@@ -181,6 +181,7 @@ static void test_bad_server_salt_retry(void) {
 
     MtProtoSession s;
     mtproto_session_init(&s);
+    s.session_id = 0; /* match the zero session_id in fake encrypted frames */
     uint8_t key[256] = {0};
     mtproto_session_set_auth_key(&s, key);
     mtproto_session_set_salt(&s, 0x1111111111111111ULL);
@@ -237,6 +238,7 @@ static void test_new_session_created_skipped(void) {
 
     MtProtoSession s;
     mtproto_session_init(&s);
+    s.session_id = 0; /* match the zero session_id in fake encrypted frames */
     uint8_t key[256] = {0};
     mtproto_session_set_auth_key(&s, key);
     mtproto_session_set_salt(&s, 0x1);
