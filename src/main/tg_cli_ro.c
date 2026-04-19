@@ -673,7 +673,7 @@ static int cmd_dialogs(const ArgResult *args) {
     if (!entries) { transport_close(&t); return 1; }
 
     int count = 0;
-    int rc = domain_get_dialogs(&cfg, &s, &t, limit, args->archived, entries, &count);
+    int rc = domain_get_dialogs(&cfg, &s, &t, limit, args->archived, entries, &count, NULL);
     transport_close(&t);
     if (rc != 0) {
         fprintf(stderr, "tg-cli-ro dialogs: failed (see logs)\n");

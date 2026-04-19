@@ -149,6 +149,65 @@ static void on_dialogs_one_user(MtRpcContext *ctx) {
     tl_writer_free(&w);
 }
 
+/* messages.dialogsSlice#71e094f3 — two entries returned from a server that
+ * has 50 total dialogs.  The first is a user peer (id=777, unread=3) and the
+ * second is a channel peer (id=888, unread=0).  Users/chats vectors are
+ * minimal (no access_hash on either) so the title join leaves titles empty —
+ * we are testing the slice parse path, not the join. */
+static void on_dialogs_slice(MtRpcContext *ctx) {
+    TlWriter w;
+    tl_writer_init(&w);
+    tl_write_uint32(&w, TL_messages_dialogsSlice);
+    tl_write_int32 (&w, 50);               /* count — total on server */
+
+    /* dialogs: Vector<Dialog> with 2 entries */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 2);
+
+    /* dialog 0: user peer id=777 unread=3 top=42 */
+    tl_write_uint32(&w, CRC_dialog);
+    tl_write_uint32(&w, 0);               /* flags=0 */
+    tl_write_uint32(&w, TL_peerUser);
+    tl_write_int64 (&w, 777LL);
+    tl_write_int32 (&w, 42);              /* top_message */
+    tl_write_int32 (&w, 0);              /* read_inbox_max_id */
+    tl_write_int32 (&w, 0);              /* read_outbox_max_id */
+    tl_write_int32 (&w, 3);              /* unread_count */
+    tl_write_int32 (&w, 0);              /* unread_mentions_count */
+    tl_write_int32 (&w, 0);              /* unread_reactions_count */
+    tl_write_uint32(&w, CRC_peerNotifySettings);
+    tl_write_uint32(&w, 0);
+
+    /* dialog 1: channel peer id=888 unread=0 top=99 */
+    tl_write_uint32(&w, CRC_dialog);
+    tl_write_uint32(&w, 0);               /* flags=0 */
+    tl_write_uint32(&w, TL_peerChannel);
+    tl_write_int64 (&w, 888LL);
+    tl_write_int32 (&w, 99);             /* top_message */
+    tl_write_int32 (&w, 0);
+    tl_write_int32 (&w, 0);
+    tl_write_int32 (&w, 0);             /* unread_count */
+    tl_write_int32 (&w, 0);
+    tl_write_int32 (&w, 0);
+    tl_write_uint32(&w, CRC_peerNotifySettings);
+    tl_write_uint32(&w, 0);
+
+    /* messages vector: empty */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 0);
+
+    /* chats vector: empty */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 0);
+
+    /* users vector: empty */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 0);
+
+    mt_server_reply_result(ctx, w.data, w.len);
+    tl_writer_free(&w);
+}
+
 /* messages.messages empty. */
 static void on_history_empty(MtRpcContext *ctx) {
     TlWriter w;
@@ -298,7 +357,7 @@ static void test_dialogs_empty(void) {
 
     DialogEntry rows[8];
     int n = -1;
-    ASSERT(domain_get_dialogs(&cfg, &s, &t, 8, 0, rows, &n) == 0,
+    ASSERT(domain_get_dialogs(&cfg, &s, &t, 8, 0, rows, &n, NULL) == 0,
            "get_dialogs succeeds on empty");
     ASSERT(n == 0, "zero dialogs returned");
 
@@ -317,7 +376,7 @@ static void test_dialogs_one_user(void) {
 
     DialogEntry rows[8];
     int n = 0;
-    ASSERT(domain_get_dialogs(&cfg, &s, &t, 8, 0, rows, &n) == 0,
+    ASSERT(domain_get_dialogs(&cfg, &s, &t, 8, 0, rows, &n, NULL) == 0,
            "get_dialogs succeeds");
     ASSERT(n == 1, "one dialog parsed");
     ASSERT(rows[0].kind == DIALOG_PEER_USER, "user peer kind");
@@ -329,6 +388,43 @@ static void test_dialogs_one_user(void) {
     ASSERT(rows[0].have_access_hash == 1, "access_hash joined from users vec");
     ASSERT(rows[0].access_hash == (int64_t)0xAABBCCDDEEFF0011LL,
            "access_hash value");
+
+    transport_close(&t);
+    mt_server_reset();
+}
+
+/* TEST-02: messages.dialogsSlice variant — two entries in the batch, server
+ * reports 50 total.  Verify that the batch entries are parsed correctly and
+ * that total_count surfaces the server-side count rather than the batch
+ * size. */
+static void test_dialogs_slice_variant(void) {
+    with_tmp_home("dlg-slice");
+    mt_server_init(); mt_server_reset();
+    MtProtoSession s; load_session(&s);
+    mt_server_expect(CRC_messages_getDialogs, on_dialogs_slice, NULL);
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    DialogEntry rows[8];
+    int n = 0;
+    int total = 0;
+    ASSERT(domain_get_dialogs(&cfg, &s, &t, 8, 0, rows, &n, &total) == 0,
+           "get_dialogs slice succeeds");
+    ASSERT(n == 2, "two dialogs in batch");
+    ASSERT(total == 50, "total_count from slice header");
+
+    /* First entry: user peer */
+    ASSERT(rows[0].kind == DIALOG_PEER_USER, "first is user peer");
+    ASSERT(rows[0].peer_id == 777LL, "user peer_id");
+    ASSERT(rows[0].top_message_id == 42, "user top_message");
+    ASSERT(rows[0].unread_count == 3, "user unread_count");
+
+    /* Second entry: channel peer */
+    ASSERT(rows[1].kind == DIALOG_PEER_CHANNEL, "second is channel peer");
+    ASSERT(rows[1].peer_id == 888LL, "channel peer_id");
+    ASSERT(rows[1].top_message_id == 99, "channel top_message");
+    ASSERT(rows[1].unread_count == 0, "channel unread_count");
 
     transport_close(&t);
     mt_server_reset();
@@ -520,6 +616,7 @@ void run_read_path_tests(void) {
     RUN_TEST(test_get_self);
     RUN_TEST(test_dialogs_empty);
     RUN_TEST(test_dialogs_one_user);
+    RUN_TEST(test_dialogs_slice_variant);
     RUN_TEST(test_history_empty);
     RUN_TEST(test_history_one_message_empty);
     RUN_TEST(test_contacts_empty);

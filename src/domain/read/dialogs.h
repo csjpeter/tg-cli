@@ -51,11 +51,17 @@ typedef struct {
  *                    zero for the default inbox (folder_id=0).
  * @param out         Output array of length >= @p max_entries.
  * @param out_count   Receives the number of entries actually written.
+ * @param total_count If non-NULL, receives the server-reported total dialog
+ *                    count from a messages.dialogsSlice response (the "count"
+ *                    field which may be larger than the returned batch).  For
+ *                    messages.dialogs (complete list) this is set to the same
+ *                    value as @p out_count.  Pass NULL to ignore.
  * @return 0 on success, -1 on RPC/parse error.
  */
 int domain_get_dialogs(const ApiConfig *cfg,
                        MtProtoSession *s, Transport *t,
                        int max_entries, int archived,
-                       DialogEntry *out, int *out_count);
+                       DialogEntry *out, int *out_count,
+                       int *total_count);
 
 #endif /* DOMAIN_READ_DIALOGS_H */

@@ -95,7 +95,7 @@ static void do_dialogs(const ApiConfig *cfg, MtProtoSession *s, Transport *t,
     if (limit <= 0 || limit > 100) limit = 20;
     DialogEntry entries[100] = {0};
     int count = 0;
-    if (domain_get_dialogs(cfg, s, t, limit, 0, entries, &count) != 0) {
+    if (domain_get_dialogs(cfg, s, t, limit, 0, entries, &count, NULL) != 0) {
         puts("dialogs: request failed");
         return;
     }

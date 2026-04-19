@@ -172,7 +172,7 @@ static void test_dialogs_title_join_user(void) {
 
     DialogEntry entries[5] = {0};
     int count = 0;
-    int rc = domain_get_dialogs(&cfg, &s, &t, 5, 0, entries, &count);
+    int rc = domain_get_dialogs(&cfg, &s, &t, 5, 0, entries, &count, NULL);
     ASSERT(rc == 0, "title join ok");
     ASSERT(count == 1, "one dialog");
     ASSERT(entries[0].peer_id == 7777LL, "peer_id");
@@ -223,7 +223,7 @@ static void test_dialogs_user_access_hash_threaded(void) {
 
     DialogEntry entries[5] = {0};
     int count = 0;
-    int rc = domain_get_dialogs(&cfg, &s, &t, 5, 0, entries, &count);
+    int rc = domain_get_dialogs(&cfg, &s, &t, 5, 0, entries, &count, NULL);
     ASSERT(rc == 0, "dialog with access_hash ok");
     ASSERT(count == 1, "one dialog");
     ASSERT(entries[0].have_access_hash == 1, "access_hash threaded");
@@ -275,7 +275,7 @@ static void test_dialogs_channel_access_hash_threaded(void) {
 
     DialogEntry entries[5] = {0};
     int count = 0;
-    int rc = domain_get_dialogs(&cfg, &s, &t, 5, 0, entries, &count);
+    int rc = domain_get_dialogs(&cfg, &s, &t, 5, 0, entries, &count, NULL);
     ASSERT(rc == 0, "channel dialog ok");
     ASSERT(count == 1, "one dialog");
     ASSERT(entries[0].kind == DIALOG_PEER_CHANNEL, "channel kind");
@@ -298,7 +298,7 @@ static void test_dialogs_multi_entries(void) {
 
     DialogEntry entries[10] = {0};
     int count = 0;
-    int rc = domain_get_dialogs(&cfg, &s, &t, 10, 0, entries, &count);
+    int rc = domain_get_dialogs(&cfg, &s, &t, 10, 0, entries, &count, NULL);
     ASSERT(rc == 0, "multi-entry dialogs parsed");
     ASSERT(count == 5, "all 5 dialogs iterated");
     ASSERT(entries[0].peer_id == 1000, "first peer id");
@@ -323,7 +323,7 @@ static void test_dialogs_single_user(void) {
 
     DialogEntry entries[10] = {0};
     int count = 0;
-    int rc = domain_get_dialogs(&cfg, &s, &t, 10, 0, entries, &count);
+    int rc = domain_get_dialogs(&cfg, &s, &t, 10, 0, entries, &count, NULL);
     ASSERT(rc == 0, "dialogs: must succeed");
     ASSERT(count == 1, "one dialog parsed");
     ASSERT(entries[0].kind == DIALOG_PEER_USER, "peer kind=user");
@@ -350,7 +350,7 @@ static void test_dialogs_single_channel(void) {
 
     DialogEntry entries[10] = {0};
     int count = 0;
-    int rc = domain_get_dialogs(&cfg, &s, &t, 10, 0, entries, &count);
+    int rc = domain_get_dialogs(&cfg, &s, &t, 10, 0, entries, &count, NULL);
     ASSERT(rc == 0, "dialogs: must succeed");
     ASSERT(count == 1, "one dialog parsed");
     ASSERT(entries[0].kind == DIALOG_PEER_CHANNEL, "peer kind=channel");
@@ -380,7 +380,7 @@ static void test_dialogs_rpc_error(void) {
 
     DialogEntry entries[5] = {0};
     int count = 0;
-    int rc = domain_get_dialogs(&cfg, &s, &t, 5, 0, entries, &count);
+    int rc = domain_get_dialogs(&cfg, &s, &t, 5, 0, entries, &count, NULL);
     ASSERT(rc != 0, "RPC error must propagate");
 }
 
@@ -406,20 +406,20 @@ static void test_dialogs_unexpected_top(void) {
 
     DialogEntry entries[5] = {0};
     int count = 0;
-    int rc = domain_get_dialogs(&cfg, &s, &t, 5, 0, entries, &count);
+    int rc = domain_get_dialogs(&cfg, &s, &t, 5, 0, entries, &count, NULL);
     ASSERT(rc != 0, "unexpected constructor must fail");
 }
 
 static void test_dialogs_null_args(void) {
     DialogEntry e[1];
     int c = 0;
-    ASSERT(domain_get_dialogs(NULL, NULL, NULL, 5, 0, e, &c) == -1, "null cfg");
-    ASSERT(domain_get_dialogs((ApiConfig *)1, NULL, NULL, 5, 0, e, &c) == -1, "null s");
+    ASSERT(domain_get_dialogs(NULL, NULL, NULL, 5, 0, e, &c, NULL) == -1, "null cfg");
+    ASSERT(domain_get_dialogs((ApiConfig *)1, NULL, NULL, 5, 0, e, &c, NULL) == -1, "null s");
     /* max_entries <= 0 rejected */
     ApiConfig cfg; fix_cfg(&cfg);
     MtProtoSession s; fix_session(&s);
     Transport t; fix_transport(&t);
-    ASSERT(domain_get_dialogs(&cfg, &s, &t, 0, 0, e, &c) == -1, "zero limit");
+    ASSERT(domain_get_dialogs(&cfg, &s, &t, 0, 0, e, &c, NULL) == -1, "zero limit");
 }
 
 /* Wire-inspection: when archived=1, folder_id=1 (flags bit 1 set) must appear
@@ -456,7 +456,7 @@ static void test_dialogs_archived_folder_id_on_wire(void) {
 
     DialogEntry entries[5] = {0};
     int count = 0;
-    int rc = domain_get_dialogs(&cfg, &s, &t, 5, 1 /* archived */, entries, &count);
+    int rc = domain_get_dialogs(&cfg, &s, &t, 5, 1 /* archived */, entries, &count, NULL);
     ASSERT(rc == 0, "archived dialogs: call succeeds");
 
     /* Inspect the wire bytes for: CRC(4) + flags=2(4) + folder_id=1(4) */
@@ -500,7 +500,7 @@ static void test_dialogs_default_no_folder_id_on_wire(void) {
 
     DialogEntry entries[5] = {0};
     int count = 0;
-    int rc = domain_get_dialogs(&cfg, &s, &t, 5, 0 /* not archived */, entries, &count);
+    int rc = domain_get_dialogs(&cfg, &s, &t, 5, 0 /* not archived */, entries, &count, NULL);
     ASSERT(rc == 0, "default dialogs: call succeeds");
 
     /* flags must be 0 (not 2) right after the CRC */

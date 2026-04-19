@@ -45,7 +45,7 @@ int dialog_pane_refresh(DialogPane *dp,
     if (!dp || !cfg || !s || !t) return -1;
     DialogEntry tmp[DIALOG_PANE_MAX] = {0};
     int count = 0;
-    if (domain_get_dialogs(cfg, s, t, DIALOG_PANE_MAX, 0, tmp, &count) != 0)
+    if (domain_get_dialogs(cfg, s, t, DIALOG_PANE_MAX, 0, tmp, &count, NULL) != 0)
         return -1;
     dialog_pane_set_entries(dp, tmp, count);
     return 0;

@@ -94,9 +94,11 @@ static int parse_peer(TlReader *r, DialogEntry *out) {
 int domain_get_dialogs(const ApiConfig *cfg,
                        MtProtoSession *s, Transport *t,
                        int max_entries, int archived,
-                       DialogEntry *out, int *out_count) {
+                       DialogEntry *out, int *out_count,
+                       int *total_count) {
     if (!cfg || !s || !t || !out || !out_count || max_entries <= 0) return -1;
     *out_count = 0;
+    if (total_count) *total_count = 0;
 
     uint8_t query[132];
     size_t qlen = 0;
@@ -138,7 +140,8 @@ int domain_get_dialogs(const ApiConfig *cfg,
 
     /* messages.dialogsSlice#71e094f3 count:int dialogs:Vector<Dialog>... */
     if (top == TL_messages_dialogsSlice) {
-        tl_read_int32(&r); /* total count — not stored */
+        int32_t slice_total = tl_read_int32(&r);
+        if (total_count) *total_count = (int)slice_total;
     }
 
     /* dialogs vector */
@@ -148,6 +151,8 @@ int domain_get_dialogs(const ApiConfig *cfg,
         return -1;
     }
     uint32_t count = tl_read_uint32(&r);
+    /* For the complete-list variant, total == the vector length. */
+    if (top == TL_messages_dialogs && total_count) *total_count = (int)count;
     int written = 0;
     for (uint32_t i = 0; i < count && written < max_entries; i++) {
         if (!tl_reader_ok(&r)) break;
