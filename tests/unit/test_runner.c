@@ -26,6 +26,7 @@ void test_api_call(void);
 void run_auth_session_tests(void);
 void run_auth_2fa_tests(void);
 void run_arg_parse_tests(void);
+void run_watch_json_tests(void);
 void run_readline_tests(void);
 void run_domain_self_tests(void);
 void run_domain_dialogs_tests(void);
@@ -76,6 +77,7 @@ int main() {
     RUN_TEST(run_auth_session_tests);
     RUN_TEST(run_auth_2fa_tests);
     RUN_TEST(run_arg_parse_tests);
+    RUN_TEST(run_watch_json_tests);
     RUN_TEST(run_readline_tests);
     RUN_TEST(run_domain_self_tests);
     RUN_TEST(run_domain_dialogs_tests);

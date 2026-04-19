@@ -12,6 +12,7 @@
 #include "app/credentials.h"
 #include "app/session_store.h"
 #include "arg_parse.h"
+#include "json_util.h"
 
 #include "domain/read/self.h"
 #include "domain/read/dialogs.h"
@@ -214,20 +215,20 @@ static int cmd_watch(const ArgResult *args) {
         updates_state_save(&state);
 
         if (args->json) {
-            printf("{\"new_messages\":%d,\"empty\":%s,\"too_long\":%s,"
-                   "\"pts\":%d,\"date\":%d,\"items\":[",
-                   diff.new_messages_count,
-                   diff.is_empty ? "true" : "false",
-                   diff.is_too_long ? "true" : "false",
-                   state.pts, state.date);
+            /* NDJSON: emit one JSON object per new message, one per line.
+             * Each line is flushed immediately so pipes get live data.
+             * Schema: {"peer":null,"msg_id":<int>,"date":<int>,"text":"<str>"}
+             * "peer" is null because getDifference does not expose per-message
+             * peer identifiers in the current UpdatesDifference struct. */
+            char esc[HISTORY_TEXT_MAX * 6 + 1]; /* worst-case: every byte → \uXXXX */
             for (int i = 0; i < diff.new_messages_count; i++) {
-                if (i) printf(",");
-                printf("{\"id\":%d,\"date\":%d,\"text\":\"%s\"}",
+                json_escape_str(esc, sizeof(esc), diff.new_messages[i].text);
+                printf("{\"peer\":null,\"msg_id\":%d,\"date\":%d,\"text\":\"%s\"}\n",
                        diff.new_messages[i].id,
                        diff.new_messages[i].date,
-                       diff.new_messages[i].text);
+                       esc);
+                fflush(stdout);
             }
-            printf("]}\n");
         } else {
             for (int i = 0; i < diff.new_messages_count; i++) {
                 printf("[%d] %d %s\n",
@@ -658,6 +659,7 @@ static void print_usage(void) {
         "  contacts                         List contacts (US-09)\n"
         "  user-info <peer>                 User/channel info (US-09)\n"
         "  watch    [--peers X,Y] [--interval SEC]  Watch updates (US-07)\n"
+        "           With --json: emits one NDJSON line per new message.\n"
         "  download <peer> <msg_id> [--out PATH]  Download photo (US-08)\n"
         "\n"
         "Global flags:\n"
