@@ -9,7 +9,7 @@ PROJECT_NAME="tg-cli"
 BUILD_DIR="./build"
 BIN_DIR="./bin"
 # Binaries produced by this project (see docs/adr/0005-three-binary-architecture.md)
-BINARIES=(tg-cli-ro tg-tui)
+BINARIES=(tg-cli-ro tg-cli tg-tui)
 
 show_help() {
     echo "Usage: ./manage.sh [command]"
