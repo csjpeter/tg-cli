@@ -360,6 +360,7 @@ static void test_get_self(void) {
 static void test_dialogs_empty(void) {
     with_tmp_home("dlg-empty");
     mt_server_init(); mt_server_reset();
+    dialogs_cache_flush();
     MtProtoSession s; load_session(&s);
     mt_server_expect(CRC_messages_getDialogs, on_dialogs_empty, NULL);
 
@@ -379,6 +380,7 @@ static void test_dialogs_empty(void) {
 static void test_dialogs_one_user(void) {
     with_tmp_home("dlg-user");
     mt_server_init(); mt_server_reset();
+    dialogs_cache_flush();
     MtProtoSession s; load_session(&s);
     mt_server_expect(CRC_messages_getDialogs, on_dialogs_one_user, NULL);
 
@@ -411,6 +413,7 @@ static void test_dialogs_one_user(void) {
 static void test_dialogs_slice_variant(void) {
     with_tmp_home("dlg-slice");
     mt_server_init(); mt_server_reset();
+    dialogs_cache_flush();
     MtProtoSession s; load_session(&s);
     mt_server_expect(CRC_messages_getDialogs, on_dialogs_slice, NULL);
 
@@ -448,6 +451,7 @@ static void test_dialogs_slice_variant(void) {
 static void test_dialogs_not_modified_variant(void) {
     with_tmp_home("dlg-notmod");
     mt_server_init(); mt_server_reset();
+    dialogs_cache_flush();
     MtProtoSession s; load_session(&s);
     mt_server_expect(CRC_messages_getDialogs, on_dialogs_not_modified, NULL);
 

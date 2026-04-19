@@ -123,7 +123,7 @@ static size_t make_multi_dialog_payload(uint8_t *buf, size_t max,
  * 1 message, 0 chats, 1 user with first_name+last_name+username, and
  * verify the DialogEntry gets the user's name + username populated. */
 static void test_dialogs_title_join_user(void) {
-    mock_socket_reset(); mock_crypto_reset();
+    mock_socket_reset(); mock_crypto_reset(); dialogs_cache_flush();
 
     TlWriter w; tl_writer_init(&w);
     tl_write_uint32(&w, TL_messages_dialogsSlice);
@@ -182,7 +182,7 @@ static void test_dialogs_title_join_user(void) {
 
 /* TUI-08: access_hash from a user with flags.0 set is threaded onto DialogEntry. */
 static void test_dialogs_user_access_hash_threaded(void) {
-    mock_socket_reset(); mock_crypto_reset();
+    mock_socket_reset(); mock_crypto_reset(); dialogs_cache_flush();
 
     TlWriter w; tl_writer_init(&w);
     tl_write_uint32(&w, TL_messages_dialogsSlice);
@@ -233,7 +233,7 @@ static void test_dialogs_user_access_hash_threaded(void) {
 
 /* TUI-08: channel access_hash is threaded too. */
 static void test_dialogs_channel_access_hash_threaded(void) {
-    mock_socket_reset(); mock_crypto_reset();
+    mock_socket_reset(); mock_crypto_reset(); dialogs_cache_flush();
 
     TlWriter w; tl_writer_init(&w);
     tl_write_uint32(&w, TL_messages_dialogsSlice);
@@ -285,7 +285,7 @@ static void test_dialogs_channel_access_hash_threaded(void) {
 }
 
 static void test_dialogs_multi_entries(void) {
-    mock_socket_reset(); mock_crypto_reset();
+    mock_socket_reset(); mock_crypto_reset(); dialogs_cache_flush();
 
     uint8_t payload[1024];
     size_t plen = make_multi_dialog_payload(payload, sizeof(payload), 5);
@@ -309,6 +309,7 @@ static void test_dialogs_multi_entries(void) {
 static void test_dialogs_single_user(void) {
     mock_socket_reset();
     mock_crypto_reset();
+    dialogs_cache_flush();
 
     uint8_t payload[256];
     size_t plen = make_one_dialog_payload(payload, sizeof(payload),
@@ -335,6 +336,7 @@ static void test_dialogs_single_user(void) {
 static void test_dialogs_single_channel(void) {
     mock_socket_reset();
     mock_crypto_reset();
+    dialogs_cache_flush();
 
     uint8_t payload[256];
     size_t plen = make_one_dialog_payload(payload, sizeof(payload),
@@ -360,6 +362,7 @@ static void test_dialogs_single_channel(void) {
 static void test_dialogs_rpc_error(void) {
     mock_socket_reset();
     mock_crypto_reset();
+    dialogs_cache_flush();
 
     uint8_t payload[128];
     TlWriter w;
@@ -387,6 +390,7 @@ static void test_dialogs_rpc_error(void) {
 static void test_dialogs_unexpected_top(void) {
     mock_socket_reset();
     mock_crypto_reset();
+    dialogs_cache_flush();
 
     uint8_t payload[32];
     TlWriter w;
@@ -437,7 +441,7 @@ static void test_dialogs_null_args(void) {
  * identity cipher the TL bytes appear verbatim in the sent buffer.
  */
 static void test_dialogs_archived_folder_id_on_wire(void) {
-    mock_socket_reset(); mock_crypto_reset();
+    mock_socket_reset(); mock_crypto_reset(); dialogs_cache_flush();
 
     /* Minimal valid response: empty messages.dialogs */
     TlWriter pw; tl_writer_init(&pw);
@@ -482,7 +486,7 @@ static void test_dialogs_archived_folder_id_on_wire(void) {
 
 /* Inverse: when archived=0, flags=0 and no folder_id in the outbound buffer. */
 static void test_dialogs_default_no_folder_id_on_wire(void) {
-    mock_socket_reset(); mock_crypto_reset();
+    mock_socket_reset(); mock_crypto_reset(); dialogs_cache_flush();
 
     TlWriter pw; tl_writer_init(&pw);
     tl_write_uint32(&pw, TL_messages_dialogs);

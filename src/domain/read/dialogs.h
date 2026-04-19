@@ -17,6 +17,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <time.h>
 
 /** @brief Peer kind — matches the TL Peer/InputPeer hierarchy. */
 typedef enum {
@@ -36,6 +37,23 @@ typedef struct {
     char           title[128];     /**< Chat/channel title or user name. */
     char           username[64];   /**< Public username without '@' (users/channels). */
 } DialogEntry;
+
+/**
+ * @brief Override the clock used for TTL cache checks.
+ *
+ * Pass a function that returns the current time, or NULL to restore
+ * the real clock.  Intended for test use only — allows fast-forwarding
+ * time without sleeping.
+ */
+void dialogs_cache_set_now_fn(time_t (*fn)(void));
+
+/**
+ * @brief Flush the in-memory dialogs cache (test use only).
+ *
+ * Call before each unit or functional test that drives domain_get_dialogs
+ * so that cached state from a previous test does not mask a fresh RPC.
+ */
+void dialogs_cache_flush(void);
 
 /**
  * @brief Fetch up to @p max_entries dialogs.

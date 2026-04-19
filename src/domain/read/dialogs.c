@@ -13,9 +13,59 @@
 #include "raii.h"
 
 #include <stddef.h>
+#include <time.h>
 
 #include <stdlib.h>
 #include <string.h>
+
+/* ---- In-memory TTL cache ---- */
+
+/** Default TTL for the dialogs cache (seconds). */
+#ifndef DIALOGS_CACHE_TTL_S
+#define DIALOGS_CACHE_TTL_S 60
+#endif
+
+/** Maximum cached dialogs per call site (archived=0 and archived=1). */
+#define DIALOGS_CACHE_SLOTS 2
+#define DIALOGS_CACHE_MAX   512
+
+typedef struct {
+    int         valid;
+    int         archived;
+    time_t      fetched_at;
+    int         count;
+    int         total_count;
+    DialogEntry entries[DIALOGS_CACHE_MAX];
+} DialogsCache;
+
+static DialogsCache s_cache[DIALOGS_CACHE_SLOTS]; /* [0]=inbox [1]=archive */
+
+/** @brief Mockable clock — tests may replace this with a fake. */
+static time_t (*s_now_fn)(void) = NULL;
+
+static time_t dialogs_now(void) {
+    if (s_now_fn) return s_now_fn();
+    return time(NULL);
+}
+
+/**
+ * @brief Override the clock used for TTL checks (test use only).
+ * Pass NULL to restore the real clock.
+ */
+void dialogs_cache_set_now_fn(time_t (*fn)(void)) {
+    s_now_fn = fn;
+}
+
+/**
+ * @brief Flush the in-memory dialogs cache (test use only).
+ *
+ * Call before each unit test that drives domain_get_dialogs directly so
+ * that cached state from a previous test does not mask a fresh RPC.
+ */
+void dialogs_cache_flush(void) {
+    memset(s_cache, 0, sizeof(s_cache));
+}
+
 
 #define CRC_messages_getDialogs 0xa0f4cb4fu
 #define CRC_inputPeerEmpty      0x7f3b18eau
@@ -99,6 +149,20 @@ int domain_get_dialogs(const ApiConfig *cfg,
     if (!cfg || !s || !t || !out || !out_count || max_entries <= 0) return -1;
     *out_count = 0;
     if (total_count) *total_count = 0;
+
+    /* ---- TTL cache check ---- */
+    int slot = archived ? 1 : 0;
+    DialogsCache *cache = &s_cache[slot];
+    time_t now = dialogs_now();
+    if (cache->valid && (now - cache->fetched_at) < DIALOGS_CACHE_TTL_S) {
+        int n = cache->count < max_entries ? cache->count : max_entries;
+        memcpy(out, cache->entries, (size_t)n * sizeof(DialogEntry));
+        *out_count = n;
+        if (total_count) *total_count = cache->total_count;
+        logger_log(LOG_DEBUG, "dialogs: served %d entries from cache (age=%lds)",
+                   n, (long)(now - cache->fetched_at));
+        return 0;
+    }
 
     uint8_t query[132];
     size_t qlen = 0;
@@ -218,6 +282,20 @@ int domain_get_dialogs(const ApiConfig *cfg,
 
     *out_count = written;
 
+    /* ---- Populate cache after successful RPC (before title join) ----
+     * The join adds titles in-place so we store after the join, but we
+     * need to handle all exit paths.  Prime the cache fields now so that
+     * the goto-jump at join_done always sees a consistent state. */
+    {
+        int cached_n = written < DIALOGS_CACHE_MAX ? written : DIALOGS_CACHE_MAX;
+        cache->valid      = 1;
+        cache->archived   = archived;
+        cache->fetched_at = dialogs_now();
+        cache->count      = cached_n;
+        cache->total_count = total_count ? *total_count : written;
+        memcpy(cache->entries, out, (size_t)cached_n * sizeof(DialogEntry));
+    }
+
     /* ---- Title join ----
      *
      * messages.dialogs / dialogsSlice continues with:
@@ -297,6 +375,11 @@ int domain_get_dialogs(const ApiConfig *cfg,
     }
     free(chats);
     free(users);
+    /* Refresh cached entries to include joined titles / access_hashes. */
+    {
+        int cached_n = *out_count < DIALOGS_CACHE_MAX ? *out_count : DIALOGS_CACHE_MAX;
+        memcpy(cache->entries, out, (size_t)cached_n * sizeof(DialogEntry));
+    }
 join_done:
     return 0;
 }
