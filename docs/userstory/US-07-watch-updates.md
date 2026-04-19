@@ -24,8 +24,8 @@ Streams one line per incoming message to stdout. Exits on SIGINT.
 ## Acceptance
 - Default interval 30 s; configurable down to 2 s (API rate limits).
 - Survives transient network errors with exponential backoff.
-- On reconnect, picks up from last `pts` / `qts` (stored in
-  `~/.cache/tg-cli/updates.state`).
+- On reconnect, picks up from last `pts` / `qts` (held in memory only;
+  persistence to `~/.cache/tg-cli/updates.state` is planned — see FEAT-03).
 - tg-cli-ro prints plain lines or JSON objects; tg-tui consumes the same
   domain function and redraws the relevant pane.
 
