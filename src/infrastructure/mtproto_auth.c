@@ -34,6 +34,11 @@
 #define CRC_dh_gen_retry          0x46dc1fb9
 #define CRC_dh_gen_fail           0xa69dae02
 
+/* Maximum number of RSA fingerprints accepted in a ResPQ vector.
+ * Telegram uses ≤8 in practice; cap at 64 to reject DoS from untrusted servers
+ * during the unauthenticated DH phase. */
+#define MAX_FP_COUNT 64
+
 /* ---- Big-endian byte helpers ---- */
 
 /** Encode uint64 as big-endian bytes, stripping leading zeros. */
@@ -295,6 +300,12 @@ int auth_step_req_pq(AuthKeyCtx *ctx) {
     uint32_t vec_crc = tl_read_uint32(&r); /* vector constructor */
     (void)vec_crc;
     uint32_t fp_count = tl_read_uint32(&r);
+
+    if (fp_count > MAX_FP_COUNT) {
+        logger_log(LOG_ERROR, "auth: fp_count %u exceeds cap %u — rejecting",
+                   fp_count, MAX_FP_COUNT);
+        return -1;
+    }
 
     int found_fp = 0;
     for (uint32_t i = 0; i < fp_count; i++) {

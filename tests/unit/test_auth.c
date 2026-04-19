@@ -78,6 +78,31 @@ static size_t build_res_pq(const uint8_t nonce[16],
     return len;
 }
 
+/* ---- Helper: build ResPQ with arbitrary fp_count (for cap tests) ---- */
+
+static size_t build_res_pq_fp_count(const uint8_t nonce[16],
+                                     const uint8_t server_nonce[16],
+                                     const uint8_t *pq_be, size_t pq_be_len,
+                                     uint32_t fp_count,
+                                     uint64_t fingerprint,
+                                     uint8_t *out) {
+    TlWriter tl;
+    tl_writer_init(&tl);
+    tl_write_uint32(&tl, 0x05162463); /* CRC_resPQ */
+    tl_write_int128(&tl, nonce);
+    tl_write_int128(&tl, server_nonce);
+    tl_write_bytes(&tl, pq_be, pq_be_len);
+    tl_write_uint32(&tl, 0x1cb5c415); /* vector constructor */
+    tl_write_uint32(&tl, fp_count);
+    /* Write only the real fingerprint; remaining entries will be zeros/padding
+     * but TlReader saturates safely so this is sufficient for the cap test. */
+    tl_write_uint64(&tl, fingerprint);
+
+    size_t len = build_unenc_response(tl.data, tl.len, out);
+    tl_writer_free(&tl);
+    return len;
+}
+
 /* ---- Helper: build server_DH_params_ok response ---- */
 
 static size_t build_server_dh_params_ok(const uint8_t nonce[16],
@@ -960,6 +985,79 @@ void test_auth_key_gen_full_flow(void) {
     transport_close(&t);
 }
 
+/* FEAT-19: fp_count exceeding MAX_FP_COUNT (64) must be rejected */
+void test_req_pq_fp_count_exceeds_cap(void) {
+    Transport t;
+    MtProtoSession s;
+    test_init(&t, &s);
+
+    uint8_t nonce[16];
+    memset(nonce, 0xAA, 16);
+    uint8_t server_nonce[16];
+    memset(server_nonce, 0xBB, 16);
+    uint8_t pq_be[] = { 0x15 };
+
+    /* fp_count = 1000000 — far above cap of 64 */
+    uint8_t resp[4096];
+    size_t resp_len = build_res_pq_fp_count(nonce, server_nonce,
+                                             pq_be, sizeof(pq_be),
+                                             1000000,
+                                             TEST_RSA_FINGERPRINT, resp);
+    mock_socket_set_response(resp, resp_len);
+
+    AuthKeyCtx ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.transport = &t;
+    ctx.session = &s;
+
+    int rc = auth_step_req_pq(&ctx);
+    ASSERT(rc == -1, "FEAT-19: fp_count 1000000 must be rejected");
+
+    transport_close(&t);
+}
+
+/* FEAT-19: fp_count within cap (3) must be accepted when fingerprint matches */
+void test_req_pq_fp_count_within_cap(void) {
+    Transport t;
+    MtProtoSession s;
+    test_init(&t, &s);
+
+    uint8_t nonce[16];
+    memset(nonce, 0xAA, 16);
+    uint8_t server_nonce[16];
+    memset(server_nonce, 0xBB, 16);
+    uint8_t pq_be[] = { 0x15 };
+
+    /* Build ResPQ with 3 fingerprints: two dummies + our real one */
+    TlWriter tl;
+    tl_writer_init(&tl);
+    tl_write_uint32(&tl, 0x05162463); /* CRC_resPQ */
+    tl_write_int128(&tl, nonce);
+    tl_write_int128(&tl, server_nonce);
+    tl_write_bytes(&tl, pq_be, sizeof(pq_be));
+    tl_write_uint32(&tl, 0x1cb5c415); /* vector constructor */
+    tl_write_uint32(&tl, 3);          /* count = 3 */
+    tl_write_uint64(&tl, 0xDEAD000000000001ULL); /* dummy */
+    tl_write_uint64(&tl, 0xDEAD000000000002ULL); /* dummy */
+    tl_write_uint64(&tl, TEST_RSA_FINGERPRINT);  /* real */
+
+    uint8_t resp[4096];
+    size_t resp_len = build_unenc_response(tl.data, tl.len, resp);
+    tl_writer_free(&tl);
+    mock_socket_set_response(resp, resp_len);
+
+    AuthKeyCtx ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.transport = &t;
+    ctx.session = &s;
+
+    int rc = auth_step_req_pq(&ctx);
+    ASSERT(rc == 0, "FEAT-19: fp_count 3 with matching fingerprint must succeed");
+    ASSERT(ctx.pq == 21, "pq should be 21");
+
+    transport_close(&t);
+}
+
 void test_auth_key_gen_null_args(void) {
     Transport t;
     MtProtoSession s;
@@ -992,6 +1090,8 @@ void test_auth(void) {
     RUN_TEST(test_req_pq_wrong_nonce);
     RUN_TEST(test_req_pq_no_fingerprint);
     RUN_TEST(test_req_pq_wrong_constructor);
+    RUN_TEST(test_req_pq_fp_count_exceeds_cap);
+    RUN_TEST(test_req_pq_fp_count_within_cap);
 
     /* Step 2: req_dh */
     RUN_TEST(test_req_dh_sends_correct_tl);
