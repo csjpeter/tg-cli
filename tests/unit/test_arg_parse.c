@@ -584,6 +584,82 @@ static void test_upload_with_caption(void) {
     ASSERT(strcmp(r.message, "My file") == 0, "upload with caption: caption must match");
 }
 
+/* ---- Test: dialogs --limit 0 (below range) → error ---- */
+static void test_dialogs_limit_zero_is_error(void) {
+    char *argv[] = {"tg-cli", "dialogs", "--limit", "0", NULL};
+    ArgResult r;
+    ASSERT(arg_parse(4, argv, &r) == ARG_ERROR,
+           "dialogs --limit 0: must return ARG_ERROR (below range)");
+}
+
+/* ---- Test: dialogs --limit -5 (negative) → error ---- */
+static void test_dialogs_limit_negative_is_error(void) {
+    char *argv[] = {"tg-cli", "dialogs", "--limit", "-5", NULL};
+    ArgResult r;
+    ASSERT(arg_parse(4, argv, &r) == ARG_ERROR,
+           "dialogs --limit -5: must return ARG_ERROR (negative)");
+}
+
+/* ---- Test: dialogs --limit 1001 (above range) → error ---- */
+static void test_dialogs_limit_too_high(void) {
+    char *argv[] = {"tg-cli", "dialogs", "--limit", "1001", NULL};
+    ArgResult r;
+    ASSERT(arg_parse(4, argv, &r) == ARG_ERROR,
+           "dialogs --limit 1001: must return ARG_ERROR (above range)");
+}
+
+/* ---- Test: dialogs --limit boundary values (1 and 1000) ---- */
+static void test_dialogs_limit_boundaries(void) {
+    ArgResult r;
+    char *argv_min[] = {"tg-cli", "dialogs", "--limit", "1", NULL};
+    ASSERT(arg_parse(4, argv_min, &r) == ARG_OK,
+           "dialogs --limit 1 (min): ARG_OK");
+    ASSERT(r.limit == 1, "dialogs --limit 1: limit must be 1");
+
+    char *argv_max[] = {"tg-cli", "dialogs", "--limit", "1000", NULL};
+    ASSERT(arg_parse(4, argv_max, &r) == ARG_OK,
+           "dialogs --limit 1000 (max): ARG_OK");
+    ASSERT(r.limit == 1000, "dialogs --limit 1000: limit must be 1000");
+}
+
+/* ---- Test: history --limit 0 (below range) → error ---- */
+static void test_history_limit_zero_is_error(void) {
+    char *argv[] = {"tg-cli", "history", "@user", "--limit", "0", NULL};
+    ArgResult r;
+    ASSERT(arg_parse(5, argv, &r) == ARG_ERROR,
+           "history --limit 0: must return ARG_ERROR (below range)");
+}
+
+/* ---- Test: history --limit -5 (negative) → error ---- */
+static void test_history_limit_negative_is_error(void) {
+    char *argv[] = {"tg-cli", "history", "@user", "--limit", "-5", NULL};
+    ArgResult r;
+    ASSERT(arg_parse(5, argv, &r) == ARG_ERROR,
+           "history --limit -5: must return ARG_ERROR (negative)");
+}
+
+/* ---- Test: history --limit 1001 (above range) → error ---- */
+static void test_history_limit_too_high(void) {
+    char *argv[] = {"tg-cli", "history", "@user", "--limit", "1001", NULL};
+    ArgResult r;
+    ASSERT(arg_parse(5, argv, &r) == ARG_ERROR,
+           "history --limit 1001: must return ARG_ERROR (above range)");
+}
+
+/* ---- Test: history --limit boundary values (1 and 1000) ---- */
+static void test_history_limit_boundaries(void) {
+    ArgResult r;
+    char *argv_min[] = {"tg-cli", "history", "@user", "--limit", "1", NULL};
+    ASSERT(arg_parse(5, argv_min, &r) == ARG_OK,
+           "history --limit 1 (min): ARG_OK");
+    ASSERT(r.limit == 1, "history --limit 1: limit must be 1");
+
+    char *argv_max[] = {"tg-cli", "history", "@user", "--limit", "1000", NULL};
+    ASSERT(arg_parse(5, argv_max, &r) == ARG_OK,
+           "history --limit 1000 (max): ARG_OK");
+    ASSERT(r.limit == 1000, "history --limit 1000: limit must be 1000");
+}
+
 void run_arg_parse_tests(void) {
     RUN_TEST(test_no_args);
     RUN_TEST(test_help_flag);
@@ -594,9 +670,17 @@ void run_arg_parse_tests(void) {
     RUN_TEST(test_dialogs_no_options);
     RUN_TEST(test_dialogs_with_limit);
     RUN_TEST(test_dialogs_limit_missing);
+    RUN_TEST(test_dialogs_limit_zero_is_error);
+    RUN_TEST(test_dialogs_limit_negative_is_error);
+    RUN_TEST(test_dialogs_limit_too_high);
+    RUN_TEST(test_dialogs_limit_boundaries);
     RUN_TEST(test_history_basic);
     RUN_TEST(test_history_with_options);
     RUN_TEST(test_history_missing_peer);
+    RUN_TEST(test_history_limit_zero_is_error);
+    RUN_TEST(test_history_limit_negative_is_error);
+    RUN_TEST(test_history_limit_too_high);
+    RUN_TEST(test_history_limit_boundaries);
     RUN_TEST(test_send_basic);
     RUN_TEST(test_send_missing_peer);
     RUN_TEST(test_send_missing_message);

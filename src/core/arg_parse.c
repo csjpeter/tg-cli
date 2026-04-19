@@ -89,6 +89,12 @@ static int parse_dialogs(int argc, char **argv, int i, ArgResult *out) {
                 fprintf(stderr, "tg-cli dialogs: --limit value is not a number\n");
                 return ARG_ERROR;
             }
+            if (out->limit < 1 || out->limit > 1000) {
+                fprintf(stderr,
+                        "tg-cli dialogs: --limit %d out of range [1, 1000]\n",
+                        out->limit);
+                return ARG_ERROR;
+            }
             i += 2;
         } else if (str_eq(argv[i], "--archived")) {
             out->archived = 1;
@@ -124,6 +130,12 @@ static int parse_history(int argc, char **argv, int i, ArgResult *out) {
             }
             if (parse_int(argv[i + 1], &out->limit) != 0) {
                 fprintf(stderr, "tg-cli history: --limit value is not a number\n");
+                return ARG_ERROR;
+            }
+            if (out->limit < 1 || out->limit > 1000) {
+                fprintf(stderr,
+                        "tg-cli history: --limit %d out of range [1, 1000]\n",
+                        out->limit);
                 return ARG_ERROR;
             }
             i += 2;
