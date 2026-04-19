@@ -418,39 +418,6 @@ int arg_parse(int argc, char **argv, ArgResult *out) {
     return ARG_ERROR;
 }
 
-void arg_print_help(void) {
-    puts(
-        "Usage: tg-cli [GLOBAL FLAGS] <subcommand> [ARGS]\n"
-        "\n"
-        "Global flags:\n"
-        "  --batch            Non-interactive batch mode\n"
-        "  --json             Machine-readable JSON output\n"
-        "  --quiet            Suppress informational output\n"
-        "  --config <path>    Custom config file path\n"
-        "  --phone <number>   Phone number for login (batch)\n"
-        "  --code <digits>    SMS/app code for login (batch)\n"
-        "  --password <pass>  2FA password if required (batch)\n"
-        "  --help, -h         Show this help\n"
-        "  --version, -v      Show version\n"
-        "\n"
-        "Subcommands:\n"
-        "  me                                      Show own profile\n"
-        "  dialogs [--limit N]                     List dialogs/chats\n"
-        "  history <peer> [--limit N] [--offset N] Fetch message history\n"
-        "  search  [<peer>] <query>                Search messages\n"
-        "  contacts                                List contacts\n"
-        "  user-info <peer>                        Show user/channel info\n"
-        "  watch   [--peers X,Y]                   Watch incoming updates\n"
-        "  download <peer> <msg_id> [--out PATH]   Download photo from message\n"
-        "  send    <peer> [--reply N] <message>    Send a message (tg-cli only)\n"
-        "  read    <peer> [--max-id N]             Mark as read (tg-cli only)\n"
-        "  edit    <peer> <msg_id> <text>          Edit a message (tg-cli only)\n"
-        "  delete  <peer> <msg_id> [--revoke]      Delete a message (tg-cli only)\n"
-        "  forward <from_peer> <to_peer> <msg_id>  Forward (tg-cli only)\n"
-        "  send-file <peer> <path> [--caption T]   Upload file (tg-cli only)\n"
-    );
-}
-
 void arg_print_version(void) {
     printf("tg-cli %s\n", TG_CLI_VERSION);
 }

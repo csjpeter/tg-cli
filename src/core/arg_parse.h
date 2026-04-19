@@ -8,7 +8,7 @@
  * Usage:
  *   ArgResult args;
  *   int rc = arg_parse(argc, argv, &args);
- *   if (rc == ARG_HELP)    { arg_print_help();    return 0; }
+ *   if (rc == ARG_HELP)    { print_usage(); return 0; }  // per-binary custom help
  *   if (rc == ARG_VERSION) { arg_print_version(); return 0; }
  *   if (rc < 0)            { return 1; }
  */
@@ -86,10 +86,6 @@ typedef struct {
  * @return ARG_OK, ARG_HELP, ARG_VERSION, or ARG_ERROR.
  */
 int arg_parse(int argc, char **argv, ArgResult *out);
-
-/**
- * @brief Print help text to stdout. */
-void arg_print_help(void);
 
 /**
  * @brief Print version string to stdout. */

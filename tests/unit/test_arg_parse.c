@@ -335,25 +335,6 @@ static void test_batch_no_subcommand(void) {
            "--batch w/o subcommand: ARG_ERROR");
 }
 
-/* ---- Test: help/version print functions don't crash ---- */
-static void test_print_helpers(void) {
-    /* Redirect stdout briefly to /dev/null so test output stays clean. */
-    fflush(stdout);
-    int saved = dup(1);
-    int devnull = open("/dev/null", 1); /* O_WRONLY = 1 */
-    dup2(devnull, 1);
-
-    arg_print_help();
-    arg_print_version();
-
-    fflush(stdout);
-    dup2(saved, 1);
-    close(saved); close(devnull);
-
-    /* No assertion failure means the calls returned normally. */
-    ASSERT(1, "print helpers don't crash");
-}
-
 /* ---- Test: --json before subcommand ---- */
 static void test_json_before_subcommand(void) {
     char *argv[] = {"tg-cli", "--json", "dialogs", NULL};
@@ -400,5 +381,4 @@ void run_arg_parse_tests(void) {
     RUN_TEST(test_send_dash_peer);
     RUN_TEST(test_search_all_dash);
     RUN_TEST(test_batch_no_subcommand);
-    RUN_TEST(test_print_helpers);
 }
