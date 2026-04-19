@@ -286,6 +286,89 @@ static void test_flip_skips_wide_char_trailer(void) {
     sink_close(&sink);
 }
 
+/* --- SEC-01 sanitization tests --- */
+
+/* U+00B7 MIDDLE DOT encoded as UTF-8: 0xC2 0xB7 */
+static const char MIDDLE_DOT_UTF8[] = "\xC2\xB7";
+
+/**
+ * @brief SEC-01: ESC (U+001B) in input must not appear in flip output.
+ *
+ * A malicious message containing ESC followed by '[2J' (erase-display)
+ * must have the ESC replaced with U+00B7 MIDDLE DOT so no raw 0x1B byte
+ * reaches the terminal.
+ */
+static void test_sec01_esc_replaced_by_placeholder(void) {
+    Sink sink; sink_open(&sink);
+    Screen s; ASSERT(screen_init(&s, 2, 20) == 0, "init");
+    s.out = sink.stream;
+    /* "\033[2J" — erase-display escape sequence embedded in message text */
+    screen_put_str(&s, 0, 0, "\033[2J", SCREEN_ATTR_NORMAL);
+    /* ESC should have been replaced; the cell at col 0 must hold U+00B7. */
+    ASSERT(s.back[0].cp == 0x00B7, "ESC codepoint replaced with U+00B7");
+    screen_flip(&s);
+    sink_flush(&sink);
+    /* The raw 0x1B ESC byte must not appear in the terminal output. */
+    int found_esc = 0;
+    for (size_t i = 0; i < sink.len; i++) {
+        if ((unsigned char)sink.buf[i] == 0x1B
+                && i + 1 < sink.len
+                /* Allow legitimate CUP / SGR sequences emitted by screen_flip
+                 * itself — those follow the pattern 0x1B '[' digit. They are
+                 * fine; what we forbid is 0x1B injected from message content
+                 * at cell positions.  The placeholder U+00B7 emits 0xC2 0xB7
+                 * so it cannot accidentally become 0x1B. */
+                && (unsigned char)sink.buf[i + 1] != '[') {
+            found_esc = 1;
+            break;
+        }
+    }
+    ASSERT(!found_esc, "no raw ESC from message content in terminal output");
+    /* The placeholder byte sequence (UTF-8 for U+00B7) must be present. */
+    ASSERT(sink_contains(&sink, MIDDLE_DOT_UTF8), "middle-dot placeholder emitted");
+    screen_free(&s);
+    sink_close(&sink);
+}
+
+/**
+ * @brief SEC-01: DEL (U+007F) in input must be replaced with U+00B7.
+ */
+static void test_sec01_del_replaced_by_placeholder(void) {
+    Screen s; ASSERT(screen_init(&s, 1, 10) == 0, "init");
+    screen_put_str(&s, 0, 0, "\x7F", SCREEN_ATTR_NORMAL);
+    ASSERT(s.back[0].cp == 0x00B7, "DEL (0x7F) replaced with U+00B7");
+    screen_free(&s);
+}
+
+/**
+ * @brief SEC-01: 8-bit CSI (U+009B, encoded as 0xC2 0x9B in UTF-8) in input
+ * must be replaced with U+00B7.
+ */
+static void test_sec01_csi_replaced_by_placeholder(void) {
+    Screen s; ASSERT(screen_init(&s, 1, 10) == 0, "init");
+    /* U+009B encoded in UTF-8: 0xC2 0x9B */
+    screen_put_str(&s, 0, 0, "\xC2\x9B", SCREEN_ATTR_NORMAL);
+    ASSERT(s.back[0].cp == 0x00B7, "8-bit CSI (U+009B) replaced with U+00B7");
+    screen_free(&s);
+}
+
+/**
+ * @brief SEC-01: plain ASCII text must pass through unchanged (no false positives).
+ */
+static void test_sec01_plain_text_unchanged(void) {
+    Sink sink; sink_open(&sink);
+    Screen s; ASSERT(screen_init(&s, 1, 20) == 0, "init");
+    s.out = sink.stream;
+    screen_put_str(&s, 0, 0, "Hello, world!", SCREEN_ATTR_NORMAL);
+    ASSERT(s.back[0].cp == 'H', "H at col 0");
+    ASSERT(s.back[4].cp == 'o', "o at col 4");
+    screen_flip(&s);
+    sink_flush(&sink);
+    ASSERT(sink_contains(&sink, "Hello, world!"), "plain text passes through");
+    screen_free(&s);
+    sink_close(&sink);
+}
+
 void test_tui_screen_run(void) {
     RUN_TEST(test_init_allocates_and_free_releases);
     RUN_TEST(test_init_rejects_bad_dims);
@@ -305,4 +388,8 @@ void test_tui_screen_run(void) {
     RUN_TEST(test_cursor_writes_cup);
     RUN_TEST(test_cursor_visible_emits_dectcem);
     RUN_TEST(test_flip_skips_wide_char_trailer);
+    RUN_TEST(test_sec01_esc_replaced_by_placeholder);
+    RUN_TEST(test_sec01_del_replaced_by_placeholder);
+    RUN_TEST(test_sec01_csi_replaced_by_placeholder);
+    RUN_TEST(test_sec01_plain_text_unchanged);
 }

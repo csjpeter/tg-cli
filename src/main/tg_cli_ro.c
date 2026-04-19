@@ -40,6 +40,42 @@
 #include <string.h>
 #include <unistd.h>
 
+/* SEC-01: set once at startup; 1 when stdout is a real terminal. */
+static int g_stdout_is_tty = 0;
+
+/**
+ * @brief Sanitize @p src into @p dst for terminal display (SEC-01).
+ *
+ * When stdout is a tty, replaces control characters (< 0x20 except \\t and
+ * \\n), DEL (0x7F), and the 8-bit CSI introducer (0x9B) with '.' to prevent
+ * ANSI escape injection.  When stdout is a pipe/redirect the original bytes
+ * are copied unchanged so scripts receive binary-safe output.
+ *
+ * @param dst  Output buffer (NUL-terminated on return).
+ * @param cap  Capacity of @p dst in bytes (including NUL).
+ * @param src  Input string (user-controlled).
+ */
+static void tty_sanitize(char *dst, size_t cap, const char *src) {
+    if (!dst || cap == 0) return;
+    if (!src) { dst[0] = '\0'; return; }
+    if (!g_stdout_is_tty) {
+        /* Pipe/redirect: preserve raw bytes for scripts. */
+        size_t i = 0;
+        while (src[i] && i + 1 < cap) { dst[i] = src[i]; i++; }
+        dst[i] = '\0';
+        return;
+    }
+    size_t i = 0;
+    while (*src && i + 1 < cap) {
+        unsigned char c = (unsigned char)*src++;
+        if ((c < 0x20 && c != 0x09 && c != 0x0A) || c == 0x7F || c == 0x9B)
+            dst[i++] = '.';
+        else
+            dst[i++] = (char)c;
+    }
+    dst[i] = '\0';
+}
+
 /* ---- Batch-mode input callbacks (values come from --phone/--code flags) ---- */
 
 typedef struct {
@@ -78,13 +114,14 @@ static int cb_get_password(void *u, char *out, size_t cap) {
 /* ---- Subcommand implementations ---- */
 
 static void print_self_plain(const SelfInfo *me) {
+    char s1[128], s2[128], s3[128];
+    tty_sanitize(s1, sizeof(s1), me->username);
+    tty_sanitize(s2, sizeof(s2), me->first_name);
+    tty_sanitize(s3, sizeof(s3), me->last_name);
     printf("id:       %lld\n", (long long)me->id);
-    if (me->username[0])   printf("username: @%s\n", me->username);
+    if (me->username[0])   printf("username: @%s\n", s1);
     if (me->first_name[0] || me->last_name[0])
-        printf("name:     %s%s%s\n",
-               me->first_name,
-               me->last_name[0] ? " " : "",
-               me->last_name);
+        printf("name:     %s%s%s\n", s2, me->last_name[0] ? " " : "", s3);
     if (me->phone[0])      printf("phone:    +%s\n", me->phone);
     printf("premium:  %s\n", me->is_premium ? "yes" : "no");
     if (me->is_bot)        printf("bot:      yes\n");
@@ -347,12 +384,14 @@ static int cmd_watch(const ArgResult *args) {
                 if (!watch_peer_allowed(peer_filter, peer_filter_n,
                                         diff.new_messages[i].peer_id))
                     continue;
+                char stext[HISTORY_TEXT_MAX];
+                tty_sanitize(stext, sizeof(stext), diff.new_messages[i].text);
                 if (printf("[%d] %lld %s\n",
                            diff.new_messages[i].id,
                            (long long)diff.new_messages[i].date,
                            diff.new_messages[i].complex
                                ? "(complex \xe2\x80\x94 text not parsed)"
-                               : diff.new_messages[i].text) < 0) {
+                               : stext) < 0) {
                     if (errno == EPIPE) { g_stop = 1; break; }
                 }
                 printed++;
@@ -468,12 +507,14 @@ static int cmd_search(const ArgResult *args) {
     } else {
         printf("%-8s %-4s %-20s %s\n", "id", "out", "date", "text");
         for (int i = 0; i < count; i++) {
+            char stext[HISTORY_TEXT_MAX];
+            tty_sanitize(stext, sizeof(stext), entries[i].text);
             printf("%-8d %-4s %-20lld %s\n",
                    entries[i].id,
                    entries[i].out ? "yes" : "no",
                    (long long)entries[i].date,
-                   entries[i].complex ? "(complex — text not parsed)"
-                                      : entries[i].text);
+                   entries[i].complex ? "(complex \xe2\x80\x94 text not parsed)"
+                                      : stext);
         }
         if (count == 0) printf("(no matches)\n");
     }
@@ -515,9 +556,11 @@ static int cmd_user_info(const ArgResult *args) {
                r.username,
                r.have_hash ? "present" : "none");
     } else {
+        char su[64];
+        tty_sanitize(su, sizeof(su), r.username);
         printf("type:         %s\n", resolved_kind_name(r.kind));
         printf("id:           %lld\n", (long long)r.id);
-        if (r.username[0]) printf("username:     @%s\n", r.username);
+        if (r.username[0]) printf("username:     @%s\n", su);
         printf("access_hash:  %s\n", r.have_hash ? "present" : "none");
     }
     return 0;
@@ -646,8 +689,10 @@ static int cmd_history(const ArgResult *args) {
                                              cached_path,
                                              sizeof(cached_path)) == 1);
             }
+            char stext[HISTORY_TEXT_MAX];
+            tty_sanitize(stext, sizeof(stext), entries[i].text);
             if (entries[i].complex) {
-                printf("[%d] %s %lld (complex — text not parsed)\n",
+                printf("[%d] %s %lld (complex \xe2\x80\x94 text not parsed)\n",
                        entries[i].id, entries[i].out ? ">" : "<",
                        (long long)entries[i].date);
                 printed++;
@@ -657,7 +702,7 @@ static int cmd_history(const ArgResult *args) {
                 if (entries[i].text[0] == '\0') continue;
                 printf("[%d] %s %lld %s\n",
                        entries[i].id, entries[i].out ? ">" : "<",
-                       (long long)entries[i].date, entries[i].text);
+                       (long long)entries[i].date, stext);
                 printed++;
             } else if (ml[0]) {
                 /* Display inline cached path if available, else just label. */
@@ -665,17 +710,17 @@ static int cmd_history(const ArgResult *args) {
                     printf("[%d] %s %lld [%s: %s] %s\n",
                            entries[i].id, entries[i].out ? ">" : "<",
                            (long long)entries[i].date, ml,
-                           cached_path, entries[i].text);
+                           cached_path, stext);
                 } else {
                     printf("[%d] %s %lld [%s] %s\n",
                            entries[i].id, entries[i].out ? ">" : "<",
-                           (long long)entries[i].date, ml, entries[i].text);
+                           (long long)entries[i].date, ml, stext);
                 }
                 printed++;
             } else {
                 printf("[%d] %s %lld %s\n",
                        entries[i].id, entries[i].out ? ">" : "<",
-                       (long long)entries[i].date, entries[i].text);
+                       (long long)entries[i].date, stext);
                 printed++;
             }
         }
@@ -816,12 +861,15 @@ static int cmd_dialogs(const ArgResult *args) {
         printf("%-8s %6s %-32s %s\n",
                "type", "unread", "title", "@username / id");
         for (int i = 0; i < count; i++) {
-            const char *title = entries[i].title[0] ? entries[i].title : "(no title)";
+            char stitle[128], susername[64];
+            tty_sanitize(stitle, sizeof(stitle), entries[i].title);
+            tty_sanitize(susername, sizeof(susername), entries[i].username);
+            const char *title = entries[i].title[0] ? stitle : "(no title)";
             if (entries[i].username[0]) {
                 printf("%-8s %6d %-32s @%s\n",
                        peer_kind_name(entries[i].kind),
                        entries[i].unread_count, title,
-                       entries[i].username);
+                       susername);
             } else {
                 printf("%-8s %6d %-32s %lld\n",
                        peer_kind_name(entries[i].kind),
@@ -880,6 +928,9 @@ static void print_usage(void) {
 
 int main(int argc, char **argv) {
     platform_normalize_argv(&argc, &argv);
+    /* SEC-01: detect once whether stdout is a real terminal so tty_sanitize()
+     * can skip sanitization when output is piped (preserves binary safety). */
+    g_stdout_is_tty = isatty(STDOUT_FILENO);
     AppContext ctx;
     if (app_bootstrap(&ctx, "tg-cli-ro") != 0) {
         fprintf(stderr, "tg-cli-ro: bootstrap failed\n");

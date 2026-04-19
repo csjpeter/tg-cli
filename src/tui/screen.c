@@ -108,6 +108,15 @@ int screen_put_str_n(Screen *s, int row, int col, int max_cols,
         int n = utf8_decode(utf8, &cp);
         if (n <= 0) break;
         utf8 += n;
+        /* SEC-01: sanitize control characters before storing in a cell.
+         * Replace codepoints that could carry ANSI escape sequences with
+         * U+00B7 MIDDLE DOT so malicious message text cannot hijack the
+         * terminal.  Allowed low-controls: \t (U+0009) and \n (U+000A).
+         * Also block U+007F (DEL) and U+009B (8-bit CSI introducer). */
+        if ((cp < 0x20 && cp != 0x09 && cp != 0x0A)
+                || cp == 0x7F || cp == 0x9B) {
+            cp = 0x00B7; /* U+00B7 MIDDLE DOT */
+        }
         int w = terminal_wcwidth(cp);
         if (w <= 0) continue;
         if (col + w > hard_stop) break;
