@@ -26,3 +26,20 @@ jobs:
 
       - name: Unit tests with Valgrind
         run: ./manage.sh valgrind
+
+  static-analysis:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake libssl-dev clang-tidy
+
+      - name: Static analysis (clang-tidy, warn-only)
+        # Warnings are reported but do not fail the job (|| true).
+        # Promote to fail-on-warning by removing '|| true' once the
+        # baseline issues tracked in issues/verified/CI-02-*.md are fixed.
+        run: ./manage.sh tidy || true

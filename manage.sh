@@ -22,6 +22,7 @@ show_help() {
     echo "  test [filter]  Build and run unit + functional tests (with ASAN); optional substring filter"
     echo "  valgrind       Build and run unit tests with Valgrind"
     echo "  coverage       Run tests and generate coverage report"
+    echo "  tidy           Run clang-tidy static analysis on src/ (warn-only)"
     echo "  clean-logs     Purge all application log files"
     echo "  clean          Remove all build artifacts"
     echo "  help           Show this help message"
@@ -35,7 +36,7 @@ install_deps() {
                 if [[ "$VERSION_ID" == "24.04" ]]; then
                     echo "Detected Ubuntu 24.04. Installing dependencies..."
                     sudo apt-get update
-                    sudo apt-get install -y build-essential cmake libssl-dev lcov valgrind
+                    sudo apt-get install -y build-essential cmake libssl-dev lcov valgrind clang-tidy
                 else
                     echo "Unsupported Ubuntu version: $VERSION_ID. Only 24.04 is explicitly supported."
                     exit 1
@@ -46,7 +47,7 @@ install_deps() {
                     echo "Detected Rocky Linux 9. Installing dependencies..."
                     sudo dnf install -y epel-release
                     sudo dnf groupinstall -y "Development Tools"
-                    sudo dnf install -y cmake openssl-devel lcov valgrind
+                    sudo dnf install -y cmake openssl-devel lcov valgrind clang-tools-extra
                 else
                     echo "Unsupported Rocky version: $VERSION_ID. Only 9.x is explicitly supported."
                     exit 1
@@ -61,6 +62,21 @@ install_deps() {
         echo "Could not detect OS. Please install dependencies manually."
         exit 1
     fi
+}
+
+run_tidy() {
+    # Ensure compile_commands.json exists (Release build, no ASAN)
+    cmake_configure Release "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+
+    echo "Running clang-tidy on src/ (excluding vendor and windows platform)..."
+    # Exclude vendor (third-party) and windows/ platform sources — the Windows
+    # headers are not available on Linux, so clang-tidy would emit hard errors.
+    TIDY_FILES=$(find src -name "*.c" \
+        ! -path "*/vendor/*" \
+        ! -path "*/platform/windows/*")
+    # shellcheck disable=SC2086
+    clang-tidy -p "$BUILD_DIR" $TIDY_FILES
+    echo "clang-tidy complete (warn-only; non-zero exit only on hard errors)."
 }
 
 cmake_configure() {
@@ -166,6 +182,9 @@ case "$1" in
 
         echo "Combined coverage:   $BUILD_DIR/coverage_report/index.html"
         echo "Functional coverage: $BUILD_DIR/coverage_functional_report/index.html"
+        ;;
+    tidy)
+        run_tidy
         ;;
     clean-logs)
         rm -rf ~/.cache/tg-cli/logs/*
