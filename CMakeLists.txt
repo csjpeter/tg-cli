@@ -91,6 +91,7 @@ add_library(tg-proto STATIC
     src/core/mtproto_crypto.c
     src/core/mtproto_session.c
     src/core/tl_registry.c
+    src/core/pii_redact.c
     src/infrastructure/config_store.c
     src/infrastructure/cache_store.c
     src/infrastructure/transport.c

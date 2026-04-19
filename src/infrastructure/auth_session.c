@@ -11,6 +11,7 @@
 #include "tl_serial.h"
 #include "tl_registry.h"
 #include "logger.h"
+#include "pii_redact.h"
 #include "raii.h"
 
 #include <stdlib.h>
@@ -153,8 +154,8 @@ int auth_send_code(const ApiConfig *cfg,
         out->timeout = tl_read_int32(&r);
     }
 
-    logger_log(LOG_INFO, "auth_send_code: code sent, hash=%.12s... timeout=%d",
-               out->phone_code_hash, out->timeout);
+    logger_log(LOG_INFO, "auth_send_code: code sent (hash_len=%zu), timeout=%d",
+               strlen(out->phone_code_hash), out->timeout);
     return 0;
 }
 

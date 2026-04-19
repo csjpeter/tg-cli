@@ -21,6 +21,7 @@ set(TEST_SOURCES
     test_registry.c
     test_api_call.c
     test_auth_session.c
+    test_pii_redact.c
     test_auth_2fa.c
     test_auth_logout.c
     test_arg_parse.c
