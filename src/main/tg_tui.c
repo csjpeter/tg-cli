@@ -14,6 +14,10 @@
 #include "app/bootstrap.h"
 #include "app/auth_flow.h"
 #include "app/credentials.h"
+#include "app/dc_config.h"
+#include "app/session_store.h"
+#include "infrastructure/auth_logout.h"
+#include "logger.h"
 
 #include "readline.h"
 #include "platform/terminal.h"
@@ -46,10 +50,13 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* ---- Interactive credential prompts ---- */
+/* ---- Credential callbacks: batch values fall back to interactive prompts ---- */
 
 typedef struct {
     LineHistory *hist;
+    const char  *phone;     /**< from --phone (may be NULL → interactive) */
+    const char  *code;      /**< from --code  (may be NULL → interactive) */
+    const char  *password;  /**< from --password (may be NULL → interactive) */
 } PromptCtx;
 
 static int tui_read_line(const char *label, char *out, size_t cap,
@@ -62,14 +69,17 @@ static int tui_read_line(const char *label, char *out, size_t cap,
 
 static int cb_get_phone(void *u, char *out, size_t cap) {
     PromptCtx *c = (PromptCtx *)u;
+    if (c->phone) { snprintf(out, cap, "%s", c->phone); return 0; }
     return tui_read_line("phone (+...)", out, cap, c->hist);
 }
 static int cb_get_code(void *u, char *out, size_t cap) {
     PromptCtx *c = (PromptCtx *)u;
+    if (c->code) { snprintf(out, cap, "%s", c->code); return 0; }
     return tui_read_line("code", out, cap, c->hist);
 }
 static int cb_get_password(void *u, char *out, size_t cap) {
     PromptCtx *c = (PromptCtx *)u;
+    if (c->password) { snprintf(out, cap, "%s", c->password); return 0; }
     return tui_read_line("2FA password", out, cap, c->hist);
 }
 
@@ -842,30 +852,83 @@ static int run_tui_loop(const ApiConfig *cfg,
     return rc;
 }
 
-/* Parse argv for the `--tui` flag and global flags (--help, --version).
- * Returns 1 if --tui is present. */
+/* Scan argv for --tui flag (used after full arg parse to decide mode). */
 static int has_tui_flag(int argc, char **argv) {
     for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
-            print_help();
-            exit(0);
-        }
-        if (strcmp(argv[i], "--version") == 0 || strcmp(argv[i], "-v") == 0) {
-            arg_print_version();
-            exit(0);
-        }
         if (strcmp(argv[i], "--tui") == 0) return 1;
     }
     return 0;
 }
 
 int main(int argc, char **argv) {
-    int tui_mode = has_tui_flag(argc, argv);
-
     AppContext ctx;
     if (app_bootstrap(&ctx, "tg-tui") != 0) {
         fprintf(stderr, "tg-tui: bootstrap failed\n");
         return 1;
+    }
+
+    /* --logout: invalidate session server-side, then wipe the local file. */
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--logout") == 0) {
+            ApiConfig cfg;
+            MtProtoSession s;
+            Transport t;
+            if (credentials_load(&cfg) == 0) {
+                transport_init(&t);
+                mtproto_session_init(&s);
+                int loaded_dc = 0;
+                if (session_store_load(&s, &loaded_dc) == 0) {
+                    const DcEndpoint *ep = dc_lookup(loaded_dc);
+                    if (ep && transport_connect(&t, ep->host, ep->port) == 0) {
+                        t.dc_id = loaded_dc;
+                        auth_logout(&cfg, &s, &t);
+                        transport_close(&t);
+                    } else {
+                        logger_log(LOG_WARN,
+                            "tg-tui: logout: cannot connect to DC%d, clearing local session",
+                            loaded_dc);
+                        session_store_clear();
+                    }
+                } else {
+                    session_store_clear();
+                }
+            } else {
+                session_store_clear();
+            }
+            fprintf(stderr, "tg-tui: persisted session cleared.\n");
+            app_shutdown(&ctx);
+            return 0;
+        }
+    }
+
+    /* Handle --help / --version before anything else. */
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
+            print_help();
+            app_shutdown(&ctx);
+            return 0;
+        }
+        if (strcmp(argv[i], "--version") == 0 || strcmp(argv[i], "-v") == 0) {
+            arg_print_version();
+            app_shutdown(&ctx);
+            return 0;
+        }
+    }
+
+    /* Parse --phone / --code / --password / --tui flags. */
+    const char *opt_phone    = NULL;
+    const char *opt_code     = NULL;
+    const char *opt_password = NULL;
+    int tui_mode = has_tui_flag(argc, argv);
+
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--phone") == 0 && i + 1 < argc) {
+            opt_phone = argv[++i];
+        } else if (strcmp(argv[i], "--code") == 0 && i + 1 < argc) {
+            opt_code = argv[++i];
+        } else if (strcmp(argv[i], "--password") == 0 && i + 1 < argc) {
+            opt_password = argv[++i];
+        }
     }
 
     ApiConfig cfg;
@@ -877,7 +940,12 @@ int main(int argc, char **argv) {
     LineHistory hist;
     rl_history_init(&hist);
 
-    PromptCtx pctx = { .hist = &hist };
+    PromptCtx pctx = {
+        .hist     = &hist,
+        .phone    = opt_phone,
+        .code     = opt_code,
+        .password = opt_password,
+    };
     AuthFlowCallbacks cb = {
         .get_phone    = cb_get_phone,
         .get_code     = cb_get_code,
