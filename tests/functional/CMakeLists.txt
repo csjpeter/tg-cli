@@ -13,6 +13,7 @@ set(FUNCTIONAL_SOURCES
     test_tl_skip_message_functional.c
     test_mt_server_smoke.c
     test_login_flow.c
+    test_read_path.c
     # Real crypto implementation (not the mock used by unit tests).
     ../../src/core/crypto.c
     # Mock socket + in-process Telegram server emulator. Real crypto on
@@ -26,6 +27,7 @@ add_executable(functional-test-runner ${FUNCTIONAL_SOURCES})
 # tg-app pulls in session_store_save/load; tg-proto brings in rpc +
 # transport + crypto wrappers + SRP + auth_2fa. OpenSSL stays linked.
 target_link_libraries(functional-test-runner PRIVATE
-    tg-app tg-proto OpenSSL::SSL OpenSSL::Crypto)
+    tg-domain-write tg-domain-read tg-app tg-proto
+    OpenSSL::SSL OpenSSL::Crypto)
 
 add_test(NAME FunctionalTests COMMAND functional-test-runner)
