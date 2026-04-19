@@ -241,6 +241,29 @@ Login on a fresh machine:
 tg-tui --phone +15551234567 --code 12345 --password hunter2
 .EE
 
+.SH SIGNALS
+.TP
+.B SIGWINCH
+Handled: wakes the TUI main loop's poll and triggers
+.B tui_app_resize
+to repaint at the new terminal size. Window resize is live during both
+REPL and
+.B --tui
+modes.
+.TP
+.B SIGTERM
+Unhandled in
+.B --tui
+mode. Forced termination (e.g.
+.B kill -9
+or timeout) leaves the terminal in raw mode; use
+.B reset
+or
+.B stty sane
+to recover. See FEAT-16 for the planned handler.
+.TP
+All other signals use the default POSIX handlers.
+
 .SH SECURITY
 Identical to
 .BR tg-cli (1):

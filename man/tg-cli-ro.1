@@ -229,6 +229,25 @@ Clear the persisted session:
 tg-cli-ro --logout
 .EE
 
+.SH SIGNALS
+.TP
+.B SIGINT
+Handled only in the
+.B watch
+subcommand to set an internal stop flag, allowing the poll loop to exit
+cleanly. Pressing Ctrl-C during
+.B watch
+gracefully terminates without intermediate connection state corruption.
+.TP
+.B SIGPIPE
+Unhandled (default behaviour). Piping
+.B watch
+output to a command like
+.B head
+that closes early will terminate the process.
+.TP
+All other signals use the default POSIX handlers.
+
 .SH SECURITY
 Read-only by link-time construction. All other security guarantees
 identical to

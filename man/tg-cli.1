@@ -236,6 +236,10 @@ Clear the persisted session (requires re-login next time):
 tg-cli --logout
 .EE
 
+.SH SIGNALS
+All signals use the default POSIX handlers. No custom signal handlers are
+registered; standard termination and interrupt behaviour apply.
+
 .SH SECURITY
 .B tg-cli
 implements MTProto 2.0 end-to-transport encryption: AES-256-IGE over a
