@@ -30,9 +30,10 @@ create/connect/send/recv failure counters.
    abstraction.
 
 ## Acceptance ✓
-- `./manage.sh test` — 1626/1626 pass, 0 ASAN errors.
+- `./manage.sh test` — 2703 unit + 427 functional pass, 0 ASAN errors.
 - `./manage.sh valgrind` — 0 leaks, 0 errors.
-- `./manage.sh coverage` — core+infra (TUI excluded) = 92.1%.
+- `./manage.sh coverage` — combined ~88% overall; core+infra (TUI excluded) ≥92%;
+  functional-only ~52% (see `docs/dev/coverage.md`).
 
 ## Related issues
 QA-25 (coverage-below-target).
