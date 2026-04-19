@@ -74,9 +74,20 @@ to list the Telegram Archive folder instead of the default inbox
 (\fBfolder_id\fR=1 vs. \fBfolder_id\fR=0 in
 .BR messages.getDialogs (3MTP)).
 .TP
-.BI history " <peer> [--limit N]"
+.BI history " <peer> [--limit N] [--offset N] [--no-media]"
 Fetch message history from \fIpeer\fR (US-06). Extracts text, media
 kind, and \fBphoto_id\fR / \fBdocument_id\fR where present.
+.RS
+.TP
+.BI --limit " N"
+Maximum number of messages to fetch (default 20).
+.TP
+.BI --offset " N"
+Wire-level message ID offset for pagination.
+.TP
+.B --no-media
+Suppress pure-media entries; show only caption for mixed entries.
+.RE
 .TP
 .BI search " [<peer>] <query>"
 Search messages (US-10). Without \fIpeer\fR the query is global.
