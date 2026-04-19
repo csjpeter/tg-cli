@@ -612,6 +612,70 @@ void test_parse_dh_success(void) {
     transport_close(&t);
 }
 
+/* TEST-38: helper that calls auth_step_parse_dh with a specific g value */
+static int parse_dh_with_g(int32_t g_val) {
+    Transport t;
+    MtProtoSession s;
+    mock_socket_reset();
+    mock_crypto_reset();
+    transport_init(&t);
+    transport_connect(&t, "localhost", 443);
+    mock_socket_clear_sent();
+    mtproto_session_init(&s);
+
+    uint8_t nonce[16], server_nonce[16], new_nonce[32];
+    memset(nonce, 0xAA, 16);
+    memset(server_nonce, 0xBB, 16);
+    memset(new_nonce, 0xCC, 32);
+
+    uint8_t dh_prime[32];
+    memset(dh_prime, 0x11, 32);
+    uint8_t g_a[32];
+    memset(g_a, 0x22, 32);
+
+    uint8_t resp[8192];
+    size_t resp_len = build_server_dh_params_ok(nonce, server_nonce, new_nonce,
+                                                 g_val, dh_prime, 32,
+                                                 g_a, 32, 1700000000, resp);
+    mock_socket_set_response(resp, resp_len);
+
+    AuthKeyCtx ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.transport = &t;
+    ctx.session = &s;
+    memcpy(ctx.nonce, nonce, 16);
+    memcpy(ctx.server_nonce, server_nonce, 16);
+    memcpy(ctx.new_nonce, new_nonce, 32);
+
+    int rc = auth_step_parse_dh(&ctx);
+    transport_close(&t);
+    return rc;
+}
+
+/* TEST-38: g=1 is below the allowed range {2..7} — must be rejected */
+void test_parse_dh_rejects_g_1(void) {
+    ASSERT(parse_dh_with_g(1) == -1,
+           "TEST-38: g=1 must be rejected");
+}
+
+/* TEST-38: g=8 is above the allowed range {2..7} — must be rejected */
+void test_parse_dh_rejects_g_8(void) {
+    ASSERT(parse_dh_with_g(8) == -1,
+           "TEST-38: g=8 must be rejected");
+}
+
+/* TEST-38: g=42 is far outside the allowed range — must be rejected */
+void test_parse_dh_rejects_g_42(void) {
+    ASSERT(parse_dh_with_g(42) == -1,
+           "TEST-38: g=42 must be rejected");
+}
+
+/* TEST-38: g=3 is within the allowed range {2..7} — must be accepted */
+void test_parse_dh_accepts_g_3(void) {
+    ASSERT(parse_dh_with_g(3) == 0,
+           "TEST-38: g=3 must be accepted");
+}
+
 void test_parse_dh_wrong_constructor(void) {
     Transport t;
     MtProtoSession s;
@@ -1101,6 +1165,10 @@ void test_auth(void) {
     RUN_TEST(test_parse_dh_success);
     RUN_TEST(test_parse_dh_wrong_constructor);
     RUN_TEST(test_parse_dh_nonce_mismatch);
+    RUN_TEST(test_parse_dh_rejects_g_1);
+    RUN_TEST(test_parse_dh_rejects_g_8);
+    RUN_TEST(test_parse_dh_rejects_g_42);
+    RUN_TEST(test_parse_dh_accepts_g_3);
 
     /* Step 4: set_client_dh */
     RUN_TEST(test_set_client_dh_gen_ok);

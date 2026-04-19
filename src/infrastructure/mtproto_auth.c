@@ -486,6 +486,12 @@ int auth_step_parse_dh(AuthKeyCtx *ctx) {
 
     ctx->g = tl_read_int32(&inner);
 
+    /* MTProto spec: g must be one of {2, 3, 4, 5, 6, 7}. */
+    if (ctx->g < 2 || ctx->g > 7) {
+        logger_log(LOG_ERROR, "auth: invalid DH g=%d (must be 2–7)", ctx->g);
+        return -1;
+    }
+
     /* dh_prime as bytes */
     size_t prime_len = 0;
     RAII_STRING uint8_t *prime_bytes = tl_read_bytes(&inner, &prime_len);
