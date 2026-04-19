@@ -64,6 +64,11 @@ static struct {
     /* Scratch state that reply builders read to know which client msg_id
      * they are answering. Valid only during responder execution. */
     uint64_t    current_req_msg_id;
+
+    /* One-shot bad_server_salt injection. When non-zero, the next dispatched
+     * RPC triggers a bad_server_salt reply instead of running the handler. */
+    int         bad_salt_once_pending;
+    uint64_t    bad_salt_new_salt;
 } g_srv;
 
 /* ---- forward decls ---- */
@@ -195,6 +200,11 @@ void mt_server_push_update(const uint8_t *tl, size_t tl_len) {
 }
 
 int mt_server_rpc_call_count(void) { return g_srv.rpc_call_count; }
+
+void mt_server_set_bad_salt_once(uint64_t new_salt) {
+    g_srv.bad_salt_once_pending = 1;
+    g_srv.bad_salt_new_salt = new_salt;
+}
 
 /* ================================================================ */
 /* Internals                                                         */
@@ -379,6 +389,34 @@ static void unwrap_and_dispatch(uint64_t req_msg_id,
     if (remaining < 4) return;
     uint32_t inner_crc = (uint32_t)cur[0] | ((uint32_t)cur[1] << 8)
                        | ((uint32_t)cur[2] << 16) | ((uint32_t)cur[3] << 24);
+
+    /* One-shot bad_server_salt injection — bounces the client back with a
+     * fresh salt and forces it to resend. The handler is not called on this
+     * round; it fires on the retry. */
+    if (g_srv.bad_salt_once_pending) {
+        g_srv.bad_salt_once_pending = 0;
+        /* bad_server_salt#edab447b bad_msg_id:long bad_msg_seqno:int
+         *                          error_code:int new_server_salt:long */
+        uint8_t buf[4 + 8 + 4 + 4 + 8];
+        uint32_t crc = 0xedab447bU;
+        for (int i = 0; i < 4; ++i) buf[i] = (uint8_t)(crc >> (i * 8));
+        for (int i = 0; i < 8; ++i) buf[4 + i] = (uint8_t)(req_msg_id >> (i * 8));
+        /* bad_msg_seqno + error_code 48 (= incorrect server salt) — values
+         * are informational only for the client's logger. */
+        int32_t seq0 = 0;
+        for (int i = 0; i < 4; ++i) buf[12 + i] = (uint8_t)(seq0 >> (i * 8));
+        int32_t ec = 48;
+        for (int i = 0; i < 4; ++i) buf[16 + i] = (uint8_t)(ec >> (i * 8));
+        for (int i = 0; i < 8; ++i) {
+            buf[20 + i] = (uint8_t)(g_srv.bad_salt_new_salt >> (i * 8));
+        }
+        queue_frame(buf, sizeof(buf));
+        /* Update server salt so subsequent responses use what the client now
+         * expects — the client discards the inbound salt, so this is purely
+         * cosmetic (a real server would). */
+        g_srv.server_salt = g_srv.bad_salt_new_salt;
+        return;
+    }
 
     /* Record + invoke handler. */
     g_srv.rpc_call_count++;

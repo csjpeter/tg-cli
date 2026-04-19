@@ -115,6 +115,17 @@ void mt_server_reply_error(const MtRpcContext *ctx,
 void mt_server_push_update(const uint8_t *tl, size_t tl_len);
 
 /**
+ * @brief Arm a one-shot bad_server_salt rejection.
+ *
+ * The next RPC frame received from the client is answered with a
+ * bad_server_salt#edab447b service frame (bad_msg_id = that frame's msg_id,
+ * new_server_salt = @p new_salt) instead of being dispatched. The
+ * registered handler is not called. On the client's retry, the flag has
+ * cleared and the RPC dispatches normally.
+ */
+void mt_server_set_bad_salt_once(uint64_t new_salt);
+
+/**
  * @brief Number of successfully dispatched RPC frames since last reset.
  *        Handy for asserting "the client made exactly N calls".
  */

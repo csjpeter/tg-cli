@@ -12,6 +12,7 @@ set(FUNCTIONAL_SOURCES
     test_srp_roundtrip_functional.c
     test_tl_skip_message_functional.c
     test_mt_server_smoke.c
+    test_login_flow.c
     # Real crypto implementation (not the mock used by unit tests).
     ../../src/core/crypto.c
     # Mock socket + in-process Telegram server emulator. Real crypto on
