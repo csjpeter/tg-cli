@@ -457,6 +457,69 @@ static void test_history_no_media_default_zero(void) {
     ASSERT(r.no_media == 0,          "history: no_media must default to 0");
 }
 
+/* ---- Test: search default limit is 20 ---- */
+static void test_search_default_limit(void) {
+    char *argv[] = {"tg-cli", "search", "hello", NULL};
+    ArgResult r;
+    int rc = arg_parse(3, argv, &r);
+    ASSERT(rc == ARG_OK,            "search default limit: ARG_OK");
+    ASSERT(r.command == CMD_SEARCH, "search default limit: CMD_SEARCH");
+    ASSERT(r.limit == 20,           "search default limit: limit must be 20");
+}
+
+/* ---- Test: search --limit N parses correctly ---- */
+static void test_search_with_limit(void) {
+    char *argv[] = {"tg-cli", "search", "hello", "--limit", "50", NULL};
+    ArgResult r;
+    int rc = arg_parse(5, argv, &r);
+    ASSERT(rc == ARG_OK,            "search --limit 50: ARG_OK");
+    ASSERT(r.command == CMD_SEARCH, "search --limit 50: CMD_SEARCH");
+    ASSERT(r.limit == 50,           "search --limit 50: limit must be 50");
+    ASSERT(strcmp(r.query, "hello") == 0, "search --limit 50: query must match");
+}
+
+/* ---- Test: search --limit 0 (below range) → error ---- */
+static void test_search_limit_too_low(void) {
+    char *argv[] = {"tg-cli", "search", "q", "--limit", "0", NULL};
+    ArgResult r;
+    ASSERT(arg_parse(5, argv, &r) == ARG_ERROR,
+           "search --limit 0: must return ARG_ERROR (below range)");
+}
+
+/* ---- Test: search --limit 101 (above range) → error ---- */
+static void test_search_limit_too_high(void) {
+    char *argv[] = {"tg-cli", "search", "q", "--limit", "101", NULL};
+    ArgResult r;
+    ASSERT(arg_parse(5, argv, &r) == ARG_ERROR,
+           "search --limit 101: must return ARG_ERROR (above range)");
+}
+
+/* ---- Test: search --limit boundary values (1 and 100) ---- */
+static void test_search_limit_boundaries(void) {
+    ArgResult r;
+    char *argv_min[] = {"tg-cli", "search", "q", "--limit", "1", NULL};
+    ASSERT(arg_parse(5, argv_min, &r) == ARG_OK,
+           "search --limit 1 (min): ARG_OK");
+    ASSERT(r.limit == 1, "search --limit 1: limit must be 1");
+
+    char *argv_max[] = {"tg-cli", "search", "q", "--limit", "100", NULL};
+    ASSERT(arg_parse(5, argv_max, &r) == ARG_OK,
+           "search --limit 100 (max): ARG_OK");
+    ASSERT(r.limit == 100, "search --limit 100: limit must be 100");
+}
+
+/* ---- Test: search <peer> <query> --limit N ---- */
+static void test_search_peer_query_limit(void) {
+    char *argv[] = {"tg-cli", "search", "@chan", "news", "--limit", "30", NULL};
+    ArgResult r;
+    int rc = arg_parse(6, argv, &r);
+    ASSERT(rc == ARG_OK,                       "search peer+query+limit: ARG_OK");
+    ASSERT(r.command == CMD_SEARCH,            "search peer+query+limit: CMD_SEARCH");
+    ASSERT(strcmp(r.peer,  "@chan") == 0,      "search peer+query+limit: peer must match");
+    ASSERT(strcmp(r.query, "news") == 0,       "search peer+query+limit: query must match");
+    ASSERT(r.limit == 30,                      "search peer+query+limit: limit must be 30");
+}
+
 void run_arg_parse_tests(void) {
     RUN_TEST(test_no_args);
     RUN_TEST(test_help_flag);
@@ -505,4 +568,10 @@ void run_arg_parse_tests(void) {
     RUN_TEST(test_watch_default_interval);
     RUN_TEST(test_history_no_media_flag);
     RUN_TEST(test_history_no_media_default_zero);
+    RUN_TEST(test_search_default_limit);
+    RUN_TEST(test_search_with_limit);
+    RUN_TEST(test_search_limit_too_low);
+    RUN_TEST(test_search_limit_too_high);
+    RUN_TEST(test_search_limit_boundaries);
+    RUN_TEST(test_search_peer_query_limit);
 }

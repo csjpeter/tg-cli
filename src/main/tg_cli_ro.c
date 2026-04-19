@@ -330,18 +330,29 @@ static int cmd_search(const ArgResult *args) {
     }
 
     if (args->json) {
+        char esc[HISTORY_TEXT_MAX * 6 + 1];
         printf("[");
         for (int i = 0; i < count; i++) {
             if (i) printf(",");
-            printf("{\"id\":%d,\"out\":%s}",
-                   entries[i].id, entries[i].out ? "true" : "false");
+            json_escape_str(esc, sizeof(esc), entries[i].text);
+            printf("{\"id\":%d,\"out\":%s,\"date\":%d,\"text\":\"%s\","
+                   "\"complex\":%s}",
+                   entries[i].id,
+                   entries[i].out ? "true" : "false",
+                   entries[i].date,
+                   esc,
+                   entries[i].complex ? "true" : "false");
         }
         printf("]\n");
     } else {
-        printf("%-8s %-4s\n", "id", "out");
+        printf("%-8s %-4s %-10s %s\n", "id", "out", "date", "text");
         for (int i = 0; i < count; i++) {
-            printf("%-8d %-4s\n",
-                   entries[i].id, entries[i].out ? "yes" : "no");
+            printf("%-8d %-4s %-10d %s\n",
+                   entries[i].id,
+                   entries[i].out ? "yes" : "no",
+                   entries[i].date,
+                   entries[i].complex ? "(complex — text not parsed)"
+                                      : entries[i].text);
         }
         if (count == 0) printf("(no matches)\n");
     }
@@ -713,7 +724,7 @@ static void print_usage(void) {
         "  me (or self)                     Show own profile (US-05)\n"
         "  dialogs  [--limit N] [--archived] List dialogs (US-04)\n"
         "  history  <peer> [--limit N] [--offset N] [--no-media]  Fetch history (US-06)\n"
-        "  search   [<peer>] <query>        Search messages (US-10)\n"
+        "  search   [<peer>] <query> [--limit N]  Search messages (US-10)\n"
         "  contacts                         List contacts (US-09)\n"
         "  user-info <peer>                 User/channel info (US-09)\n"
         "  watch    [--peers X,Y] [--interval SEC]  Watch updates (US-07)\n"

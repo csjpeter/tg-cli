@@ -185,21 +185,48 @@ static int parse_send(int argc, char **argv, int i, ArgResult *out) {
 
 static int parse_search(int argc, char **argv, int i, ArgResult *out) {
     out->command = CMD_SEARCH;
+    out->limit   = 20; /* default */
 
     if (i >= argc) {
         fprintf(stderr, "tg-cli search: <query> argument required\n");
         return ARG_ERROR;
     }
 
-    /* Optional peer before query when two positional args are present */
+    /* Optional peer before query: two consecutive non-flag positionals. */
     if (i + 1 < argc && argv[i][0] != '-' && argv[i + 1][0] != '-') {
         out->peer  = argv[i++];
-        out->query = argv[i];
+        out->query = argv[i++];
     } else if (argv[i][0] != '-') {
-        out->query = argv[i];
+        out->query = argv[i++];
     } else {
         fprintf(stderr, "tg-cli search: <query> argument required\n");
         return ARG_ERROR;
+    }
+
+    /* Optional flags after the positional arguments. */
+    while (i < argc) {
+        if (str_eq(argv[i], "--limit")) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "tg-cli search: --limit requires a number\n");
+                return ARG_ERROR;
+            }
+            int val = 0;
+            if (parse_int(argv[i + 1], &val) != 0) {
+                fprintf(stderr, "tg-cli search: --limit value is not a number\n");
+                return ARG_ERROR;
+            }
+            if (val < 1 || val > 100) {
+                fprintf(stderr,
+                        "tg-cli search: --limit %d out of range [1, 100]\n",
+                        val);
+                return ARG_ERROR;
+            }
+            out->limit = val;
+            i += 2;
+        } else {
+            fprintf(stderr, "tg-cli search: unknown option: %s\n", argv[i]);
+            return ARG_ERROR;
+        }
     }
     return ARG_OK;
 }
