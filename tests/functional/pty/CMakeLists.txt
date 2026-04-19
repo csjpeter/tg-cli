@@ -42,3 +42,36 @@ target_link_libraries(pty-tui-test-runner PRIVATE
 )
 
 add_test(NAME PtyTuiTests COMMAND pty-tui-test-runner)
+
+# ── PTY-03: readline navigation tests ────────────────────────────────
+# rl_harness: tiny binary that calls rl_readline in a loop and prints
+# "ACCEPTED:<line>" for each accepted line.  No mock server needed.
+add_executable(rl-harness
+    rl_harness.c
+)
+
+target_include_directories(rl-harness PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/core
+)
+
+target_link_libraries(rl-harness PRIVATE tg-proto)
+
+# Test runner that drives rl-harness through the PTY.
+add_executable(pty-readline-test-runner
+    test_readline.c
+)
+
+target_include_directories(pty-readline-test-runner PRIVATE
+    ${CMAKE_SOURCE_DIR}/tests/functional/pty
+    ${CMAKE_SOURCE_DIR}/tests/common
+    ${CMAKE_SOURCE_DIR}/libs/libptytest
+)
+
+target_compile_definitions(pty-readline-test-runner PRIVATE
+    RL_HARNESS_BINARY="$<TARGET_FILE:rl-harness>"
+)
+
+target_link_libraries(pty-readline-test-runner PRIVATE ptytest)
+
+add_test(NAME PtyReadlineTests COMMAND pty-readline-test-runner)
