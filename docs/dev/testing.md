@@ -6,6 +6,7 @@
 ./manage.sh test        # Unit tests under AddressSanitizer
 ./manage.sh valgrind    # Unit tests under Valgrind
 ./manage.sh coverage    # Two-pass lcov (unit + functional) with HTML + badges
+./manage.sh fuzz [N]    # libFuzzer harness for TL parser, N seconds (default 30)
 ```
 
 There is no mechanism to run a single test in isolation. All unit tests
@@ -20,6 +21,45 @@ Current status (as of 2026-04-19):
 - 0 leaks, 0 errors under Valgrind.
 - Combined line coverage: **~88 %** on the shared source (see
   `docs/dev/coverage.md`).
+
+---
+
+---
+
+## Fuzz Testing (`tests/fuzz/`)
+
+The libFuzzer harness in `tests/fuzz/fuzz_tl_parse.c` exercises every public
+entry point in `tl_serial.h` and `tl_skip.h` (40+ functions) with
+coverage-guided random inputs.
+
+### Requirements
+
+- **clang** must be installed (`apt-get install clang` on Ubuntu 24.04).
+- The normal GCC build is **completely unaffected** — the fuzz target is
+  built in a separate directory (`build-fuzz/`) only when requested.
+
+### Usage
+
+```bash
+# 30-second run (default):
+./manage.sh fuzz
+
+# Custom duration (e.g. 5 minutes):
+./manage.sh fuzz 300
+```
+
+CMake builds the `fuzz-tl-parse` executable with
+`-fsanitize=fuzzer,address`.  The fuzzer starts from the seed corpus in
+`tests/fuzz/corpus/` (8 seeds: empty, truncated, valid uint32, short/long
+string, bool true/false, vector) and saves new interesting inputs to
+`tests/fuzz/findings/`.
+
+To enable in CMake manually:
+```bash
+cmake -DENABLE_FUZZ=ON -DCMAKE_C_COMPILER=clang build-fuzz/ ..
+cmake --build build-fuzz/ --target fuzz-tl-parse
+./build-fuzz/tests/fuzz/fuzz-tl-parse tests/fuzz/corpus/ -max_total_time=30
+```
 
 ---
 

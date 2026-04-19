@@ -25,6 +25,7 @@ show_help() {
     echo "  tidy               Run clang-tidy static analysis on src/ (warn-only)"
     echo "  check-ro-isolation Verify tg-cli-ro contains no write-domain symbols (ADR-0005)"
     echo "  clean-logs         Purge all application log files"
+    echo "  fuzz               Build and run libFuzzer harness for TL parser (requires clang)"
     echo "  clean              Remove all build artifacts"
     echo "  help               Show this help message"
 }
@@ -186,6 +187,27 @@ case "$1" in
         ;;
     tidy)
         run_tidy
+        ;;
+    fuzz)
+        FUZZ_BUILD_DIR="./build-fuzz"
+        FUZZ_SECS="${2:-30}"
+        echo "Building fuzz target with clang + libFuzzer (ASAN)..."
+        mkdir -p "$FUZZ_BUILD_DIR" "$BIN_DIR"
+        cd "$FUZZ_BUILD_DIR"
+        cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+              -DCMAKE_C_COMPILER=clang \
+              -DENABLE_FUZZ=ON \
+              ..
+        cd ..
+        cmake --build "$FUZZ_BUILD_DIR" --target fuzz-tl-parse
+        echo "Running fuzzer for ${FUZZ_SECS}s (corpus: tests/fuzz/corpus/)..."
+        mkdir -p tests/fuzz/findings
+        "$FUZZ_BUILD_DIR/tests/fuzz/fuzz-tl-parse" \
+            tests/fuzz/corpus/ \
+            tests/fuzz/findings/ \
+            -max_total_time="$FUZZ_SECS" \
+            -print_final_stats=1
+        echo "Fuzz run complete. New corpus saved to tests/fuzz/findings/."
         ;;
     check-ro-isolation)
         bash ci/check-ro-isolation.sh "${2:-$BIN_DIR/tg-cli-ro}"

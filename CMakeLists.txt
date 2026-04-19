@@ -18,6 +18,19 @@ if(ENABLE_COVERAGE)
     add_link_options(--coverage)
 endif()
 
+# libFuzzer support (declared early so tg-proto is instrumented too)
+# The actual subdirectory is added at the bottom; the option is here so the
+# global -fsanitize=fuzzer-no-link flag propagates to every static library.
+option(ENABLE_FUZZ "Build libFuzzer harness (requires clang)" OFF)
+if(ENABLE_FUZZ)
+    # -fsanitize=fuzzer-no-link: instrument all TUs for coverage feedback
+    # without pulling in the fuzzer main() into every library archive.
+    # The fuzz executable target adds -fsanitize=fuzzer (which implies the
+    # full driver) in tests/fuzz/CMakeLists.txt.
+    add_compile_options(-g -O1 -fsanitize=fuzzer-no-link,address -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=address)
+endif()
+
 # ASAN + UBSAN for Debug builds on GCC/Clang (skip Windows cross-compile where
 # MinGW ASAN support is unreliable, and skip when coverage is enabled because
 # --coverage and -fsanitize=address are mutually exclusive).
@@ -206,3 +219,10 @@ add_subdirectory(tests/unit)
 
 # Functional tests (real crypto, no mocks)
 add_subdirectory(tests/functional)
+
+# libFuzzer harness — only built when -DENABLE_FUZZ=ON is passed.
+# The option is declared earlier (near ENABLE_COVERAGE) so the
+# -fsanitize=fuzzer-no-link flag is applied to all static libraries.
+if(ENABLE_FUZZ)
+    add_subdirectory(tests/fuzz)
+endif()
