@@ -233,6 +233,128 @@ static void test_null_args(void) {
            "checkPassword null args");
 }
 
+/* Build account.password with salt1 length = SRP_SALT_MAX + 1 (too large). */
+static size_t make_account_password_bad_salt(uint8_t *buf, size_t max) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_account_password);
+    tl_write_uint32(&w, (1u << 2)); /* has_password */
+
+    tl_write_uint32(&w, CRC_KdfAlgo);
+    /* salt1 length = SRP_SALT_MAX + 1 — should trigger the guard. */
+    uint8_t big_salt[SRP_SALT_MAX + 1];
+    memset(big_salt, 0xAB, sizeof(big_salt));
+    tl_write_bytes(&w, big_salt, sizeof(big_salt));
+    uint8_t salt2[16] = {0};
+    tl_write_bytes(&w, salt2, sizeof(salt2));
+    tl_write_int32(&w, 2); /* g */
+    uint8_t p[256]; memset(p, 0x80, sizeof(p));
+    tl_write_bytes(&w, p, sizeof(p));
+    uint8_t srpB[256]; memset(srpB, 0x5A, sizeof(srpB));
+    tl_write_bytes(&w, srpB, sizeof(srpB));
+    tl_write_int64(&w, 0x1234567890ABCDEFLL);
+
+    size_t n = w.len < max ? w.len : max;
+    memcpy(buf, w.data, n);
+    tl_writer_free(&w);
+    return n;
+}
+
+/* Build account.password with p length != 256 (e.g. 128 bytes). */
+static size_t make_account_password_bad_prime_len(uint8_t *buf, size_t max) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_account_password);
+    tl_write_uint32(&w, (1u << 2)); /* has_password */
+
+    tl_write_uint32(&w, CRC_KdfAlgo);
+    uint8_t salt1[16] = {0}; tl_write_bytes(&w, salt1, sizeof(salt1));
+    uint8_t salt2[16] = {0}; tl_write_bytes(&w, salt2, sizeof(salt2));
+    tl_write_int32(&w, 2); /* g */
+    /* prime is only 128 bytes — wrong length; must be SRP_PRIME_LEN (256). */
+    uint8_t p[128]; memset(p, 0x80, sizeof(p));
+    tl_write_bytes(&w, p, sizeof(p));
+    uint8_t srpB[256]; memset(srpB, 0x5A, sizeof(srpB));
+    tl_write_bytes(&w, srpB, sizeof(srpB));
+    tl_write_int64(&w, 0x1234567890ABCDEFLL);
+
+    size_t n = w.len < max ? w.len : max;
+    memcpy(buf, w.data, n);
+    tl_writer_free(&w);
+    return n;
+}
+
+/* Build account.password with has_password=true but zero-length srp_B. */
+static size_t make_account_password_empty_srpB(uint8_t *buf, size_t max) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_account_password);
+    tl_write_uint32(&w, (1u << 2)); /* has_password */
+
+    tl_write_uint32(&w, CRC_KdfAlgo);
+    uint8_t salt1[16] = {0}; tl_write_bytes(&w, salt1, sizeof(salt1));
+    uint8_t salt2[16] = {0}; tl_write_bytes(&w, salt2, sizeof(salt2));
+    tl_write_int32(&w, 2); /* g */
+    uint8_t p[256]; memset(p, 0x80, sizeof(p));
+    tl_write_bytes(&w, p, sizeof(p));
+    /* srp_B is empty (zero-length bytes). */
+    tl_write_bytes(&w, NULL, 0);
+    tl_write_int64(&w, 0x1234567890ABCDEFLL);
+
+    size_t n = w.len < max ? w.len : max;
+    memcpy(buf, w.data, n);
+    tl_writer_free(&w);
+    return n;
+}
+
+static void test_get_password_rejects_oversized_salt(void) {
+    mock_socket_reset(); mock_crypto_reset();
+
+    uint8_t payload[2048];
+    size_t plen = make_account_password_bad_salt(payload, sizeof(payload));
+    uint8_t resp[4096]; size_t rlen = 0;
+    build_fake_encrypted_response(payload, plen, resp, &rlen);
+    mock_socket_set_response(resp, rlen);
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    fix_session(&s); fix_transport(&t); fix_cfg(&cfg);
+
+    Account2faPassword pw = {0};
+    int rc = auth_2fa_get_password(&cfg, &s, &t, &pw, NULL);
+    ASSERT(rc == -1, "getPassword rejects salt1 > SRP_SALT_MAX");
+}
+
+static void test_get_password_rejects_wrong_prime_len(void) {
+    mock_socket_reset(); mock_crypto_reset();
+
+    uint8_t payload[1024];
+    size_t plen = make_account_password_bad_prime_len(payload, sizeof(payload));
+    uint8_t resp[2048]; size_t rlen = 0;
+    build_fake_encrypted_response(payload, plen, resp, &rlen);
+    mock_socket_set_response(resp, rlen);
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    fix_session(&s); fix_transport(&t); fix_cfg(&cfg);
+
+    Account2faPassword pw = {0};
+    int rc = auth_2fa_get_password(&cfg, &s, &t, &pw, NULL);
+    ASSERT(rc == -1, "getPassword rejects p length != SRP_PRIME_LEN");
+}
+
+static void test_get_password_rejects_empty_srpB(void) {
+    mock_socket_reset(); mock_crypto_reset();
+
+    uint8_t payload[1024];
+    size_t plen = make_account_password_empty_srpB(payload, sizeof(payload));
+    uint8_t resp[2048]; size_t rlen = 0;
+    build_fake_encrypted_response(payload, plen, resp, &rlen);
+    mock_socket_set_response(resp, rlen);
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    fix_session(&s); fix_transport(&t); fix_cfg(&cfg);
+
+    Account2faPassword pw = {0};
+    int rc = auth_2fa_get_password(&cfg, &s, &t, &pw, NULL);
+    ASSERT(rc == -1, "getPassword rejects zero-length srp_B");
+}
+
 void run_auth_2fa_tests(void) {
     RUN_TEST(test_get_password_parses_srp_params);
     RUN_TEST(test_get_password_no_2fa);
@@ -240,4 +362,7 @@ void run_auth_2fa_tests(void) {
     RUN_TEST(test_check_password_rejects_missing_password_flag);
     RUN_TEST(test_check_password_uses_pbkdf2_and_bn);
     RUN_TEST(test_null_args);
+    RUN_TEST(test_get_password_rejects_oversized_salt);
+    RUN_TEST(test_get_password_rejects_wrong_prime_len);
+    RUN_TEST(test_get_password_rejects_empty_srpB);
 }
