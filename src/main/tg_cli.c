@@ -331,7 +331,7 @@ static void print_usage(void) {
         "  edit <peer> <msg_id> <text>        Edit a message (US-13)\n"
         "  delete <peer> <msg_id> [--revoke]  Delete a message (US-13)\n"
         "  forward <from> <to> <msg_id>       Forward a message (US-13)\n"
-        "  send-file <peer> <path> [--caption T]  Upload a file (US-14)\n"
+        "  send-file|upload <peer> <path> [--caption T]  Upload a file (US-14)\n"
         "\n"
         "Global flags:\n"
         "  --batch             Batch mode (default); no interactive prompts\n"

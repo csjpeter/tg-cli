@@ -520,6 +520,29 @@ static void test_search_peer_query_limit(void) {
     ASSERT(r.limit == 30,                      "search peer+query+limit: limit must be 30");
 }
 
+/* ---- Test: upload (alias for send-file) ---- */
+static void test_upload_alias(void) {
+    char *argv[] = {"tg-cli", "upload", "@user", "/tmp/file.txt", NULL};
+    ArgResult r;
+    int rc = arg_parse(4, argv, &r);
+    ASSERT(rc == ARG_OK,                 "upload alias: must return ARG_OK");
+    ASSERT(r.command == CMD_SEND_FILE,   "upload alias: command must be CMD_SEND_FILE");
+    ASSERT(strcmp(r.peer, "@user") == 0, "upload alias: peer must match");
+    ASSERT(strcmp(r.out_path, "/tmp/file.txt") == 0, "upload alias: path must match");
+}
+
+/* ---- Test: upload with --caption ---- */
+static void test_upload_with_caption(void) {
+    char *argv[] = {"tg-cli", "upload", "@user", "/tmp/file.txt", "--caption", "My file", NULL};
+    ArgResult r;
+    int rc = arg_parse(6, argv, &r);
+    ASSERT(rc == ARG_OK,                     "upload with caption: must return ARG_OK");
+    ASSERT(r.command == CMD_SEND_FILE,       "upload with caption: CMD_SEND_FILE");
+    ASSERT(strcmp(r.peer, "@user") == 0,     "upload with caption: peer must match");
+    ASSERT(strcmp(r.out_path, "/tmp/file.txt") == 0, "upload with caption: path must match");
+    ASSERT(strcmp(r.message, "My file") == 0, "upload with caption: caption must match");
+}
+
 void run_arg_parse_tests(void) {
     RUN_TEST(test_no_args);
     RUN_TEST(test_help_flag);
@@ -574,4 +597,6 @@ void run_arg_parse_tests(void) {
     RUN_TEST(test_search_limit_too_high);
     RUN_TEST(test_search_limit_boundaries);
     RUN_TEST(test_search_peer_query_limit);
+    RUN_TEST(test_upload_alias);
+    RUN_TEST(test_upload_with_caption);
 }

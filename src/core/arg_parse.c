@@ -408,7 +408,7 @@ int arg_parse(int argc, char **argv, ArgResult *out) {
         }
         return ARG_OK;
     }
-    if (str_eq(subcmd, "send-file")) {
+    if (str_eq(subcmd, "send-file") || str_eq(subcmd, "upload")) {
         out->command = CMD_SEND_FILE;
         if (i + 1 >= argc) {
             fprintf(stderr, "tg-cli send-file: <peer> <path> required\n");
