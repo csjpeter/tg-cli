@@ -28,8 +28,9 @@
  * @brief Persist this session under @p dc_id and mark that DC as home.
  *
  * Upserts the entry in place if @p dc_id already exists; other entries are
- * preserved. The file is rewritten atomically-ish (open+write+close — no
- * fsync/rename dance yet because a torn write just triggers a re-login).
+ * preserved. The file is written atomically: content is flushed to a sibling
+ * session.bin.tmp, fsync'd, then renamed over session.bin.  An exclusive
+ * advisory flock is held for the read-modify-write cycle (POSIX only).
  *
  * @return 0 on success, -1 on IO or state error.
  */

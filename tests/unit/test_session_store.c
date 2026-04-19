@@ -10,10 +10,14 @@
 #include "app/session_store.h"
 #include "mtproto_session.h"
 
+#include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/file.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 static void with_tmp_home(const char *subdir) {
@@ -192,6 +196,153 @@ static void test_null_args(void) {
     ASSERT(session_store_load(NULL, &dc) == -1, "null session (load)");
 }
 
+/* Helper: build a valid session with a recognisable key pattern. */
+static void make_session(MtProtoSession *s, uint8_t fill) {
+    mtproto_session_init(s);
+    uint8_t key[256];
+    for (int i = 0; i < 256; i++) key[i] = (uint8_t)(fill + i);
+    mtproto_session_set_auth_key(s, key);
+    mtproto_session_set_salt(s, (uint64_t)fill * 0x0101010101010101ULL);
+    s->session_id = (uint64_t)fill;
+}
+
+/*
+ * Test: write_under_lock
+ *
+ * Verifies that session_store_save() succeeds and the resulting file can be
+ * loaded back correctly — i.e. the lock-acquire + atomic rename path works
+ * end-to-end in the normal (non-contended) case.
+ */
+static void test_write_under_lock(void) {
+    with_tmp_home("write-under-lock");
+    session_store_clear();
+
+    MtProtoSession s;
+    make_session(&s, 0xAB);
+
+    ASSERT(session_store_save(&s, 3) == 0, "save under lock succeeds");
+
+    MtProtoSession r;
+    mtproto_session_init(&r);
+    int dc = 0;
+    ASSERT(session_store_load(&r, &dc) == 0, "load after locked write ok");
+    ASSERT(dc == 3, "dc_id correct");
+    ASSERT(r.has_auth_key == 1, "auth key present");
+    ASSERT(r.server_salt == s.server_salt, "salt matches");
+
+    session_store_clear();
+}
+
+/*
+ * Test: concurrent_write_conflict
+ *
+ * Forks a child that holds the exclusive lock on session.bin while the parent
+ * tries to save.  The parent's save must fail with -1 (lock busy), not
+ * corrupt the file or hang.
+ *
+ * Mechanism:
+ *   1. Parent creates the session file.
+ *   2. Parent opens a write-end pipe and forks.
+ *   3. Child: open + flock(LOCK_EX) the file, close write-end of pipe
+ *      (signals "lock held"), then blocks reading from a second pipe until
+ *      signalled to exit.
+ *   4. Parent: reads from the pipe (waits until child holds lock), then
+ *      tries session_store_save() — should return -1.
+ *   5. Parent closes "go" pipe so child exits, waits for child, then verifies
+ *      the file is still intact.
+ *
+ * Skip gracefully on non-POSIX (Windows) where flock is unavailable; on those
+ * platforms concurrent writes are not guarded and the test would be vacuous.
+ */
+static void test_concurrent_write_conflict(void) {
+#if defined(_WIN32)
+    /* Advisory locking not implemented on Windows; skip. */
+    g_tests_run++;
+    return;
+#else
+    with_tmp_home("concurrent-write");
+    session_store_clear();
+
+    /* Create an initial valid store that the child can lock. */
+    MtProtoSession s0;
+    make_session(&s0, 0x10);
+    ASSERT(session_store_save(&s0, 1) == 0, "initial write ok");
+
+    /* pipe[0]=read, pipe[1]=write — child closes [1] to signal lock held. */
+    int lock_ready[2];   /* child → parent: "I have the lock" */
+    int release_lock[2]; /* parent → child: "you may release now" */
+    ASSERT(pipe(lock_ready)   == 0, "pipe lock_ready created");
+    ASSERT(pipe(release_lock) == 0, "pipe release_lock created");
+
+    const char *home = getenv("HOME");
+    ASSERT(home != NULL, "HOME is set");
+    char path[512];
+    snprintf(path, sizeof(path), "%s/.config/tg-cli/session.bin", home);
+
+    pid_t child = fork();
+    ASSERT(child >= 0, "fork succeeded");
+
+    if (child == 0) {
+        /* ---- child ---- */
+        /* Close parent-side ends. */
+        close(lock_ready[0]);
+        close(release_lock[1]);
+
+        /* Acquire exclusive lock. */
+        int fd = open(path, O_RDWR, 0600);
+        if (fd == -1) { close(lock_ready[1]); close(release_lock[0]); _exit(1); }
+        if (flock(fd, LOCK_EX) != 0) {
+            close(fd); close(lock_ready[1]); close(release_lock[0]); _exit(2);
+        }
+
+        /* Signal parent: lock acquired. */
+        close(lock_ready[1]);   /* write-end close → parent read returns EOF */
+
+        /* Block until parent says "done". */
+        char rbuf[1];
+        ssize_t nr = read(release_lock[0], rbuf, 1);
+        (void)nr;
+
+        flock(fd, LOCK_UN);
+        close(fd);
+        close(release_lock[0]);
+        _exit(0);
+    }
+
+    /* ---- parent ---- */
+    close(lock_ready[1]);
+    close(release_lock[0]);
+
+    /* Wait for child to hold the lock. */
+    char buf[1];
+    ssize_t nr = read(lock_ready[0], buf, 1);
+    (void)nr;
+    close(lock_ready[0]);
+
+    /* Attempt a write while child holds the lock — must fail. */
+    MtProtoSession s1;
+    make_session(&s1, 0x20);
+    int rc = session_store_save(&s1, 2);
+    ASSERT(rc == -1, "save returns -1 when lock is held by another process");
+
+    /* Release child and reap. */
+    close(release_lock[1]);
+    int status = 0;
+    waitpid(child, &status, 0);
+    ASSERT(WIFEXITED(status) && WEXITSTATUS(status) == 0, "child exited cleanly");
+
+    /* The original file must still be readable and intact. */
+    MtProtoSession r;
+    mtproto_session_init(&r);
+    int dc = 0;
+    ASSERT(session_store_load(&r, &dc) == 0, "file intact after failed concurrent write");
+    ASSERT(dc == 1, "original home DC preserved");
+    ASSERT(r.server_salt == s0.server_salt, "original salt intact");
+
+    session_store_clear();
+#endif /* _WIN32 */
+}
+
 void run_session_store_tests(void) {
     RUN_TEST(test_save_load_roundtrip);
     RUN_TEST(test_load_missing_file);
@@ -201,4 +352,6 @@ void run_session_store_tests(void) {
     RUN_TEST(test_multi_dc_save_load);
     RUN_TEST(test_upsert_in_place);
     RUN_TEST(test_save_dc_on_empty_sets_home);
+    RUN_TEST(test_write_under_lock);
+    RUN_TEST(test_concurrent_write_conflict);
 }
