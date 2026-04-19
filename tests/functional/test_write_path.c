@@ -160,6 +160,25 @@ static void on_channels_delete(MtRpcContext *ctx) {
     reply_affected_messages(ctx);
 }
 
+/* Responder that asserts flags.0 == 0 (no revoke) and returns ok. */
+static void on_delete_no_revoke(MtRpcContext *ctx) {
+    /* req_body layout: [CRC:4][flags:4][vector...] */
+    ASSERT(ctx->req_body_len >= 8, "req_body large enough for flags");
+    uint32_t flags = 0;
+    memcpy(&flags, ctx->req_body + 4, 4);
+    ASSERT((flags & 1u) == 0u, "flags.0 must be clear (no revoke)");
+    reply_affected_messages(ctx);
+}
+
+/* Responder that asserts flags.0 == 1 (revoke set) and returns ok. */
+static void on_delete_with_revoke(MtRpcContext *ctx) {
+    ASSERT(ctx->req_body_len >= 8, "req_body large enough for flags");
+    uint32_t flags = 0;
+    memcpy(&flags, ctx->req_body + 4, 4);
+    ASSERT((flags & 1u) == 1u, "flags.0 must be set (revoke)");
+    reply_affected_messages(ctx);
+}
+
 static void on_forward_messages(MtRpcContext *ctx) {
     reply_updates_empty(ctx);
 }
@@ -374,6 +393,46 @@ static void test_delete_messages_channel(void) {
     mt_server_reset();
 }
 
+static void test_delete_messages_no_revoke(void) {
+    with_tmp_home("del-no-revoke");
+    mt_server_init(); mt_server_reset();
+    MtProtoSession s; load_session(&s);
+    mt_server_expect(CRC_messages_deleteMessages, on_delete_no_revoke, NULL);
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    HistoryPeer self = { .kind = HISTORY_PEER_SELF };
+    int32_t ids[] = {10};
+    RpcError err = {0};
+    ASSERT(domain_delete_messages(&cfg, &s, &t, &self, ids, 1,
+                                  /*revoke=*/0, &err) == 0,
+           "deleteMessages (no revoke) ok");
+
+    transport_close(&t);
+    mt_server_reset();
+}
+
+static void test_delete_messages_with_revoke(void) {
+    with_tmp_home("del-revoke");
+    mt_server_init(); mt_server_reset();
+    MtProtoSession s; load_session(&s);
+    mt_server_expect(CRC_messages_deleteMessages, on_delete_with_revoke, NULL);
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    HistoryPeer self = { .kind = HISTORY_PEER_SELF };
+    int32_t ids[] = {20};
+    RpcError err = {0};
+    ASSERT(domain_delete_messages(&cfg, &s, &t, &self, ids, 1,
+                                  /*revoke=*/1, &err) == 0,
+           "deleteMessages (with --revoke) ok");
+
+    transport_close(&t);
+    mt_server_reset();
+}
+
 static void test_forward_messages(void) {
     with_tmp_home("fwd");
     mt_server_init(); mt_server_reset();
@@ -449,6 +508,8 @@ void run_write_path_tests(void) {
     RUN_TEST(test_edit_message_not_modified);
     RUN_TEST(test_delete_messages_user);
     RUN_TEST(test_delete_messages_channel);
+    RUN_TEST(test_delete_messages_no_revoke);
+    RUN_TEST(test_delete_messages_with_revoke);
     RUN_TEST(test_forward_messages);
     RUN_TEST(test_mark_read_user);
     RUN_TEST(test_mark_read_channel);
