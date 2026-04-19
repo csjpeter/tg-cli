@@ -462,6 +462,41 @@ static void on_updates_diff_slice_with_messages(MtRpcContext *ctx) {
     tl_writer_free(&w);
 }
 
+/* TEST-28: capture getDialogs request fields (flags + folder_id).
+ *
+ * messages.getDialogs layout after inner-CRC:
+ *   flags:int32  [folder_id:int32 if flags.1]  offset_date:int32
+ *   offset_id:int32  offset_peer:InputPeer  limit:int32  hash:int64
+ *
+ * We only need to inspect the first 8 (archived) or 4 (inbox) bytes
+ * after the leading CRC. */
+typedef struct {
+    uint32_t flags;
+    int32_t  folder_id; /* 0 if not present on the wire */
+} CapturedDialogsReq;
+
+static CapturedDialogsReq g_dialogs_req;
+
+static void on_dialogs_capture_and_reply(MtRpcContext *ctx) {
+    memset(&g_dialogs_req, 0, sizeof(g_dialogs_req));
+    /* req_body starts with CRC_messages_getDialogs (4 bytes). Skip it. */
+    if (ctx->req_body_len >= 8) {
+        const uint8_t *p = ctx->req_body + 4; /* skip CRC */
+        g_dialogs_req.flags = (uint32_t)p[0] | ((uint32_t)p[1] << 8)
+                            | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+        /* folder_id is present when flags bit 1 is set */
+        if ((g_dialogs_req.flags & (1u << 1)) && ctx->req_body_len >= 12) {
+            const uint8_t *fp = p + 4;
+            g_dialogs_req.folder_id = (int32_t)((uint32_t)fp[0]
+                                    | ((uint32_t)fp[1] << 8)
+                                    | ((uint32_t)fp[2] << 16)
+                                    | ((uint32_t)fp[3] << 24));
+        }
+    }
+    /* Always reply with an empty dialogs so the call completes. */
+    on_dialogs_empty(ctx);
+}
+
 /* Generic handler for asserting RPC errors propagate. */
 static void on_generic_500(MtRpcContext *ctx) {
     mt_server_reply_error(ctx, 500, "INTERNAL_SERVER_ERROR");
@@ -1550,6 +1585,54 @@ static void on_diff_error_then_empty(MtRpcContext *ctx) {
     }
 }
 
+/* TEST-28: dialogs --archived sends folder_id=1 on the wire; inbox sends 0. */
+static void test_dialogs_archived_folder_id(void) {
+    /* ---- Part A: archived=1 → flags.1 set, folder_id == 1 ---- */
+    with_tmp_home("dlg-arch");
+    mt_server_init(); mt_server_reset();
+    dialogs_cache_flush();
+    MtProtoSession s; load_session(&s);
+    mt_server_expect(CRC_messages_getDialogs, on_dialogs_capture_and_reply, NULL);
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    memset(&g_dialogs_req, 0, sizeof(g_dialogs_req));
+    DialogEntry rows[8];
+    int n = -1;
+    ASSERT(domain_get_dialogs(&cfg, &s, &t, 8, /*archived=*/1, rows, &n, NULL) == 0,
+           "dialogs archived=1 succeeds");
+    ASSERT((g_dialogs_req.flags & (1u << 1)) != 0,
+           "flags bit 1 set for archived request");
+    ASSERT(g_dialogs_req.folder_id == 1,
+           "folder_id == 1 on wire for archived request");
+
+    transport_close(&t);
+    mt_server_reset();
+
+    /* ---- Part B: archived=0 → flags.1 clear, folder_id field absent ---- */
+    with_tmp_home("dlg-inbox");
+    mt_server_init(); mt_server_reset();
+    dialogs_cache_flush();
+    load_session(&s);
+    mt_server_expect(CRC_messages_getDialogs, on_dialogs_capture_and_reply, NULL);
+
+    init_cfg(&cfg);
+    connect_mock(&t);
+
+    memset(&g_dialogs_req, 0, sizeof(g_dialogs_req));
+    n = -1;
+    ASSERT(domain_get_dialogs(&cfg, &s, &t, 8, /*archived=*/0, rows, &n, NULL) == 0,
+           "dialogs archived=0 succeeds");
+    ASSERT((g_dialogs_req.flags & (1u << 1)) == 0,
+           "flags bit 1 clear for inbox request");
+    ASSERT(g_dialogs_req.folder_id == 0,
+           "folder_id not present on wire for inbox request");
+
+    transport_close(&t);
+    mt_server_reset();
+}
+
 static void test_watch_backoff_then_succeed(void) {
     with_tmp_home("upd-backoff");
     mt_server_init(); mt_server_reset();
@@ -1589,6 +1672,7 @@ void run_read_path_tests(void) {
     RUN_TEST(test_dialogs_one_user);
     RUN_TEST(test_dialogs_slice_variant);
     RUN_TEST(test_dialogs_not_modified_variant);
+    RUN_TEST(test_dialogs_archived_folder_id);
     RUN_TEST(test_history_empty);
     RUN_TEST(test_history_one_message_empty);
     RUN_TEST(test_history_self);
