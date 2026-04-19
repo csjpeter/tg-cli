@@ -179,6 +179,18 @@ static void on_delete_with_revoke(MtRpcContext *ctx) {
     reply_affected_messages(ctx);
 }
 
+static void on_edit_message_id_invalid(MtRpcContext *ctx) {
+    mt_server_reply_error(ctx, 400, "MESSAGE_ID_INVALID");
+}
+
+static void on_edit_author_required(MtRpcContext *ctx) {
+    mt_server_reply_error(ctx, 403, "MESSAGE_AUTHOR_REQUIRED");
+}
+
+static void on_delete_peer_id_invalid(MtRpcContext *ctx) {
+    mt_server_reply_error(ctx, 400, "PEER_ID_INVALID");
+}
+
 static void on_forward_messages(MtRpcContext *ctx) {
     reply_updates_empty(ctx);
 }
@@ -433,6 +445,75 @@ static void test_delete_messages_with_revoke(void) {
     mt_server_reset();
 }
 
+static void test_edit_message_id_invalid(void) {
+    with_tmp_home("edit-mid-inv");
+    mt_server_init(); mt_server_reset();
+    MtProtoSession s; load_session(&s);
+    mt_server_expect(CRC_messages_editMessage, on_edit_message_id_invalid, NULL);
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    HistoryPeer self = { .kind = HISTORY_PEER_SELF };
+    RpcError err = {0};
+    ASSERT(domain_edit_message(&cfg, &s, &t, &self, 9999,
+                               "new text", &err) == -1,
+           "editMessage -1 on MESSAGE_ID_INVALID");
+    ASSERT(err.error_code == 400, "error_code == 400");
+    ASSERT(strcmp(err.error_msg, "MESSAGE_ID_INVALID") == 0,
+           "MESSAGE_ID_INVALID propagated");
+
+    transport_close(&t);
+    mt_server_reset();
+}
+
+static void test_edit_message_author_required(void) {
+    with_tmp_home("edit-auth-req");
+    mt_server_init(); mt_server_reset();
+    MtProtoSession s; load_session(&s);
+    mt_server_expect(CRC_messages_editMessage, on_edit_author_required, NULL);
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    HistoryPeer self = { .kind = HISTORY_PEER_SELF };
+    RpcError err = {0};
+    ASSERT(domain_edit_message(&cfg, &s, &t, &self, 100,
+                               "not my msg", &err) == -1,
+           "editMessage -1 on MESSAGE_AUTHOR_REQUIRED");
+    ASSERT(err.error_code == 403, "error_code == 403");
+    ASSERT(strcmp(err.error_msg, "MESSAGE_AUTHOR_REQUIRED") == 0,
+           "MESSAGE_AUTHOR_REQUIRED propagated");
+
+    transport_close(&t);
+    mt_server_reset();
+}
+
+static void test_delete_peer_id_invalid(void) {
+    with_tmp_home("del-peer-inv");
+    mt_server_init(); mt_server_reset();
+    MtProtoSession s; load_session(&s);
+    mt_server_expect(CRC_messages_deleteMessages, on_delete_peer_id_invalid, NULL);
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    HistoryPeer bogus = {
+        .kind = HISTORY_PEER_USER, .peer_id = 0, .access_hash = 0
+    };
+    int32_t ids[] = {1};
+    RpcError err = {0};
+    ASSERT(domain_delete_messages(&cfg, &s, &t, &bogus, ids, 1,
+                                  /*revoke=*/0, &err) == -1,
+           "deleteMessages -1 on PEER_ID_INVALID");
+    ASSERT(err.error_code == 400, "error_code == 400");
+    ASSERT(strcmp(err.error_msg, "PEER_ID_INVALID") == 0,
+           "PEER_ID_INVALID propagated");
+
+    transport_close(&t);
+    mt_server_reset();
+}
+
 static void test_forward_messages(void) {
     with_tmp_home("fwd");
     mt_server_init(); mt_server_reset();
@@ -506,6 +587,9 @@ void run_write_path_tests(void) {
     RUN_TEST(test_send_message_flood_wait);
     RUN_TEST(test_edit_message_happy);
     RUN_TEST(test_edit_message_not_modified);
+    RUN_TEST(test_edit_message_id_invalid);
+    RUN_TEST(test_edit_message_author_required);
+    RUN_TEST(test_delete_peer_id_invalid);
     RUN_TEST(test_delete_messages_user);
     RUN_TEST(test_delete_messages_channel);
     RUN_TEST(test_delete_messages_no_revoke);
