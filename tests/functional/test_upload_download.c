@@ -957,6 +957,79 @@ static void test_upload_savefilepart_network_migrate(void) {
     mt_server_reset();
 }
 
+/* ================================================================ */
+/* FILE_MIGRATE upload retry test (TEST-20)                         */
+/* ================================================================ */
+
+/**
+ * upload.saveFilePart responder for the FILE_MIGRATE test.
+ *
+ * Call 1 (home DC): arms the reconnect detector and returns
+ *   rpc_error(303, "FILE_MIGRATE_3") so the client switches to DC 3.
+ * Call 2+ (DC 3 session, same mock server): returns boolTrue so the
+ *   retried upload succeeds.
+ */
+static void on_save_file_part_file_migrate(MtRpcContext *ctx) {
+    g_save_file_part_calls++;
+    if (g_save_file_part_calls == 1) {
+        mt_server_arm_reconnect();
+        mt_server_reply_error(ctx, 303, "FILE_MIGRATE_3");
+    } else {
+        reply_bool_true(ctx);
+    }
+}
+
+/**
+ * FT-20 — FILE_MIGRATE_3 retry path for upload.saveFilePart.
+ *
+ * Scenario:
+ *   1. Home DC (DC 2) returns FILE_MIGRATE_3 on the first saveFilePart.
+ *   2. upload_chunk_phase opens DC 3 (pre-seeded session → fast path, no DH).
+ *   3. Retried saveFilePart on DC 3 succeeds (boolTrue).
+ *   4. messages.sendMedia fires on the home transport (DC 2).
+ *
+ * Verifications:
+ *   - domain_send_file returns 0 (full success).
+ *   - saveFilePart was called exactly twice: once home, once on DC 3.
+ *   - sendMedia was called exactly once (home DC).
+ */
+static void test_upload_savefilepart_file_migrate(void) {
+    with_tmp_home("up-fmig");
+    mt_server_init(); mt_server_reset();
+    reset_counters();
+
+    MtProtoSession s; load_session(&s);         /* seeds DC 2 */
+    ASSERT(mt_server_seed_extra_dc(3) == 0,     "seed DC3 session");
+
+    mt_server_expect(CRC_upload_saveFilePart, on_save_file_part_file_migrate, NULL);
+    mt_server_expect(CRC_messages_sendMedia,  on_send_media,                  NULL);
+
+    const char *path = make_tempfile("up-fmig", 1024);
+    ASSERT(path != NULL, "tempfile created");
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    HistoryPeer self = { .kind = HISTORY_PEER_SELF };
+    RpcError err = {0};
+    ASSERT(domain_send_file(&cfg, &s, &t, &self, path,
+                            "file migrate test", "text/plain", &err) == 0,
+           "domain_send_file succeeds after FILE_MIGRATE_3 retry");
+
+    /* saveFilePart fired once on home DC (→ FILE_MIGRATE_3) and
+     * once on DC 3 (→ boolTrue). */
+    ASSERT(g_save_file_part_calls == 2,
+           "saveFilePart called twice: once home DC, once DC 3");
+
+    /* sendMedia fires exactly once on the home transport. */
+    ASSERT(g_send_media_calls == 1,
+           "sendMedia fired once on home DC after cross-DC FILE_MIGRATE upload");
+
+    unlink(path);
+    transport_close(&t);
+    mt_server_reset();
+}
+
 void run_upload_download_tests(void) {
     RUN_TEST(test_upload_small_document);
     RUN_TEST(test_upload_multi_chunk_document);
@@ -979,4 +1052,5 @@ void run_upload_download_tests(void) {
     RUN_TEST(test_upload_over_max_size_rejected);
     RUN_TEST(test_upload_under_max_size_proceeds);
     RUN_TEST(test_upload_savefilepart_network_migrate);
+    RUN_TEST(test_upload_savefilepart_file_migrate);
 }
