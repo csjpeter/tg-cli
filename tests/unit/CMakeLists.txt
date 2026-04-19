@@ -25,6 +25,7 @@ set(TEST_SOURCES
     test_auth_logout.c
     test_arg_parse.c
     test_watch_json.c
+    test_watch_sigpipe.c
     test_readline.c
     test_domain_self.c
     test_domain_dialogs.c

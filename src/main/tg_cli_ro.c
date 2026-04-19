@@ -32,6 +32,7 @@
 #include "infrastructure/media_index.h"
 #include "fs_util.h"
 
+#include <errno.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -249,7 +250,10 @@ static int cmd_watch(const ArgResult *args) {
     int brc = session_bringup(args, &cfg, &s, &t);
     if (brc != 0) return brc;
 
-    signal(SIGINT, on_sigint);
+    signal(SIGINT,  on_sigint);
+    /* Ignore SIGPIPE so write(2) returns EPIPE instead of killing the
+     * process when the downstream pipe consumer exits early (e.g. head). */
+    signal(SIGPIPE, SIG_IGN);
 
     /* Resolve --peers filter once up front. */
     int64_t peer_filter[WATCH_PEERS_MAX];
@@ -323,12 +327,18 @@ static int cmd_watch(const ArgResult *args) {
                                         diff.new_messages[i].peer_id))
                     continue;
                 json_escape_str(esc, sizeof(esc), diff.new_messages[i].text);
-                printf("{\"peer_id\":%lld,\"msg_id\":%d,\"date\":%d,\"text\":\"%s\"}\n",
-                       (long long)diff.new_messages[i].peer_id,
-                       diff.new_messages[i].id,
-                       diff.new_messages[i].date,
-                       esc);
-                fflush(stdout);
+                if (printf("{\"peer_id\":%lld,\"msg_id\":%d,\"date\":%d,\"text\":\"%s\"}\n",
+                           (long long)diff.new_messages[i].peer_id,
+                           diff.new_messages[i].id,
+                           diff.new_messages[i].date,
+                           esc) < 0
+                    || fflush(stdout) != 0) {
+                    if (errno == EPIPE) {
+                        /* Downstream consumer exited — clean termination. */
+                        g_stop = 1;
+                        break;
+                    }
+                }
             }
         } else {
             int printed = 0;
@@ -336,20 +346,25 @@ static int cmd_watch(const ArgResult *args) {
                 if (!watch_peer_allowed(peer_filter, peer_filter_n,
                                         diff.new_messages[i].peer_id))
                     continue;
-                printf("[%d] %d %s\n",
-                       diff.new_messages[i].id,
-                       diff.new_messages[i].date,
-                       diff.new_messages[i].complex
-                           ? "(complex \xe2\x80\x94 text not parsed)"
-                           : diff.new_messages[i].text);
+                if (printf("[%d] %d %s\n",
+                           diff.new_messages[i].id,
+                           diff.new_messages[i].date,
+                           diff.new_messages[i].complex
+                               ? "(complex \xe2\x80\x94 text not parsed)"
+                               : diff.new_messages[i].text) < 0) {
+                    if (errno == EPIPE) { g_stop = 1; break; }
+                }
                 printed++;
             }
-            if (printed == 0 && !args->quiet) {
-                printf("(no new messages; pts=%d date=%d)\n",
-                       state.pts, state.date);
+            if (!g_stop && printed == 0 && !args->quiet) {
+                if (printf("(no new messages; pts=%d date=%d)\n",
+                           state.pts, state.date) < 0 && errno == EPIPE) {
+                    g_stop = 1;
+                }
             }
         }
-        fflush(stdout);
+        if (!g_stop && fflush(stdout) != 0 && errno == EPIPE)
+            g_stop = 1;
 
         /* Sleep in 1-second chunks so SIGINT is responsive. */
         for (int i = 0; i < interval && !g_stop; i++) sleep(1);

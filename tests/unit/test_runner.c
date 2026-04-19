@@ -29,6 +29,7 @@ void run_auth_2fa_tests(void);
 void run_auth_logout_tests(void);
 void run_arg_parse_tests(void);
 void run_watch_json_tests(void);
+void run_watch_sigpipe_tests(void);
 void run_readline_tests(void);
 void run_domain_self_tests(void);
 void run_domain_dialogs_tests(void);
@@ -88,6 +89,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(run_auth_logout_tests);
     RUN_TEST(run_arg_parse_tests);
     RUN_TEST(run_watch_json_tests);
+    RUN_TEST(run_watch_sigpipe_tests);
     RUN_TEST(run_readline_tests);
     RUN_TEST(run_domain_self_tests);
     RUN_TEST(run_domain_dialogs_tests);
