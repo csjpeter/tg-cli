@@ -97,6 +97,10 @@ build_test_runner() {
     cmake --build "$BUILD_DIR" --target test-runner
 }
 
+build_functional_runner() {
+    cmake --build "$BUILD_DIR" --target functional-test-runner
+}
+
 case "$1" in
     deps)
         install_deps
@@ -128,13 +132,37 @@ case "$1" in
         cmake_configure Debug "-DENABLE_COVERAGE=ON"
         cmake_build
         build_test_runner
-        # Remove stale .gcda files to avoid checksum mismatch errors
+        build_functional_runner
+
+        # Pass 1 — unit suite. Wipe .gcda first so the capture only
+        # reflects what the unit runner exercised.
         find "$BUILD_DIR" -name "*.gcda" -delete
         "$BUILD_DIR/tests/unit/test-runner"
-        echo "Generating coverage report..."
-        lcov --capture --directory . --output-file "$BUILD_DIR/coverage.info"
-        genhtml "$BUILD_DIR/coverage.info" --output-directory "$BUILD_DIR/coverage_report"
-        echo "Coverage report available at $BUILD_DIR/coverage_report/index.html"
+        echo "Capturing unit coverage..."
+        lcov --capture --directory . \
+             --output-file "$BUILD_DIR/coverage-unit.info"
+
+        # Pass 2 — functional suite. Fresh .gcda so this capture is
+        # functional-only; we'll merge with unit below for the combined
+        # report.
+        find "$BUILD_DIR" -name "*.gcda" -delete
+        "$BUILD_DIR/tests/functional/functional-test-runner"
+        echo "Capturing functional coverage..."
+        lcov --capture --directory . \
+             --output-file "$BUILD_DIR/coverage-functional.info"
+
+        # Combined = unit ∪ functional (covered if either suite hit it).
+        lcov --add-tracefile "$BUILD_DIR/coverage-unit.info" \
+             --add-tracefile "$BUILD_DIR/coverage-functional.info" \
+             --output-file "$BUILD_DIR/coverage.info"
+
+        genhtml "$BUILD_DIR/coverage.info" \
+                --output-directory "$BUILD_DIR/coverage_report"
+        genhtml "$BUILD_DIR/coverage-functional.info" \
+                --output-directory "$BUILD_DIR/coverage_functional_report"
+
+        echo "Combined coverage:   $BUILD_DIR/coverage_report/index.html"
+        echo "Functional coverage: $BUILD_DIR/coverage_functional_report/index.html"
         ;;
     clean-logs)
         rm -rf ~/.cache/tg-cli/logs/*

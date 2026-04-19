@@ -28,14 +28,29 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential cmake libssl-dev lcov
 
-      - name: Generate coverage report
+      - name: Run unit + functional coverage
         run: ./manage.sh coverage
 
-      - name: Generate coverage badge
+      - name: Generate coverage badges
         run: |
           pip install genbadge[coverage] lcov_cobertura --quiet
-          lcov_cobertura build/coverage.info -o build/coverage.xml
-          genbadge coverage -i build/coverage.xml -o build/coverage_report/coverage-badge.svg
+          lcov_cobertura build/coverage.info \
+              -o build/coverage.xml
+          lcov_cobertura build/coverage-functional.info \
+              -o build/coverage-functional.xml
+          genbadge coverage -i build/coverage.xml \
+              -o build/coverage_report/coverage-badge.svg
+          # The functional badge goes into the functional-only report
+          # subfolder and is also copied up so the combined report page
+          # can link both side-by-side.
+          genbadge coverage -i build/coverage-functional.xml \
+              --name "functional coverage" \
+              -o build/coverage_report/coverage-functional-badge.svg
+          cp build/coverage_report/coverage-functional-badge.svg \
+             build/coverage_functional_report/coverage-badge.svg
+          # Nest the functional report under the combined site so one
+          # Pages artifact serves both.
+          mv build/coverage_functional_report build/coverage_report/functional
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

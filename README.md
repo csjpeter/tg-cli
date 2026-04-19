@@ -1,6 +1,7 @@
 [![CI](https://github.com/csjpeter/tg-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/csjpeter/tg-cli/actions/workflows/ci.yml)
 [![Valgrind](https://github.com/csjpeter/tg-cli/actions/workflows/valgrind.yml/badge.svg)](https://github.com/csjpeter/tg-cli/actions/workflows/valgrind.yml)
 [![Coverage](https://csjpeter.github.io/tg-cli/coverage-badge.svg)](https://csjpeter.github.io/tg-cli/)
+[![Functional coverage](https://csjpeter.github.io/tg-cli/coverage-functional-badge.svg)](https://csjpeter.github.io/tg-cli/functional/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 # tg-cli
@@ -18,8 +19,11 @@ Three binaries share one MTProto 2.0 codebase built from scratch
 `tg-cli-ro` can never mutate server state — the write-capable domain
 library is simply not linked into that target (ADR-0005).
 
-> **Status:** v1 MVP feature-complete. 1965 unit tests + 131
-> functional tests green; Valgrind clean.
+> **Status:** v1 MVP feature-complete. 2703 unit tests + 427
+> functional tests green; Valgrind clean. The functional suite drives
+> every user-facing flow (login / 2FA / dialogs / history / send /
+> edit / delete / forward / read-markers / upload / download) through
+> an in-process mock Telegram server with real OpenSSL on both sides.
 
 ---
 

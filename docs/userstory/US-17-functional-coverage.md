@@ -2,7 +2,9 @@
 
 Applies to: `tests/functional/`.
 
-**Status:** in progress — tracked under FT-01..FT-07.
+**Status:** done — FT-01 through FT-07 landed. 2703 unit + 427
+functional tests green; combined line coverage is 88 % (functional
+tests alone cover 52 % of the shared source).
 
 ## Story
 As a contributor I want the functional test suite to exercise every
