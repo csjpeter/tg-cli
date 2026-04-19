@@ -20,7 +20,9 @@ show_help() {
     echo "  debug              Build the project in Debug mode (with ASAN)"
     echo "  run                Build and run the application"
     echo "  test [filter]      Build and run unit + functional tests (with ASAN); optional substring filter"
-    echo "  valgrind           Build and run unit tests with Valgrind"
+    echo "  valgrind           Build and run unit + functional tests with Valgrind"
+  echo "  valgrind-unit      Build and run unit tests only with Valgrind"
+  echo "  valgrind-functional Build and run functional tests only with Valgrind"
     echo "  coverage           Run tests and generate coverage report"
     echo "  tidy               Run clang-tidy static analysis on src/ (warn-only)"
     echo "  check-ro-isolation Verify tg-cli-ro contains no write-domain symbols (ADR-0005)"
@@ -148,6 +150,21 @@ case "$1" in
         build_release
         build_test_runner
         valgrind --leak-check=full --error-exitcode=1 "$BUILD_DIR/tests/unit/test-runner" ${2:+"$2"}
+        echo "Running functional tests with Valgrind (crypto-heavy; may be slow)..."
+        build_functional_runner
+        valgrind --leak-check=full --error-exitcode=1 "$BUILD_DIR/tests/functional/functional-test-runner"
+        ;;
+    valgrind-unit)
+        echo "Running unit tests with Valgrind..."
+        build_release
+        build_test_runner
+        valgrind --leak-check=full --error-exitcode=1 "$BUILD_DIR/tests/unit/test-runner" ${2:+"$2"}
+        ;;
+    valgrind-functional)
+        echo "Running functional tests with Valgrind (crypto-heavy; may be slow)..."
+        build_release
+        build_functional_runner
+        valgrind --leak-check=full --error-exitcode=1 "$BUILD_DIR/tests/functional/functional-test-runner"
         ;;
     coverage)
         cmake_configure Debug "-DENABLE_COVERAGE=ON"
