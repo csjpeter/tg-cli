@@ -14,6 +14,7 @@ set(FUNCTIONAL_SOURCES
     test_mt_server_smoke.c
     test_login_flow.c
     test_read_path.c
+    test_write_path.c
     # Real crypto implementation (not the mock used by unit tests).
     ../../src/core/crypto.c
     # Mock socket + in-process Telegram server emulator. Real crypto on

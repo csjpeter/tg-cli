@@ -23,6 +23,7 @@ void run_tl_skip_message_functional_tests(void);
 void run_mt_server_smoke_tests(void);
 void run_login_flow_tests(void);
 void run_read_path_tests(void);
+void run_write_path_tests(void);
 
 int main(void) {
     run_ige_aes_functional_tests();
@@ -34,6 +35,7 @@ int main(void) {
     run_mt_server_smoke_tests();
     run_login_flow_tests();
     run_read_path_tests();
+    run_write_path_tests();
 
     printf("\n--- Functional Test Results ---\n");
     printf("Tests Run:    %d\n", g_tests_run);
