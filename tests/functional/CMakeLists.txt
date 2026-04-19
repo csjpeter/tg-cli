@@ -17,6 +17,7 @@ set(FUNCTIONAL_SOURCES
     test_write_path.c
     test_upload_download.c
     test_dialogs_cache_ttl.c
+    test_tui_e2e.c
     # Real crypto implementation (not the mock used by unit tests).
     ../../src/core/crypto.c
     # Mock socket + in-process Telegram server emulator. Real crypto on
@@ -29,8 +30,9 @@ add_executable(functional-test-runner ${FUNCTIONAL_SOURCES})
 
 # tg-app pulls in session_store_save/load; tg-proto brings in rpc +
 # transport + crypto wrappers + SRP + auth_2fa. OpenSSL stays linked.
+# tg-tui-lib adds dialog_pane/history_pane/screen/app for TEST-11.
 target_link_libraries(functional-test-runner PRIVATE
-    tg-domain-write tg-domain-read tg-app tg-proto
+    tg-domain-write tg-domain-read tg-app tg-proto tg-tui-lib
     OpenSSL::SSL OpenSSL::Crypto)
 
 add_test(NAME FunctionalTests COMMAND functional-test-runner)
