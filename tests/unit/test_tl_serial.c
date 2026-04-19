@@ -64,6 +64,10 @@ void test_tl_vector_overflow_reader_saturates(void);
 void test_tl_read_bytes_giant_length_claim(void);
 void test_tl_read_bytes_long_prefix_exact(void);
 void test_tl_read_bytes_invalid_ff_prefix(void);
+void test_tl_string_roundtrip_lengths(void);
+void test_tl_int32_roundtrip_boundaries(void);
+void test_tl_int64_roundtrip_boundaries(void);
+void test_tl_vector_roundtrip_empty_single_many(void);
 
 /* ================================================================
  * Writer tests
@@ -824,6 +828,177 @@ void test_tl_read_bytes_invalid_ff_prefix(void) {
 }
 
 /* ================================================================
+ * TEST-42: Property-style roundtrip tests covering boundary lengths/values
+ * ================================================================ */
+
+/**
+ * @brief Roundtrip tl_write_bytes / tl_read_bytes for boundary string lengths.
+ *
+ * Lengths tested: 0, 1, 253, 254, 1000, 100000 (proxy for 16 777 215).
+ * Each buffer is filled with a repeating pattern; after a write+read the
+ * content must match exactly.
+ */
+void test_tl_string_roundtrip_lengths(void) {
+    /* Boundary lengths per the TL spec: <254 uses 1-byte prefix,
+     * >=254 uses 4-byte prefix.  Also include a mid-range (1000) and a
+     * cap of 100 000 bytes (instead of 16 777 215) to keep the test fast. */
+    const size_t lengths[] = {0, 1, 253, 254, 1000, 100000};
+    const int n = (int)(sizeof(lengths) / sizeof(lengths[0]));
+
+    for (int li = 0; li < n; li++) {
+        size_t slen = lengths[li];
+
+        /* Build source data: repeating byte pattern 0x00..0xFF */
+        unsigned char *src = NULL;
+        if (slen > 0) {
+            src = (unsigned char *)malloc(slen);
+            for (size_t i = 0; i < slen; i++)
+                src[i] = (unsigned char)(i & 0xFF);
+        }
+
+        TlWriter w;
+        tl_writer_init(&w);
+        tl_write_bytes(&w, src, slen);
+        ASSERT(w.len > 0, "writer must produce bytes for any length");
+
+        TlReader r = tl_reader_init(w.data, w.len);
+        size_t out_len = 0;
+        unsigned char *out = tl_read_bytes(&r, &out_len);
+
+        ASSERT(out != NULL, "tl_read_bytes must return non-NULL");
+        ASSERT(out_len == slen, "read length must equal written length");
+        if (slen > 0) {
+            ASSERT(memcmp(out, src, slen) == 0, "roundtrip content must match");
+        }
+        ASSERT(r.pos == w.len, "reader must consume exactly the serialized bytes");
+
+        free(out);
+        free(src);
+        tl_writer_free(&w);
+    }
+}
+
+/**
+ * @brief Roundtrip int32 across boundary values:
+ * INT32_MIN, -1, 0, 1, INT32_MAX, and UINT32_MAX reinterpreted as int32.
+ */
+void test_tl_int32_roundtrip_boundaries(void) {
+    int32_t values[] = {
+        (int32_t)0x80000000,  /* INT32_MIN */
+        -1,
+        0,
+        1,
+        0x7FFFFFFF,           /* INT32_MAX */
+        (int32_t)0xFFFFFFFF   /* -1 == UINT32_MAX cast to int32 */
+    };
+    const int n = (int)(sizeof(values) / sizeof(values[0]));
+
+    TlWriter w;
+    tl_writer_init(&w);
+    for (int i = 0; i < n; i++)
+        tl_write_int32(&w, values[i]);
+
+    TlReader r = tl_reader_init(w.data, w.len);
+    for (int i = 0; i < n; i++) {
+        int32_t got = tl_read_int32(&r);
+        ASSERT(got == values[i], "int32 boundary roundtrip mismatch");
+    }
+    ASSERT(!tl_reader_ok(&r), "reader must be at end after all int32 reads");
+    tl_writer_free(&w);
+}
+
+/**
+ * @brief Roundtrip int64 across boundary values:
+ * INT64_MIN, -1, 0, 1, INT64_MAX.
+ */
+void test_tl_int64_roundtrip_boundaries(void) {
+    int64_t values[] = {
+        (int64_t)0x8000000000000000LL,  /* INT64_MIN */
+        -1LL,
+        0LL,
+        1LL,
+        0x7FFFFFFFFFFFFFFFLL            /* INT64_MAX */
+    };
+    const int n = (int)(sizeof(values) / sizeof(values[0]));
+
+    TlWriter w;
+    tl_writer_init(&w);
+    for (int i = 0; i < n; i++)
+        tl_write_int64(&w, values[i]);
+
+    TlReader r = tl_reader_init(w.data, w.len);
+    for (int i = 0; i < n; i++) {
+        int64_t got = tl_read_int64(&r);
+        ASSERT(got == values[i], "int64 boundary roundtrip mismatch");
+    }
+    ASSERT(!tl_reader_ok(&r), "reader must be at end after all int64 reads");
+    tl_writer_free(&w);
+}
+
+/**
+ * @brief Roundtrip TL vectors: empty (0 elements), single element, and many
+ * elements (100).  Each vector is serialised via tl_write_vector_begin +
+ * individual tl_write_int32 calls and then read back via tl_read_uint32 for
+ * the header and tl_read_int32 for the elements.
+ */
+void test_tl_vector_roundtrip_empty_single_many(void) {
+    /* --- empty vector --- */
+    {
+        TlWriter w;
+        tl_writer_init(&w);
+        tl_write_vector_begin(&w, 0);
+
+        TlReader r = tl_reader_init(w.data, w.len);
+        uint32_t ctor  = tl_read_uint32(&r);
+        uint32_t count = tl_read_uint32(&r);
+        ASSERT(ctor == 0x1cb5c415u, "vector ctor magic (empty)");
+        ASSERT(count == 0, "empty vector count must be 0");
+        ASSERT(!tl_reader_ok(&r), "reader exhausted after empty vector header");
+        tl_writer_free(&w);
+    }
+
+    /* --- single-element vector --- */
+    {
+        TlWriter w;
+        tl_writer_init(&w);
+        tl_write_vector_begin(&w, 1);
+        tl_write_int32(&w, 42);
+
+        TlReader r = tl_reader_init(w.data, w.len);
+        uint32_t ctor  = tl_read_uint32(&r);
+        uint32_t count = tl_read_uint32(&r);
+        ASSERT(ctor == 0x1cb5c415u, "vector ctor magic (single)");
+        ASSERT(count == 1, "single-element vector count must be 1");
+        int32_t val = tl_read_int32(&r);
+        ASSERT(val == 42, "single-element roundtrip value mismatch");
+        ASSERT(!tl_reader_ok(&r), "reader exhausted after single-element vector");
+        tl_writer_free(&w);
+    }
+
+    /* --- many-element vector (100 elements) --- */
+    {
+        const uint32_t N = 100;
+        TlWriter w;
+        tl_writer_init(&w);
+        tl_write_vector_begin(&w, N);
+        for (uint32_t i = 0; i < N; i++)
+            tl_write_int32(&w, (int32_t)i);
+
+        TlReader r = tl_reader_init(w.data, w.len);
+        uint32_t ctor  = tl_read_uint32(&r);
+        uint32_t count = tl_read_uint32(&r);
+        ASSERT(ctor == 0x1cb5c415u, "vector ctor magic (many)");
+        ASSERT(count == N, "many-element vector count must be 100");
+        for (uint32_t i = 0; i < N; i++) {
+            int32_t val = tl_read_int32(&r);
+            ASSERT(val == (int32_t)i, "many-element roundtrip value mismatch");
+        }
+        ASSERT(!tl_reader_ok(&r), "reader exhausted after many-element vector");
+        tl_writer_free(&w);
+    }
+}
+
+/* ================================================================
  * Test suite entry point
  * ================================================================ */
 
@@ -881,4 +1056,8 @@ void test_tl_serial(void) {
     RUN_TEST(test_tl_read_bytes_giant_length_claim);
     RUN_TEST(test_tl_read_bytes_long_prefix_exact);
     RUN_TEST(test_tl_read_bytes_invalid_ff_prefix);
+    RUN_TEST(test_tl_string_roundtrip_lengths);
+    RUN_TEST(test_tl_int32_roundtrip_boundaries);
+    RUN_TEST(test_tl_int64_roundtrip_boundaries);
+    RUN_TEST(test_tl_vector_roundtrip_empty_single_many);
 }
