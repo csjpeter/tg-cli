@@ -312,6 +312,21 @@ static void make_media_info(MediaInfo *mi) {
     strcpy(mi->thumb_type, "y");
 }
 
+/* Populate a MediaInfo struct for a document download. */
+static void make_doc_media_info(MediaInfo *mi) {
+    memset(mi, 0, sizeof(*mi));
+    mi->kind = MEDIA_DOCUMENT;
+    mi->document_id = 0xFEEDC0FFEE1234LL;
+    mi->access_hash = 0xABCDEF0123456789LL;
+    mi->dc_id = 2;
+    mi->file_reference_len = 4;
+    mi->file_reference[0] = 0xAA;
+    mi->file_reference[1] = 0xBB;
+    mi->file_reference[2] = 0xCC;
+    mi->file_reference[3] = 0xDD;
+    strcpy(mi->document_filename, "hello.bin");
+}
+
 static void test_download_photo_short_chunk(void) {
     with_tmp_home("dl-short");
     mt_server_init(); mt_server_reset();
@@ -390,6 +405,99 @@ static void test_download_photo_file_migrate(void) {
     mt_server_reset();
 }
 
+/* ================================================================ */
+/* Document download tests (TEST-07)                                */
+/* ================================================================ */
+
+static void test_download_document_single_chunk(void) {
+    with_tmp_home("dl-doc-short");
+    mt_server_init(); mt_server_reset();
+    reset_counters();
+    MtProtoSession s; load_session(&s);
+    mt_server_expect(CRC_upload_getFile, on_get_file_short, NULL);
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    MediaInfo mi; make_doc_media_info(&mi);
+    /* Use document_filename as the output filename path. */
+    const char *out = "/tmp/tg-cli-ft-media-dl-doc-short.bin";
+    int wrong = -1;
+    ASSERT(domain_download_document(&cfg, &s, &t, &mi, out, &wrong) == 0,
+           "document download ok");
+    ASSERT(wrong == 0, "no wrong_dc");
+    ASSERT(g_get_file_calls == 1, "single chunk → EOF");
+
+    struct stat st;
+    ASSERT(stat(out, &st) == 0, "output file exists");
+    ASSERT(st.st_size == 128, "128 bytes written");
+
+    /* Verify content: on_get_file_short uses (i ^ 0xA5). */
+    FILE *fp = fopen(out, "rb");
+    ASSERT(fp != NULL, "can open output");
+    uint8_t buf[128];
+    ASSERT(fread(buf, 1, 128, fp) == 128, "read 128 bytes");
+    fclose(fp);
+    int content_ok = 1;
+    for (int i = 0; i < 128; ++i) {
+        if (buf[i] != (uint8_t)(i ^ 0xA5u)) { content_ok = 0; break; }
+    }
+    ASSERT(content_ok, "document content matches deterministic pattern");
+
+    unlink(out);
+    transport_close(&t);
+    mt_server_reset();
+}
+
+static void test_download_document_two_chunks(void) {
+    with_tmp_home("dl-doc-two");
+    mt_server_init(); mt_server_reset();
+    reset_counters();
+    MtProtoSession s; load_session(&s);
+    mt_server_expect(CRC_upload_getFile, on_get_file_two_chunks, NULL);
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    MediaInfo mi; make_doc_media_info(&mi);
+    const char *out = "/tmp/tg-cli-ft-media-dl-doc-two.bin";
+    int wrong = -1;
+    ASSERT(domain_download_document(&cfg, &s, &t, &mi, out, &wrong) == 0,
+           "document two-chunk download ok");
+    ASSERT(wrong == 0, "no wrong_dc");
+    ASSERT(g_get_file_calls == 2, "two calls: first full chunk, second EOF");
+
+    struct stat st;
+    ASSERT(stat(out, &st) == 0, "output file exists");
+    ASSERT(st.st_size == 128 * 1024 + 64, "128 KiB + 64 bytes written");
+
+    unlink(out);
+    transport_close(&t);
+    mt_server_reset();
+}
+
+static void test_download_document_file_migrate(void) {
+    with_tmp_home("dl-doc-mig");
+    mt_server_init(); mt_server_reset();
+    reset_counters();
+    MtProtoSession s; load_session(&s);
+    mt_server_expect(CRC_upload_getFile, on_get_file_migrate, NULL);
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    MediaInfo mi; make_doc_media_info(&mi);
+    const char *out = "/tmp/tg-cli-ft-media-dl-doc-mig.bin";
+    int wrong = -1;
+    ASSERT(domain_download_document(&cfg, &s, &t, &mi, out, &wrong) == -1,
+           "document download fails with FILE_MIGRATE");
+    ASSERT(wrong == 3, "wrong_dc surfaced as 3");
+
+    unlink(out);
+    transport_close(&t);
+    mt_server_reset();
+}
+
 static void test_path_is_image(void) {
     /* Pure helper — no server — but lives here for coupling with the
      * upload module. */
@@ -409,5 +517,8 @@ void run_upload_download_tests(void) {
     RUN_TEST(test_download_photo_short_chunk);
     RUN_TEST(test_download_photo_two_chunks);
     RUN_TEST(test_download_photo_file_migrate);
+    RUN_TEST(test_download_document_single_chunk);
+    RUN_TEST(test_download_document_two_chunks);
+    RUN_TEST(test_download_document_file_migrate);
     RUN_TEST(test_path_is_image);
 }
