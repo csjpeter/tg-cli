@@ -77,6 +77,7 @@ set(VENDOR_TINF_SOURCES
 add_library(tg-proto STATIC
     src/core/arg_parse.c
     src/core/readline.c
+    src/core/wcwidth.c
     src/core/json_util.c
     src/core/config.c
     src/core/logger.c

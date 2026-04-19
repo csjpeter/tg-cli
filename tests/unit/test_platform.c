@@ -29,6 +29,12 @@ void test_platform(void) {
     ASSERT(terminal_wcwidth(0x00E1) == 1, "wcwidth: a-acute (U+00E1) should be 1");
     ASSERT(terminal_wcwidth(0x0151) == 1, "wcwidth: o-double-acute (U+0151) should be 1");
 
+    /* Combining diacritic: width 0 */
+    ASSERT(terminal_wcwidth(0x0300) == 0, "wcwidth: combining grave (U+0300) should be 0");
+
+    /* Zero-width joiner: width 0 */
+    ASSERT(terminal_wcwidth(0x200D) == 0, "wcwidth: zero-width joiner (U+200D) should be 0");
+
     /* CJK ideograph: width 2 */
     ASSERT(terminal_wcwidth(0x4E2D) == 2, "wcwidth: CJK U+4E2D should be 2");
     ASSERT(terminal_wcwidth(0x3042) == 2, "wcwidth: Hiragana U+3042 should be 2");

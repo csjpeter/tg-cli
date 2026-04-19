@@ -5,6 +5,7 @@
 /* Uses Windows Console API: GetConsoleMode, SetConsoleMode,
  * GetConsoleScreenBufferInfo, ReadConsoleInput */
 #include "../terminal.h"
+#include "core/wcwidth.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -20,7 +21,7 @@ void terminal_raw_exit(TermRawState **s)     { (void)s; }
 TermKey terminal_read_key(void)              { return TERM_KEY_QUIT; }
 int     terminal_wait_key(int timeout_ms)    { (void)timeout_ms; return 1; }
 int terminal_last_printable(void)            { return 0; }
-int terminal_wcwidth(uint32_t cp)            { (void)cp; return 1; }
+int terminal_wcwidth(uint32_t cp)            { return core_wcwidth(cp); }
 int terminal_read_password(const char *p, char *b, size_t n) {
     (void)p; (void)b; (void)n; return -1;
 }
