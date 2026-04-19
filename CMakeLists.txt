@@ -6,7 +6,10 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 
 # Compiler flags
 add_compile_definitions(_GNU_SOURCE)
-add_compile_options(-Wall -Wextra -Werror -pedantic)
+add_compile_options(
+    -Wall -Wextra -Werror -pedantic
+    -Wshadow -Wformat-security -Wstrict-prototypes -Wnull-dereference
+)
 
 # Coverage support
 option(ENABLE_COVERAGE "Enable code coverage" OFF)

@@ -657,13 +657,13 @@ int auth_step_set_client_dh(AuthKeyCtx *ctx) {
         crypto_sha1(auth_key_padded, 256, ak_full_hash);
         /* auth_key_aux_hash = ak_full_hash[0:8] */
 
-        uint8_t buf[32 + 1 + 8];
-        memcpy(buf,          ctx->new_nonce, 32);
-        buf[32] = 0x01; /* dh_gen_ok marker */
-        memcpy(buf + 33,     ak_full_hash, 8);
+        uint8_t nonce_hash_input[32 + 1 + 8];
+        memcpy(nonce_hash_input,          ctx->new_nonce, 32);
+        nonce_hash_input[32] = 0x01; /* dh_gen_ok marker */
+        memcpy(nonce_hash_input + 33,     ak_full_hash, 8);
 
         uint8_t expected_full[20];
-        crypto_sha1(buf, sizeof(buf), expected_full);
+        crypto_sha1(nonce_hash_input, sizeof(nonce_hash_input), expected_full);
         /* last 16 bytes of the SHA1 result */
         if (memcmp(expected_full + 4, new_nonce_hash, 16) != 0) {
             logger_log(LOG_ERROR,

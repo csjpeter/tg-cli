@@ -30,7 +30,7 @@ static const char* level_to_str(LogLevel level) {
 /**
  * @brief Rotates log files: session.log → session.log.1, dropping session.log.5.
  */
-static void rotate_logs() {
+static void rotate_logs(void) {
     if (!g_log_path) return;
 
     // session.log.5 -> deleted
