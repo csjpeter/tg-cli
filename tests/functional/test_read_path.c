@@ -28,6 +28,7 @@
 #include "domain/read/contacts.h"
 #include "domain/read/user_info.h"
 #include "domain/read/updates.h"
+#include "domain/read/search.h"
 #include "arg_parse.h"
 
 /* for resolve cache flush */
@@ -39,6 +40,9 @@ extern void resolve_cache_flush(void);
 #include <unistd.h>
 
 /* ---- CRCs not already surfaced by public headers ---- */
+#define CRC_messages_search           0x29ee847aU
+#define CRC_messages_searchGlobal     0x4bc6589aU
+#define CRC_inputMessagesFilterEmpty  0x57e9a944U
 #define CRC_users_getUsers            0x0d91a548U
 #define CRC_inputUserSelf             0xf7c1b13fU
 #define CRC_messages_getDialogs       0xa0f4cb4fU
@@ -1060,6 +1064,287 @@ static void test_get_full_user_happy(void) {
     mt_server_reset();
 }
 
+/* ================================================================ */
+/* TEST-10: search functional tests                                 */
+/* ================================================================ */
+
+/* Helper: write a minimal messages.messages with N plain text messages.
+ * Each message uses TL_message constructor with:
+ *   flags=0, flags2=0 (no optional fields), out=0
+ *   id = base_id + i, peer = inputPeerSelf (skipped by parser as from_id)
+ *   date = 1700000000 + i, message = text[i]
+ *
+ * Actual wire layout for a message with flags=0, flags2=0:
+ *   crc(4) flags(4) flags2(4) id(4)
+ *   [no from_id — flags.8 off]
+ *   peer_id: peerUser id(4+8)   (flags.28 off → no saved_peer)
+ *   [no fwd_header]
+ *   date(4)  message:string
+ */
+static void write_messages_messages(TlWriter *w, int count, int base_id,
+                                    int base_date, const char **texts) {
+    tl_write_uint32(w, TL_messages_messages);
+    /* messages vector */
+    tl_write_uint32(w, TL_vector);
+    tl_write_uint32(w, (uint32_t)count);
+    for (int i = 0; i < count; i++) {
+        tl_write_uint32(w, TL_message);
+        tl_write_uint32(w, 0);              /* flags = 0 */
+        tl_write_uint32(w, 0);              /* flags2 = 0 */
+        tl_write_int32 (w, base_id + i);    /* id */
+        /* peer_id: peerUser with id=1 (flags.28 off, flags.8 off) */
+        tl_write_uint32(w, TL_peerUser);
+        tl_write_int64 (w, 1LL);
+        tl_write_int32 (w, base_date + i);  /* date */
+        tl_write_string(w, texts[i]);       /* message */
+    }
+    /* chats vector: empty */
+    tl_write_uint32(w, TL_vector);
+    tl_write_uint32(w, 0);
+    /* users vector: empty */
+    tl_write_uint32(w, TL_vector);
+    tl_write_uint32(w, 0);
+}
+
+/* Responder for messages.searchGlobal — returns 3 messages. */
+static void on_search_global_three(MtRpcContext *ctx) {
+    static const char *texts[3] = { "hello world", "second hit", "third one" };
+    TlWriter w;
+    tl_writer_init(&w);
+    write_messages_messages(&w, 3, 1001, 1700100000, texts);
+    mt_server_reply_result(ctx, w.data, w.len);
+    tl_writer_free(&w);
+}
+
+/* Responder for messages.search (per-peer) — returns 2 messages. */
+static void on_search_peer_two(MtRpcContext *ctx) {
+    static const char *texts[2] = { "peer match one", "peer match two" };
+    TlWriter w;
+    tl_writer_init(&w);
+    write_messages_messages(&w, 2, 2001, 1700200000, texts);
+    mt_server_reply_result(ctx, w.data, w.len);
+    tl_writer_free(&w);
+}
+
+/* Capture state for search request bytes. */
+typedef struct {
+    uint32_t crc;            /* first CRC in request body */
+    int32_t  limit;          /* limit field */
+    char     query[128];     /* query string (UTF-8) */
+    uint32_t peer_crc;       /* inputPeer CRC (per-peer only, 0 for global) */
+} CapturedSearchReq;
+
+static CapturedSearchReq g_search_req;
+
+/* Read a TL string from a byte buffer (little-endian, Pascal-style).
+ * Returns number of bytes consumed (including length byte(s) + padding),
+ * or 0 on error. Writes up to dst_max-1 bytes into dst. */
+static size_t read_tl_string_raw(const uint8_t *p, size_t rem,
+                                  char *dst, size_t dst_max) {
+    if (rem < 1) return 0;
+    size_t slen, hdr;
+    if (p[0] < 254) {
+        slen = p[0]; hdr = 1;
+    } else if (p[0] == 254) {
+        if (rem < 4) return 0;
+        slen = (size_t)p[1] | ((size_t)p[2] << 8) | ((size_t)p[3] << 16);
+        hdr = 4;
+    } else {
+        return 0;
+    }
+    if (rem < hdr + slen) return 0;
+    size_t copy = slen < dst_max - 1 ? slen : dst_max - 1;
+    memcpy(dst, p + hdr, copy);
+    dst[copy] = '\0';
+    size_t total = hdr + slen;
+    /* round up to 4-byte boundary */
+    if (total % 4) total += 4 - (total % 4);
+    return total;
+}
+
+/* Responder that captures global-search request fields. */
+static void on_search_global_capture(MtRpcContext *ctx) {
+    memset(&g_search_req, 0, sizeof(g_search_req));
+    if (ctx->req_body_len < 4) { on_search_global_three(ctx); return; }
+
+    const uint8_t *p = ctx->req_body;
+    size_t rem = ctx->req_body_len;
+
+    /* CRC (4 bytes) */
+    g_search_req.crc = (uint32_t)p[0] | ((uint32_t)p[1] << 8)
+                     | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+    p += 4; rem -= 4;
+
+    /* flags (4 bytes) */
+    if (rem < 4) { on_search_global_three(ctx); return; }
+    p += 4; rem -= 4;
+
+    /* query string */
+    size_t adv = read_tl_string_raw(p, rem, g_search_req.query,
+                                    sizeof(g_search_req.query));
+    if (adv == 0) { on_search_global_three(ctx); return; }
+    p += adv; rem -= adv;
+
+    /* filter CRC (4) + min_date (4) + max_date (4) + offset_rate (4) */
+    if (rem < 16) { on_search_global_three(ctx); return; }
+    p += 16; rem -= 16;
+
+    /* offset_peer CRC (4) + skip TL_inputPeerEmpty (no extra fields) */
+    if (rem < 4) { on_search_global_three(ctx); return; }
+    p += 4; rem -= 4;
+
+    /* offset_id (4) */
+    if (rem < 4) { on_search_global_three(ctx); return; }
+    p += 4; rem -= 4;
+
+    /* limit (4) */
+    if (rem >= 4) {
+        g_search_req.limit = (int32_t)((uint32_t)p[0] | ((uint32_t)p[1] << 8)
+                           | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24));
+    }
+
+    on_search_global_three(ctx);
+}
+
+/* Responder that captures per-peer search request fields. */
+static void on_search_peer_capture(MtRpcContext *ctx) {
+    memset(&g_search_req, 0, sizeof(g_search_req));
+    if (ctx->req_body_len < 4) { on_search_peer_two(ctx); return; }
+
+    const uint8_t *p = ctx->req_body;
+    size_t rem = ctx->req_body_len;
+
+    /* CRC (4) */
+    g_search_req.crc = (uint32_t)p[0] | ((uint32_t)p[1] << 8)
+                     | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+    p += 4; rem -= 4;
+
+    /* flags (4) */
+    if (rem < 4) { on_search_peer_two(ctx); return; }
+    p += 4; rem -= 4;
+
+    /* peer CRC (4) */
+    if (rem < 4) { on_search_peer_two(ctx); return; }
+    g_search_req.peer_crc = (uint32_t)p[0] | ((uint32_t)p[1] << 8)
+                          | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+    p += 4; rem -= 4;
+
+    /* skip peer args: inputPeerUser → id(8) + access_hash(8) */
+    if (g_search_req.peer_crc == TL_inputPeerUser ||
+        g_search_req.peer_crc == TL_inputPeerChannel) {
+        if (rem < 16) { on_search_peer_two(ctx); return; }
+        p += 16; rem -= 16;
+    } else if (g_search_req.peer_crc == TL_inputPeerChat) {
+        if (rem < 8) { on_search_peer_two(ctx); return; }
+        p += 8; rem -= 8;
+    }
+    /* inputPeerSelf: no extra bytes */
+
+    /* query string */
+    size_t adv = read_tl_string_raw(p, rem, g_search_req.query,
+                                    sizeof(g_search_req.query));
+    if (adv == 0) { on_search_peer_two(ctx); return; }
+    p += adv; rem -= adv;
+
+    /* filter CRC (4) + min_date (4) + max_date (4) + offset_id (4) +
+       add_offset (4) */
+    if (rem < 20) { on_search_peer_two(ctx); return; }
+    p += 20; rem -= 20;
+
+    /* limit (4) */
+    if (rem >= 4) {
+        g_search_req.limit = (int32_t)((uint32_t)p[0] | ((uint32_t)p[1] << 8)
+                           | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24));
+    }
+
+    on_search_peer_two(ctx);
+}
+
+/* TEST-10a: messages.searchGlobal — three results come back, request CRC
+ * is correct, and the query string lands on the wire. */
+static void test_search_global_happy(void) {
+    with_tmp_home("srch-global");
+    mt_server_init(); mt_server_reset();
+    MtProtoSession s; load_session(&s);
+    mt_server_expect(CRC_messages_searchGlobal, on_search_global_capture, NULL);
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    HistoryEntry hits[8];
+    int n = -1;
+    ASSERT(domain_search_global(&cfg, &s, &t, "hello", 10, hits, &n) == 0,
+           "search_global succeeds");
+    ASSERT(n == 3, "three hits returned");
+    ASSERT(hits[0].id == 1001, "first hit id == 1001");
+    ASSERT(hits[1].id == 1002, "second hit id == 1002");
+    ASSERT(hits[2].id == 1003, "third hit id == 1003");
+    ASSERT(strcmp(hits[0].text, "hello world") == 0, "first hit text");
+    ASSERT(hits[0].date == 1700100000, "first hit date");
+    ASSERT(g_search_req.crc == CRC_messages_searchGlobal,
+           "request CRC is searchGlobal");
+    ASSERT(strcmp(g_search_req.query, "hello") == 0,
+           "query string threaded to wire");
+
+    transport_close(&t);
+    mt_server_reset();
+}
+
+/* TEST-10b: messages.search per-peer — two results, inputPeerUser on wire. */
+static void test_search_per_peer_happy(void) {
+    with_tmp_home("srch-peer");
+    mt_server_init(); mt_server_reset();
+    MtProtoSession s; load_session(&s);
+    mt_server_expect(CRC_messages_search, on_search_peer_capture, NULL);
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    HistoryPeer peer = {
+        .kind        = HISTORY_PEER_USER,
+        .peer_id     = 5555LL,
+        .access_hash = 0xABCDEF1234567890LL,
+    };
+    HistoryEntry hits[8];
+    int n = -1;
+    ASSERT(domain_search_peer(&cfg, &s, &t, &peer, "find me", 5, hits, &n) == 0,
+           "search_peer succeeds");
+    ASSERT(n == 2, "two hits returned");
+    ASSERT(hits[0].id == 2001, "first hit id == 2001");
+    ASSERT(hits[1].id == 2002, "second hit id == 2002");
+    ASSERT(strcmp(hits[0].text, "peer match one") == 0, "first hit text");
+    ASSERT(hits[0].date == 1700200000, "first hit date");
+    ASSERT(g_search_req.crc == CRC_messages_search,
+           "request CRC is messages.search");
+    ASSERT(g_search_req.peer_crc == TL_inputPeerUser,
+           "peer field carries inputPeerUser");
+    ASSERT(strcmp(g_search_req.query, "find me") == 0,
+           "query string threaded to wire");
+
+    transport_close(&t);
+    mt_server_reset();
+}
+
+/* TEST-10c: limit field equals what was passed (FEAT-08). */
+static void test_search_limit_respected(void) {
+    with_tmp_home("srch-limit");
+    mt_server_init(); mt_server_reset();
+    MtProtoSession s; load_session(&s);
+    mt_server_expect(CRC_messages_searchGlobal, on_search_global_capture, NULL);
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    HistoryEntry hits[8];
+    int n = -1;
+    ASSERT(domain_search_global(&cfg, &s, &t, "test", 7, hits, &n) == 0,
+           "search_global with limit=7 succeeds");
+    ASSERT(g_search_req.limit == 7, "limit == 7 on wire");
+
+    transport_close(&t);
+    mt_server_reset();
+}
+
 void run_read_path_tests(void) {
     RUN_TEST(test_get_self);
     RUN_TEST(test_get_self_premium);
@@ -1084,4 +1369,7 @@ void run_read_path_tests(void) {
     RUN_TEST(test_updates_state);
     RUN_TEST(test_updates_difference_empty);
     RUN_TEST(test_rpc_error_propagation);
+    RUN_TEST(test_search_global_happy);
+    RUN_TEST(test_search_per_peer_happy);
+    RUN_TEST(test_search_limit_respected);
 }
