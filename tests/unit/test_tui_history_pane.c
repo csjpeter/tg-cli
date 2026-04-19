@@ -74,9 +74,13 @@ static void test_set_entries_marks_loaded(void) {
 static void test_set_entries_clamps_overflow(void) {
     HistoryPane hp; history_pane_init(&hp);
     HistoryPeer p = mk_peer_self();
-    HistoryEntry src[3] = { mk_text(1, 0, "a"), mk_text(2, 0, "b"),
-                            mk_text(3, 0, "c") };
-    history_pane_set_entries(&hp, &p, src, 999);
+    /* src must be at least HISTORY_PANE_MAX+1 so the clamp fires without
+     * reading beyond the array bounds. */
+    HistoryEntry src[HISTORY_PANE_MAX + 1];
+    memset(src, 0, sizeof(src));
+    for (int i = 0; i < HISTORY_PANE_MAX + 1; i++)
+        src[i] = mk_text(i + 1, 0, "x");
+    history_pane_set_entries(&hp, &p, src, HISTORY_PANE_MAX + 1);
     ASSERT(hp.count == HISTORY_PANE_MAX, "clamped to max");
     /* Setting count=0 should keep peer_loaded=1 but clear the entries. */
     history_pane_set_entries(&hp, &p, NULL, 0);

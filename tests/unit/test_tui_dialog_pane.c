@@ -63,13 +63,15 @@ static void test_set_entries_populates_and_resets_selection(void) {
 
 static void test_set_entries_clamps_overflow(void) {
     DialogPane dp; dialog_pane_init(&dp);
-    DialogEntry src[10] = {0};
-    for (int i = 0; i < 10; i++)
+    /* src must be at least DIALOG_PANE_MAX+1 so the clamp actually fires
+     * without reading beyond the array bounds. */
+    DialogEntry src[DIALOG_PANE_MAX + 10];
+    memset(src, 0, sizeof(src));
+    for (int i = 0; i < DIALOG_PANE_MAX + 10; i++)
         src[i] = mk_entry(DIALOG_PEER_USER, i + 1, "x", 0);
-    /* Ask to copy 500 — should clamp to DIALOG_PANE_MAX (100) or src length. */
-    dialog_pane_set_entries(&dp, src, 500);
+    /* Ask to copy DIALOG_PANE_MAX+10 — should clamp to DIALOG_PANE_MAX. */
+    dialog_pane_set_entries(&dp, src, DIALOG_PANE_MAX + 10);
     ASSERT(dp.count == DIALOG_PANE_MAX, "clamped to max");
-    /* First 10 entries have real data; remaining are garbage we don't read. */
     ASSERT(dp.entries[0].peer_id == 1, "first entry copied");
     /* Verify set_entries with 0 resets to empty. */
     dialog_pane_set_entries(&dp, NULL, 0);

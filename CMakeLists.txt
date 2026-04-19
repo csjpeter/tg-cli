@@ -15,6 +15,17 @@ if(ENABLE_COVERAGE)
     add_link_options(--coverage)
 endif()
 
+# ASAN + UBSAN for Debug builds on GCC/Clang (skip Windows cross-compile where
+# MinGW ASAN support is unreliable, and skip when coverage is enabled because
+# --coverage and -fsanitize=address are mutually exclusive).
+if(CMAKE_BUILD_TYPE STREQUAL "Debug"
+   AND NOT WIN32
+   AND NOT ENABLE_COVERAGE
+   AND (CMAKE_C_COMPILER_ID STREQUAL "GNU" OR CMAKE_C_COMPILER_ID MATCHES "Clang"))
+    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=address,undefined)
+endif()
+
 # Find OpenSSL
 find_package(OpenSSL REQUIRED)
 
