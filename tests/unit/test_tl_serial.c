@@ -56,6 +56,11 @@ void test_tl_roundtrip_bool(void);
 void test_tl_roundtrip_mixed(void);
 void test_tl_string_null(void);
 void test_tl_writer_grow(void);
+void test_tl_vector_overflow_uint32(void);
+void test_tl_vector_overflow_int32(void);
+void test_tl_vector_overflow_uint64(void);
+void test_tl_vector_overflow_string(void);
+void test_tl_vector_overflow_reader_saturates(void);
 
 /* ================================================================
  * Writer tests
@@ -598,6 +603,157 @@ void test_tl_writer_grow(void) {
 }
 
 /* ================================================================
+ * Vector overflow / fuzz-style tests (TEST-30)
+ *
+ * Each test builds a TL vector header with count=0x7FFFFFFF followed by
+ * only a few bytes of actual element data.  The saturating TlReader must
+ * bound all reads to the buffer: no OOB access, no infinite spin.
+ * ================================================================ */
+
+/**
+ * @brief Helper: build a buffer whose first 8 bytes are a TL vector header
+ * (constructor 0x1cb5c415 + count) followed by @p extra bytes of payload.
+ */
+static void build_vector_buf(unsigned char *buf, size_t buf_len,
+                              uint32_t count, const unsigned char *extra,
+                              size_t extra_len)
+{
+    /* vector constructor LE */
+    buf[0] = 0x15; buf[1] = 0xc4; buf[2] = 0xb5; buf[3] = 0x1c;
+    /* count LE */
+    buf[4] = (unsigned char)(count);
+    buf[5] = (unsigned char)(count >> 8);
+    buf[6] = (unsigned char)(count >> 16);
+    buf[7] = (unsigned char)(count >> 24);
+    for (size_t i = 0; i < extra_len && (8 + i) < buf_len; i++)
+        buf[8 + i] = extra[i];
+}
+
+/**
+ * @brief Vector with count=0x7FFFFFFF, only 4 bytes of uint32 payload.
+ * Reading all claimed elements via tl_read_uint32 must not crash and
+ * the reader must saturate after the real data runs out.
+ */
+void test_tl_vector_overflow_uint32(void) {
+    /* vector header (8) + one real uint32 element (4) = 12 bytes total */
+    unsigned char buf[12];
+    unsigned char elem[4] = {0xAA, 0xBB, 0xCC, 0xDD};
+    build_vector_buf(buf, sizeof(buf), 0x7FFFFFFFu, elem, 4);
+
+    TlReader r = tl_reader_init(buf, sizeof(buf));
+    /* consume vector header */
+    uint32_t ctor  = tl_read_uint32(&r);
+    uint32_t count = tl_read_uint32(&r);
+    ASSERT(ctor == 0x1cb5c415u, "vector ctor magic");
+    ASSERT(count == 0x7FFFFFFFu, "count should be 0x7FFFFFFF");
+
+    /* iterate — reader saturates after the first real element */
+    uint32_t last_val = 0;
+    for (uint32_t i = 0; i < count; i++) {
+        last_val = tl_read_uint32(&r);
+        if (!tl_reader_ok(&r)) break; /* natural termination */
+    }
+    /* The first element read the real bytes; subsequent reads returned 0 */
+    (void)last_val;
+    ASSERT(r.pos == r.len, "reader must be saturated at end of buffer");
+}
+
+/**
+ * @brief Same but elements are int32 — loop terminates, no OOB.
+ */
+void test_tl_vector_overflow_int32(void) {
+    unsigned char buf[12];
+    unsigned char elem[4] = {0x01, 0x02, 0x03, 0x04};
+    build_vector_buf(buf, sizeof(buf), 0x7FFFFFFFu, elem, 4);
+
+    TlReader r = tl_reader_init(buf, sizeof(buf));
+    tl_read_uint32(&r); /* ctor */
+    uint32_t count = tl_read_uint32(&r);
+    ASSERT(count == 0x7FFFFFFFu, "count should be 0x7FFFFFFF");
+
+    for (uint32_t i = 0; i < count; i++) {
+        tl_read_int32(&r);
+        if (!tl_reader_ok(&r)) break;
+    }
+    ASSERT(r.pos == r.len, "reader saturated after overflow int32 loop");
+}
+
+/**
+ * @brief Vector whose claimed elements are uint64 (8 bytes each).
+ * Only 8 bytes of real payload follow the header — reader saturates after one.
+ */
+void test_tl_vector_overflow_uint64(void) {
+    unsigned char buf[16]; /* header(8) + one uint64(8) */
+    unsigned char elem[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+    build_vector_buf(buf, sizeof(buf), 0x7FFFFFFFu, elem, 8);
+
+    TlReader r = tl_reader_init(buf, sizeof(buf));
+    tl_read_uint32(&r); /* ctor */
+    uint32_t count = tl_read_uint32(&r);
+    ASSERT(count == 0x7FFFFFFFu, "count should be 0x7FFFFFFF");
+
+    for (uint32_t i = 0; i < count; i++) {
+        tl_read_uint64(&r);
+        if (!tl_reader_ok(&r)) break;
+    }
+    ASSERT(r.pos == r.len, "reader saturated after overflow uint64 loop");
+}
+
+/**
+ * @brief Vector whose elements are TL strings — only 4 bytes follow the header.
+ * tl_read_string / tl_read_bytes must return NULL once the buffer is exhausted.
+ */
+void test_tl_vector_overflow_string(void) {
+    /* header(8) + short string "hi" padded to 4 bytes = 12 bytes */
+    unsigned char buf[12] = {
+        0x15, 0xc4, 0xb5, 0x1c,  /* vector ctor */
+        0xFF, 0xFF, 0xFF, 0x7F,  /* count = 0x7FFFFFFF LE */
+        0x02, 'h',  'i',  0x00   /* TL string: len=2, "hi", 1 pad byte */
+    };
+
+    TlReader r = tl_reader_init(buf, sizeof(buf));
+    tl_read_uint32(&r); /* ctor */
+    uint32_t count = tl_read_uint32(&r);
+    ASSERT(count == 0x7FFFFFFFu, "count should be 0x7FFFFFFF");
+
+    int null_seen = 0;
+    for (uint32_t i = 0; i < count; i++) {
+        char *s = tl_read_string(&r);
+        if (s == NULL) { null_seen = 1; break; }
+        free(s);
+        if (!tl_reader_ok(&r)) { null_seen = 1; break; }
+    }
+    ASSERT(null_seen, "tl_read_string must return NULL when buffer exhausted");
+    ASSERT(r.pos == r.len, "reader saturated after overflow string loop");
+}
+
+/**
+ * @brief Minimal buffer: only the vector header, no element data.
+ * The very first element read on a saturated reader must return 0 / NULL,
+ * and pos must stay clamped to len throughout.
+ */
+void test_tl_vector_overflow_reader_saturates(void) {
+    /* Only 8 bytes: the vector header, no element data at all */
+    unsigned char buf[8];
+    build_vector_buf(buf, sizeof(buf), 0x7FFFFFFFu, NULL, 0);
+
+    TlReader r = tl_reader_init(buf, sizeof(buf));
+    tl_read_uint32(&r); /* ctor */
+    uint32_t count = tl_read_uint32(&r);
+    ASSERT(count == 0x7FFFFFFFu, "count should be 0x7FFFFFFF");
+    ASSERT(r.pos == r.len, "reader exhausted after consuming header");
+
+    /* Subsequent reads on exhausted reader must be safe */
+    uint32_t v = tl_read_uint32(&r);
+    ASSERT(v == 0, "read on exhausted reader returns 0");
+    ASSERT(r.pos == r.len, "pos stays clamped at len");
+
+    int64_t v64 = tl_read_int64(&r);
+    ASSERT(v64 == 0, "int64 read on exhausted reader returns 0");
+    ASSERT(r.pos == r.len, "pos still clamped");
+}
+
+/* ================================================================
  * Test suite entry point
  * ================================================================ */
 
@@ -647,4 +803,9 @@ void test_tl_serial(void) {
     RUN_TEST(test_tl_roundtrip_mixed);
     RUN_TEST(test_tl_string_null);
     RUN_TEST(test_tl_writer_grow);
+    RUN_TEST(test_tl_vector_overflow_uint32);
+    RUN_TEST(test_tl_vector_overflow_int32);
+    RUN_TEST(test_tl_vector_overflow_uint64);
+    RUN_TEST(test_tl_vector_overflow_string);
+    RUN_TEST(test_tl_vector_overflow_reader_saturates);
 }
