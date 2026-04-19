@@ -259,6 +259,126 @@ static void test_new_session_created_skipped(void) {
            "salt taken from new_session_created");
 }
 
+/* ---- bad_msg_notification tests ---- */
+
+/** Helper: build a minimal bad_msg_notification payload of given length. */
+static void build_bad_msg_payload(uint8_t *buf, size_t len, int32_t error_code) {
+    memset(buf, 0, len);
+    uint32_t crc = TL_bad_msg_notification;
+    memcpy(buf, &crc, 4);
+    /* bad_msg_id (8 bytes) at offset 4 — zeros */
+    /* bad_msg_seqno (4 bytes) at offset 12 — zeros */
+    if (len >= 20) memcpy(buf + 16, &error_code, 4);
+}
+
+/** Test 1: bad_msg_notification as first response returns -1. */
+static void test_bad_msg_notification_first_response(void) {
+    mock_socket_reset();
+    mock_crypto_reset();
+
+    uint8_t payload[20];
+    build_bad_msg_payload(payload, sizeof(payload), 16 /* msg_id too low */);
+
+    uint8_t resp[256]; size_t rlen = 0;
+    pack_encrypted(payload, sizeof(payload), resp, &rlen);
+    mock_socket_set_response(resp, rlen);
+
+    MtProtoSession s;
+    mtproto_session_init(&s);
+    s.session_id = 0;
+    uint8_t key[256] = {0};
+    mtproto_session_set_auth_key(&s, key);
+
+    Transport t;
+    transport_init(&t); t.fd = 42; t.connected = 1; t.dc_id = 1;
+
+    ApiConfig cfg; api_config_init(&cfg);
+    cfg.api_id = 12345; cfg.api_hash = "deadbeef";
+
+    uint32_t q_crc = TL_boolTrue;
+    uint8_t query[4]; memcpy(query, &q_crc, 4);
+    uint8_t out[64]; size_t out_len = 0;
+
+    int rc = api_call(&cfg, &s, &t, query, 4, out, sizeof(out), &out_len);
+    ASSERT(rc == -1, "api_call returns -1 on bad_msg_notification");
+}
+
+/** Test 2: bad_msg_notification after a msgs_ack service frame → bails. */
+static void test_bad_msg_notification_after_msgs_ack(void) {
+    mock_socket_reset();
+    mock_crypto_reset();
+
+    /* First response: msgs_ack (should be silently skipped). */
+    uint8_t ack_payload[8];
+    memset(ack_payload, 0, sizeof(ack_payload));
+    uint32_t ack_crc = TL_msgs_ack;
+    memcpy(ack_payload, &ack_crc, 4);
+    uint8_t resp1[256]; size_t rlen1 = 0;
+    pack_encrypted(ack_payload, sizeof(ack_payload), resp1, &rlen1);
+
+    /* Second response: bad_msg_notification. */
+    uint8_t bm_payload[20];
+    build_bad_msg_payload(bm_payload, sizeof(bm_payload), 32 /* seqno too low */);
+    uint8_t resp2[256]; size_t rlen2 = 0;
+    pack_encrypted(bm_payload, sizeof(bm_payload), resp2, &rlen2);
+
+    mock_socket_set_response(resp1, rlen1);
+    mock_socket_append_response(resp2, rlen2);
+
+    MtProtoSession s;
+    mtproto_session_init(&s);
+    s.session_id = 0;
+    uint8_t key[256] = {0};
+    mtproto_session_set_auth_key(&s, key);
+
+    Transport t;
+    transport_init(&t); t.fd = 42; t.connected = 1; t.dc_id = 1;
+
+    ApiConfig cfg; api_config_init(&cfg);
+    cfg.api_id = 12345; cfg.api_hash = "deadbeef";
+
+    uint32_t q_crc = TL_boolTrue;
+    uint8_t query[4]; memcpy(query, &q_crc, 4);
+    uint8_t out[64]; size_t out_len = 0;
+
+    int rc = api_call(&cfg, &s, &t, query, 4, out, sizeof(out), &out_len);
+    ASSERT(rc == -1, "api_call returns -1 after msgs_ack + bad_msg_notification");
+}
+
+/** Test 3: bad_msg_notification with resp_len < 20 (no error_code) → SVC_ERROR. */
+static void test_bad_msg_notification_short_frame(void) {
+    mock_socket_reset();
+    mock_crypto_reset();
+
+    /* Only 4 bytes: just the CRC, no fields — triggers the < 20 guard. */
+    uint8_t short_payload[4];
+    uint32_t crc = TL_bad_msg_notification;
+    memcpy(short_payload, &crc, 4);
+
+    uint8_t resp[256]; size_t rlen = 0;
+    pack_encrypted(short_payload, sizeof(short_payload), resp, &rlen);
+    mock_socket_set_response(resp, rlen);
+
+    MtProtoSession s;
+    mtproto_session_init(&s);
+    s.session_id = 0;
+    uint8_t key[256] = {0};
+    mtproto_session_set_auth_key(&s, key);
+
+    Transport t;
+    transport_init(&t); t.fd = 42; t.connected = 1; t.dc_id = 1;
+
+    ApiConfig cfg; api_config_init(&cfg);
+    cfg.api_id = 12345; cfg.api_hash = "deadbeef";
+
+    uint32_t q_crc = TL_boolTrue;
+    uint8_t query[4]; memcpy(query, &q_crc, 4);
+    uint8_t out[64]; size_t out_len = 0;
+
+    int rc = api_call(&cfg, &s, &t, query, 4, out, sizeof(out), &out_len);
+    ASSERT(rc == -1, "api_call returns -1 on truncated bad_msg_notification");
+}
+
 void test_api_call(void) {
     RUN_TEST(test_api_config_init);
     RUN_TEST(test_api_wrap_query_structure);
@@ -266,4 +386,7 @@ void test_api_call(void) {
     RUN_TEST(test_api_wrap_query_buffer_too_small);
     RUN_TEST(test_bad_server_salt_retry);
     RUN_TEST(test_new_session_created_skipped);
+    RUN_TEST(test_bad_msg_notification_first_response);
+    RUN_TEST(test_bad_msg_notification_after_msgs_ack);
+    RUN_TEST(test_bad_msg_notification_short_frame);
 }
