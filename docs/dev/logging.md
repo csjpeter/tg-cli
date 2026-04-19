@@ -12,7 +12,7 @@ and no libcurl**, so there is no `CURLINFO_*` dump to inspect.
 
 | Level | Meaning |
 |-------|---------|
-| `LOG_DEBUG` | Envelope-level MTProto dumps: `auth_key_id`, `msg_id`, `seq_no`, TL constructor CRC, ciphertext length. Plaintext TL bodies are not included (planned: `TG_CLI_LOG_PLAINTEXT` env var; see FEAT-XX). |
+| `LOG_DEBUG` | Infrastructure diagnostics: cache operations, service frame filtering (acks, pongs). Per-frame MTProto envelope dumps (auth_key_id, msg_key, msg_id, seq_no, TL CRC) are **planned** (FEAT ticket pending). |
 | `LOG_INFO` | Application milestones: startup, config loaded, DC connect, handshake complete, session persisted, clean shutdown. |
 | `LOG_WARN` | Non-fatal issues: `bad_server_salt` retry, `FILE_MIGRATE_X`, missing optional config field, permission warning on `session.bin`. |
 | `LOG_ERROR` | Fatal errors: connection refused, DH verification failure, TL parse error. Also echoed to stderr. |
@@ -33,10 +33,12 @@ The default runtime level is `LOG_INFO`. Raise to `LOG_DEBUG` in `main.c`
 Rotation triggers when `session.log` exceeds **5 MB**. The oldest file
 (`session.log.5`) is deleted; each existing file shifts up by one.
 
-## MTProto Traffic Capture
+## MTProto Traffic Capture (Planned)
 
-At `LOG_DEBUG` the RPC layer (`src/infrastructure/mtproto_rpc.c` +
-`src/infrastructure/api_call.c`) emits, per frame:
+**Status:** Per-frame MTProto envelope logging is not yet implemented.
+
+Planned future feature: at `LOG_DEBUG`, the RPC layer (`src/infrastructure/mtproto_rpc.c` +
+`src/infrastructure/api_call.c`) will emit, per frame:
 
 - direction (`→ server` / `← server`),
 - outer 4-byte abridged-transport length prefix,
@@ -44,8 +46,8 @@ At `LOG_DEBUG` the RPC layer (`src/infrastructure/mtproto_rpc.c` +
 - decrypted inner envelope: `salt`, `session_id`, `msg_id`, `seq_no`,
   `length`, TL constructor CRC32.
 
-The TL body itself is **not dumped** — it can carry message bodies, 2FA tokens,
-or access_hashes. (Planned feature: `TG_CLI_LOG_PLAINTEXT=1` env var for opt-in plaintext logging on test accounts.)
+The TL body itself will **not be dumped** — it can carry message bodies, 2FA tokens,
+or access_hashes. A further planned feature: `TG_CLI_LOG_PLAINTEXT=1` env var for opt-in plaintext logging on test accounts.
 
 ## Purging Logs
 
