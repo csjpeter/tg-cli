@@ -81,6 +81,7 @@ static size_t make_vector_of_one_user(uint8_t *buf, size_t max,
     if (username) flags |= (1u << 3);
     if (phone)    flags |= (1u << 4);
     tl_write_uint32(&w, flags);
+    tl_write_uint32(&w, 0); /* flags2 — always present in layer 144+ */
     tl_write_int64(&w, id);
     if (first)    tl_write_string(&w, first);
     if (last)     tl_write_string(&w, last);

@@ -73,13 +73,8 @@ static int parse_user(TlReader *r, SelfInfo *out) {
         return -1;
     }
 
-    uint32_t flags = tl_read_uint32(r);
-    uint32_t flags2 = 0;
-    /* Layer 170+ carries a second flags word at the end; we take it at
-     * face value only if flags.30 (self) is set — which it always is for
-     * inputUserSelf. To stay schema-tolerant we only rely on the first
-     * flags word to know which optional fields are present. */
-
+    uint32_t flags  = tl_read_uint32(r);
+    uint32_t flags2 = tl_read_uint32(r); /* layer 144+: second flags word */
     out->id = tl_read_int64(r);
 
     if (flags & (1u << 0)) tl_read_int64(r); /* access_hash */

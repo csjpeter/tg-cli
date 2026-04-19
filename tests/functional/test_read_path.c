@@ -28,6 +28,7 @@
 #include "domain/read/contacts.h"
 #include "domain/read/user_info.h"
 #include "domain/read/updates.h"
+#include "arg_parse.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -88,6 +89,25 @@ static void on_get_self(MtRpcContext *ctx) {
     tl_write_uint32(&w, 1);
     tl_write_uint32(&w, TL_userEmpty);
     tl_write_int64 (&w, 99001LL);
+    mt_server_reply_result(ctx, w.data, w.len);
+    tl_writer_free(&w);
+}
+
+/* Vector<User> with one full user that has premium flag set (flags2.3). */
+static void on_get_self_premium(MtRpcContext *ctx) {
+    TlWriter w;
+    tl_writer_init(&w);
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, TL_user);
+    /* flags: has_first_name (1) | has_phone (4) */
+    uint32_t flags = (1u << 1) | (1u << 4);
+    tl_write_uint32(&w, flags);
+    /* flags2: premium bit is flags2.3 */
+    tl_write_uint32(&w, (1u << 3));
+    tl_write_int64 (&w, 77002LL);       /* id */
+    tl_write_string(&w, "Premium");     /* first_name */
+    tl_write_string(&w, "+19995550001");/* phone */
     mt_server_reply_result(ctx, w.data, w.len);
     tl_writer_free(&w);
 }
@@ -654,8 +674,47 @@ static void test_rpc_error_propagation(void) {
     mt_server_reset();
 }
 
+/* TEST-05a: premium bit (flags2.3) decoded correctly from a full user
+ * record returned by users.getUsers. */
+static void test_get_self_premium(void) {
+    with_tmp_home("self-prem");
+    mt_server_init(); mt_server_reset();
+    MtProtoSession s; load_session(&s);
+    mt_server_expect(CRC_users_getUsers, on_get_self_premium, NULL);
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    SelfInfo si = {0};
+    ASSERT(domain_get_self(&cfg, &s, &t, &si) == 0, "premium get_self succeeds");
+    ASSERT(si.id == 77002LL, "id == 77002");
+    ASSERT(strcmp(si.first_name, "Premium") == 0, "first_name == Premium");
+    ASSERT(si.is_premium == 1, "is_premium flag set");
+    ASSERT(si.is_bot == 0, "is_bot not set");
+
+    transport_close(&t);
+    mt_server_reset();
+}
+
+/* TEST-05b: arg_parse maps the "self" alias to CMD_ME (same as "me"). */
+static void test_self_alias_maps_to_cmd_me(void) {
+    const char *argv_self[] = {"tg-cli", "self"};
+    ArgResult   ar_self = {0};
+    int rc_self = arg_parse(2, (char **)argv_self, &ar_self);
+    ASSERT(rc_self == 0, "arg_parse(self) succeeds");
+    ASSERT(ar_self.command == CMD_ME, "self alias maps to CMD_ME");
+
+    const char *argv_me[] = {"tg-cli", "me"};
+    ArgResult   ar_me = {0};
+    int rc_me = arg_parse(2, (char **)argv_me, &ar_me);
+    ASSERT(rc_me == 0, "arg_parse(me) succeeds");
+    ASSERT(ar_me.command == CMD_ME, "me maps to CMD_ME");
+}
+
 void run_read_path_tests(void) {
     RUN_TEST(test_get_self);
+    RUN_TEST(test_get_self_premium);
+    RUN_TEST(test_self_alias_maps_to_cmd_me);
     RUN_TEST(test_dialogs_empty);
     RUN_TEST(test_dialogs_one_user);
     RUN_TEST(test_dialogs_slice_variant);
