@@ -72,6 +72,9 @@ typedef struct {
 
     /* Watch extras */
     int         watch_interval; /**< --interval N for watch [2..3600], default 30. */
+
+    /* History extras */
+    int         no_media; /**< --no-media: suppress pure-media messages; show only caption for mixed. */
 } ArgResult;
 
 /**

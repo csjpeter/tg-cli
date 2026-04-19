@@ -130,6 +130,9 @@ static int parse_history(int argc, char **argv, int i, ArgResult *out) {
                 return ARG_ERROR;
             }
             i += 2;
+        } else if (str_eq(argv[i], "--no-media")) {
+            out->no_media = 1;
+            i++;
         } else {
             fprintf(stderr, "tg-cli history: unknown option: %s\n", argv[i]);
             return ARG_ERROR;

@@ -438,6 +438,25 @@ static void test_watch_default_interval(void) {
     ASSERT(r.watch_interval == 30,     "watch: default interval must be 30");
 }
 
+/* ---- Test: history --no-media sets flag ---- */
+static void test_history_no_media_flag(void) {
+    char *argv[] = {"tg-cli", "history", "@peer", "--no-media", NULL};
+    ArgResult r;
+    int rc = arg_parse(4, argv, &r);
+    ASSERT(rc == ARG_OK,             "history --no-media: must return ARG_OK");
+    ASSERT(r.command == CMD_HISTORY, "history --no-media: CMD_HISTORY");
+    ASSERT(r.no_media == 1,          "history --no-media: no_media flag set");
+}
+
+/* ---- Test: history without --no-media → no_media is 0 ---- */
+static void test_history_no_media_default_zero(void) {
+    char *argv[] = {"tg-cli", "history", "@peer", NULL};
+    ArgResult r;
+    int rc = arg_parse(3, argv, &r);
+    ASSERT(rc == ARG_OK,             "history (no flag): must return ARG_OK");
+    ASSERT(r.no_media == 0,          "history: no_media must default to 0");
+}
+
 void run_arg_parse_tests(void) {
     RUN_TEST(test_no_args);
     RUN_TEST(test_help_flag);
@@ -484,4 +503,6 @@ void run_arg_parse_tests(void) {
     RUN_TEST(test_watch_interval_non_numeric);
     RUN_TEST(test_watch_interval_missing_value);
     RUN_TEST(test_watch_default_interval);
+    RUN_TEST(test_history_no_media_flag);
+    RUN_TEST(test_history_no_media_default_zero);
 }

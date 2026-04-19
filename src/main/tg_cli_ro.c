@@ -465,37 +465,59 @@ static int cmd_history(const ArgResult *args) {
     };
     if (args->json) {
         printf("[");
+        int first = 1;
         for (int i = 0; i < count; i++) {
-            if (i) printf(",");
+            /* --no-media: skip pure-media entries (media present, no text). */
+            if (args->no_media && entries[i].media != MEDIA_NONE
+                    && entries[i].media != MEDIA_EMPTY
+                    && entries[i].text[0] == '\0') {
+                continue;
+            }
+            if (!first) printf(",");
+            first = 0;
+            /* When --no-media is set, suppress the media label in JSON too. */
+            const char *ml = (args->no_media) ? "" : media_label[entries[i].media];
+            long long mid = (args->no_media) ? 0LL : (long long)entries[i].media_id;
             printf("{\"id\":%d,\"out\":%s,\"date\":%d,\"text\":\"%s\","
                    "\"complex\":%s,\"media\":\"%s\",\"media_id\":%lld}",
                    entries[i].id,
                    entries[i].out ? "true" : "false",
                    entries[i].date, entries[i].text,
                    entries[i].complex ? "true" : "false",
-                   media_label[entries[i].media],
-                   (long long)entries[i].media_id);
+                   ml, mid);
         }
         printf("]\n");
     } else {
+        int printed = 0;
         for (int i = 0; i < count; i++) {
             const char *ml = media_label[entries[i].media];
             if (entries[i].complex) {
                 printf("[%d] %s %d (complex — text not parsed)\n",
                        entries[i].id, entries[i].out ? ">" : "<",
                        entries[i].date);
+                printed++;
+            } else if (ml[0] && args->no_media) {
+                /* --no-media: pure-media (no caption) → skip entirely;
+                 * mixed (caption present) → print caption only, no label. */
+                if (entries[i].text[0] == '\0') continue;
+                printf("[%d] %s %d %s\n",
+                       entries[i].id, entries[i].out ? ">" : "<",
+                       entries[i].date, entries[i].text);
+                printed++;
             } else if (ml[0]) {
                 printf("[%d] %s %d [%s:%lld] %s\n",
                        entries[i].id, entries[i].out ? ">" : "<",
                        entries[i].date, ml,
                        (long long)entries[i].media_id, entries[i].text);
+                printed++;
             } else {
                 printf("[%d] %s %d %s\n",
                        entries[i].id, entries[i].out ? ">" : "<",
                        entries[i].date, entries[i].text);
+                printed++;
             }
         }
-        if (count == 0) printf("(no messages)\n");
+        if (printed == 0) printf("(no messages)\n");
     }
     free(entries);
     return 0;
@@ -654,7 +676,7 @@ static void print_usage(void) {
         "Subcommands:\n"
         "  me (or self)                     Show own profile (US-05)\n"
         "  dialogs  [--limit N] [--archived] List dialogs (US-04)\n"
-        "  history  <peer> [--limit N] [--offset N]  Fetch history (US-06)\n"
+        "  history  <peer> [--limit N] [--offset N] [--no-media]  Fetch history (US-06)\n"
         "  search   [<peer>] <query>        Search messages (US-10)\n"
         "  contacts                         List contacts (US-09)\n"
         "  user-info <peer>                 User/channel info (US-09)\n"

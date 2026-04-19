@@ -636,6 +636,49 @@ static void test_history_iterates_with_replies_and_restriction(void) {
     ASSERT(e[1].id == 411 && strcmp(e[1].text, "next") == 0, "msg1 text");
 }
 
+/* Test that a media-only message (no caption text) has empty text and non-NONE
+ * media — the fields relied on by the --no-media filter in cmd_history. */
+static void test_history_media_only_has_empty_text(void) {
+    mock_socket_reset(); mock_crypto_reset();
+
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, TL_messages_messages);
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+
+    /* Message with flags.9 (media) set, empty caption string. */
+    tl_write_uint32(&w, TL_message);
+    tl_write_uint32(&w, (1u << 9));   /* flags: media present, no out */
+    tl_write_uint32(&w, 0);            /* flags2 */
+    tl_write_int32 (&w, 500);
+    tl_write_uint32(&w, TL_peerUser);
+    tl_write_int64 (&w, 100LL);
+    tl_write_int32 (&w, 1700000000);
+    tl_write_string(&w, "");           /* empty caption */
+    /* messageMediaPhoto with flags=0x01 (photo present) → photoEmpty */
+    tl_write_uint32(&w, 0x695150d7u);  /* messageMediaPhoto */
+    tl_write_uint32(&w, (1u << 0));
+    tl_write_uint32(&w, 0x2331b22du);  /* photoEmpty */
+    tl_write_int64 (&w, 88888888LL);
+
+    uint8_t payload[512]; memcpy(payload, w.data, w.len);
+    size_t plen = w.len; tl_writer_free(&w);
+
+    uint8_t resp[1024]; size_t rlen = 0;
+    build_fake_encrypted_response(payload, plen, resp, &rlen);
+    mock_socket_set_response(resp, rlen);
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    fix_session(&s); fix_transport(&t); fix_cfg(&cfg);
+
+    HistoryEntry e[3] = {0}; int n = 0;
+    int rc = domain_get_history_self(&cfg, &s, &t, 0, 3, e, &n);
+    ASSERT(rc == 0,                  "media-only message parsed");
+    ASSERT(n == 1,                   "one entry");
+    ASSERT(e[0].media == MEDIA_PHOTO, "--no-media filter: media kind is PHOTO");
+    ASSERT(e[0].text[0] == '\0',     "--no-media filter: text is empty for media-only");
+}
+
 static void test_history_null_args(void) {
     HistoryEntry e[1]; int n = 0;
     ASSERT(domain_get_history_self(NULL, NULL, NULL, 0, 5, e, &n) == -1,
@@ -661,5 +704,6 @@ void run_domain_history_tests(void) {
     RUN_TEST(test_history_iterates_with_reply_markup);
     RUN_TEST(test_history_iterates_with_reactions);
     RUN_TEST(test_history_iterates_with_replies_and_restriction);
+    RUN_TEST(test_history_media_only_has_empty_text);
     RUN_TEST(test_history_null_args);
 }
