@@ -36,6 +36,7 @@ typedef enum {
     CMD_DELETE,       /**< Delete one or more messages (P5-06).        */
     CMD_FORWARD,      /**< Forward messages from one peer to another.  */
     CMD_SEND_FILE,    /**< Upload a file as a document (P6-02).        */
+    CMD_LOGIN,        /**< First-run config wizard (FEAT-37).          */
 } ArgCommand;
 
 /** @brief Extra fields for the P5-06 edit / delete / forward / reply
@@ -45,12 +46,11 @@ typedef enum {
 /** Parsed argument result. All string pointers point into argv (no copy). */
 typedef struct {
     /* Global flags */
-    int         batch;       /**< --batch : non-interactive mode.        */
     int         json;        /**< --json  : machine-readable JSON output. */
     int         quiet;       /**< --quiet : suppress informational output. */
     const char *config_path; /**< --config <path> : custom config file.  */
 
-    /* Login credentials (batch mode; NULL otherwise) */
+    /* Login credentials (NULL unless provided on command line) */
     const char *phone;        /**< --phone +15551234567                   */
     const char *code;         /**< --code 12345                           */
     const char *password;     /**< --password ... (2FA)                   */
@@ -81,6 +81,11 @@ typedef struct {
 
     /* History extras */
     int         no_media; /**< --no-media: suppress pure-media messages; show only caption for mixed. */
+
+    /* CMD_LOGIN (FEAT-37) batch fields */
+    const char *api_id_str;   /**< --api-id N (batch wizard mode).        */
+    const char *api_hash_str; /**< --api-hash HEX (batch wizard mode).    */
+    int         force;        /**< --force: overwrite existing config.ini. */
 } ArgResult;
 
 /**

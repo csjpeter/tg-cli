@@ -55,7 +55,6 @@ static int take_value_flag(int argc, char **argv, int i,
 static int try_global_flag(int argc, char **argv, int i, ArgResult *out) {
     const char *a = argv[i];
 
-    if (str_eq(a, "--batch"))  { out->batch  = 1; return 1; }
     if (str_eq(a, "--json"))   { out->json   = 1; return 1; }
     if (str_eq(a, "--quiet"))  { out->quiet  = 1; return 1; }
     if (str_eq(a, "--help")   || str_eq(a, "-h")) return TGF_HELP;
@@ -367,7 +366,7 @@ int arg_parse(int argc, char **argv, ArgResult *out) {
 
     if (i >= argc) {
         /* No subcommand given */
-        if (out->batch || out->json) {
+        if (out->json) {
             fprintf(stderr, "tg-cli: subcommand required\n");
             return ARG_ERROR;
         }
@@ -477,6 +476,33 @@ int arg_parse(int argc, char **argv, ArgResult *out) {
             if (i + 1 >= argc
                 || parse_int(argv[i + 1], &out->msg_id) != 0) {
                 fprintf(stderr, "tg-cli read: --max-id needs a number\n");
+                return ARG_ERROR;
+            }
+        }
+        return ARG_OK;
+    }
+    if (str_eq(subcmd, "login")) {
+        out->command = CMD_LOGIN;
+        while (i < argc) {
+            if (str_eq(argv[i], "--api-id")) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "tg-cli login: --api-id requires a value\n");
+                    return ARG_ERROR;
+                }
+                out->api_id_str = argv[i + 1];
+                i += 2;
+            } else if (str_eq(argv[i], "--api-hash")) {
+                if (i + 1 >= argc) {
+                    fprintf(stderr, "tg-cli login: --api-hash requires a value\n");
+                    return ARG_ERROR;
+                }
+                out->api_hash_str = argv[i + 1];
+                i += 2;
+            } else if (str_eq(argv[i], "--force")) {
+                out->force = 1;
+                i++;
+            } else {
+                fprintf(stderr, "tg-cli login: unknown option: %s\n", argv[i]);
                 return ARG_ERROR;
             }
         }

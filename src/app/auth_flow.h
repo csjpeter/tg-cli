@@ -28,7 +28,7 @@ typedef struct AuthFlowCallbacks AuthFlowCallbacks;
  * @brief Callbacks that supply user input during the interactive login.
  *
  * Implementations may read from a terminal (tg-tui), from command-line
- * flags (tg-cli-ro --batch), or from a test double.
+ * flags (e.g. tg-cli-ro --phone/--code), or from a test double.
  */
 struct AuthFlowCallbacks {
     /** @brief Provide the phone number (international format, e.g. "+15551234567"). */

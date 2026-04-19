@@ -12,6 +12,7 @@
 
 #include "app/bootstrap.h"
 #include "app/auth_flow.h"
+#include "app/config_wizard.h"
 #include "app/credentials.h"
 #include "app/dc_config.h"
 #include "app/session_store.h"
@@ -886,43 +887,51 @@ static void print_usage(void) {
     puts(
         "Usage: tg-cli-ro [GLOBAL FLAGS] <subcommand> [ARGS]\n"
         "\n"
-        "Read-only Telegram CLI (batch mode). Cannot mutate server state.\n"
-        "See docs/SPECIFICATION.md and docs/userstory/ for the feature map.\n"
+        "Read-only batch Telegram CLI. Cannot mutate server state.\n"
+        "For read+write batch use tg-cli(1). For the REPL/TUI use tg-tui(1).\n"
         "\n"
-        "Subcommands:\n"
-        "  me (or self)                     Show own profile (US-05)\n"
-        "  dialogs  [--limit N] [--archived] List dialogs (US-04)\n"
+        "Read subcommands:\n"
+        "  me (or self)                         Show own profile (US-05)\n"
+        "  dialogs  [--limit N] [--archived]    List dialogs (US-04)\n"
         "  history  <peer> [--limit N] [--offset N] [--no-media]  Fetch history (US-06)\n"
         "           (dates are Unix epoch seconds; use 'date -d @$ts' to format)\n"
         "  search   [<peer>] <query> [--limit N]  Search messages (US-10)\n"
         "           (dates are Unix epoch seconds; use 'date -d @$ts' to format)\n"
-        "  contacts                         List contacts (US-09)\n"
-        "  user-info <peer>                 User/channel info (US-09)\n"
-        "  watch    [--peers X,Y] [--interval SEC]  Watch updates (US-07)\n"
+        "  contacts                             List contacts (US-09)\n"
+        "  user-info <peer>                     User/channel info (US-09)\n"
+        "  watch    [--peers X,Y] [--interval N]  Watch updates (US-07)\n"
         "           With --json: emits one NDJSON line per new message.\n"
         "           (dates are Unix epoch seconds; use 'date -d @$ts' to format)\n"
         "  download <peer> <msg_id> [--out PATH]  Download photo or document (US-08)\n"
         "\n"
+        "Session:\n"
+        "  login [--api-id N --api-hash HEX] [--force]  First-run config wizard\n"
+        "  --logout                             Clear persisted session\n"
+        "\n"
         "Global flags:\n"
-        "  --batch             Non-interactive batch mode\n"
         "  --config <path>     Custom config file path\n"
         "  --json              Machine-readable JSON output (where supported)\n"
         "  --quiet             Suppress informational output\n"
         "  --help, -h          Show this help and exit\n"
         "  --version, -v       Show version and exit\n"
         "\n"
-        "Batch-mode login flags:\n"
+        "Login flags (for session authentication):\n"
         "  --phone <number>    E.g. +15551234567\n"
         "  --code <digits>     The SMS/app code received on the phone\n"
         "  --password <pass>   2FA password (when the account has one set)\n"
-        "  --logout            Clear persisted session (~/.config/tg-cli/session.bin)\n"
         "\n"
         "Credentials:\n"
         "  TG_CLI_API_ID / TG_CLI_API_HASH env vars, or\n"
         "  api_id= / api_hash= in ~/.config/tg-cli/config.ini\n"
+        "  (run 'tg-cli-ro login' to set up config.ini interactively)\n"
         "\n"
-        "See man tg-cli-ro(1) for the full reference, or\n"
-        "https://github.com/csjpeter/tg-cli for the source.\n"
+        "Examples:\n"
+        "  tg-cli-ro login --api-id 12345 --api-hash deadbeef...  # batch setup\n"
+        "  tg-cli-ro me\n"
+        "  tg-cli-ro dialogs --limit 50\n"
+        "  tg-cli-ro history @friend --limit 20\n"
+        "\n"
+        "See man tg-cli-ro(1) for the full reference.\n"
     );
 }
 
@@ -1000,8 +1009,23 @@ int main(int argc, char **argv) {
             exit_code = cmd_watch(&args); break;
         case CMD_DOWNLOAD:
             exit_code = cmd_download(&args, &ctx); break;
+        case CMD_LOGIN:
+            if (args.api_id_str || args.api_hash_str) {
+                exit_code = config_wizard_run_batch(args.api_id_str,
+                                                     args.api_hash_str,
+                                                     args.force) != 0 ? 1 : 0;
+            } else {
+                exit_code = config_wizard_run_interactive() != 0 ? 1 : 0;
+            }
+            app_shutdown(&ctx);
+            return exit_code;
         case CMD_SEND:
-            fprintf(stderr, "tg-cli-ro: send is not available in read-only mode\n");
+        case CMD_READ:
+        case CMD_EDIT:
+        case CMD_DELETE:
+        case CMD_FORWARD:
+        case CMD_SEND_FILE:
+            fprintf(stderr, "tg-cli-ro: write commands are not available in read-only mode\n");
             exit_code = 2; break;
         case CMD_NONE:
         default:

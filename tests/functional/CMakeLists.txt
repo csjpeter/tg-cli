@@ -22,6 +22,8 @@ set(FUNCTIONAL_SOURCES
     test_dc_session_cache_skip.c
     test_logout_rpc.c
     test_wrong_session_id.c
+    test_config_wizard_batch.c
+    test_tg_cli_read_dispatch.c
     # Real crypto implementation (not the mock used by unit tests).
     ../../src/core/crypto.c
     # Mock socket + in-process Telegram server emulator. Real crypto on

@@ -133,3 +133,22 @@ target_link_libraries(pty-ctrl-c-test-runner PRIVATE
 )
 
 add_test(NAME PtyCtrlCTests COMMAND pty-ctrl-c-test-runner)
+
+# ── PTY-06: config wizard interactive tests (FEAT-37) ────────────────
+add_executable(pty-wizard-test-runner
+    test_config_wizard_pty.c
+)
+
+target_include_directories(pty-wizard-test-runner PRIVATE
+    ${CMAKE_SOURCE_DIR}/tests/functional/pty
+    ${CMAKE_SOURCE_DIR}/tests/common
+    ${CMAKE_SOURCE_DIR}/libs/libptytest
+)
+
+target_compile_definitions(pty-wizard-test-runner PRIVATE
+    TG_CLI_BINARY="${CMAKE_BINARY_DIR}/tg-cli"
+)
+
+target_link_libraries(pty-wizard-test-runner PRIVATE ptytest)
+
+add_test(NAME PtyWizardTests COMMAND pty-wizard-test-runner)

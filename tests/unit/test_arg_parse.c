@@ -18,7 +18,6 @@ static void test_no_args(void) {
     int rc = arg_parse(1, argv, &r);
     ASSERT(rc == ARG_OK,        "no args: must return ARG_OK");
     ASSERT(r.command == CMD_NONE, "no args: command must be CMD_NONE");
-    ASSERT(r.batch == 0,        "no args: batch must be 0");
     ASSERT(r.json  == 0,        "no args: json must be 0");
     ASSERT(r.quiet == 0,        "no args: quiet must be 0");
 }
@@ -51,13 +50,12 @@ static void test_version_flag(void) {
 
 /* ---- Test: global flags set correctly ---- */
 static void test_global_flags(void) {
-    char *argv[] = {"tg-cli", "--batch", "--json", "--quiet", "contacts", NULL};
+    char *argv[] = {"tg-cli", "--json", "--quiet", "contacts", NULL};
     ArgResult r;
-    int rc = arg_parse(5, argv, &r);
-    ASSERT(rc == ARG_OK,            "global flags: must return ARG_OK");
-    ASSERT(r.batch == 1,            "global flags: batch must be 1");
-    ASSERT(r.json  == 1,            "global flags: json must be 1");
-    ASSERT(r.quiet == 1,            "global flags: quiet must be 1");
+    int rc = arg_parse(4, argv, &r);
+    ASSERT(rc == ARG_OK,              "global flags: must return ARG_OK");
+    ASSERT(r.json  == 1,              "global flags: json must be 1");
+    ASSERT(r.quiet == 1,              "global flags: quiet must be 1");
     ASSERT(r.command == CMD_CONTACTS, "global flags: command must be CMD_CONTACTS");
 }
 
@@ -327,12 +325,12 @@ static void test_search_all_dash(void) {
            "search -flag: must return ARG_ERROR");
 }
 
-/* ---- Test: batch without subcommand → error ---- */
+/* ---- Test: --json without subcommand → error ---- */
 static void test_batch_no_subcommand(void) {
-    char *argv[] = {"tg-cli", "--batch", NULL};
+    char *argv[] = {"tg-cli", "--json", NULL};
     ArgResult r;
     ASSERT(arg_parse(2, argv, &r) == ARG_ERROR,
-           "--batch w/o subcommand: ARG_ERROR");
+           "--json w/o subcommand: ARG_ERROR");
 }
 
 /* ---- Test: --json before subcommand ---- */

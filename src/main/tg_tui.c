@@ -13,6 +13,7 @@
 
 #include "app/bootstrap.h"
 #include "app/auth_flow.h"
+#include "app/config_wizard.h"
 #include "app/credentials.h"
 #include "app/dc_config.h"
 #include "app/session_store.h"
@@ -594,10 +595,11 @@ static void print_help(void) {
         "  --help, -h                   Show this help and exit\n"
         "  --version, -v                Show version and exit\n"
         "  --tui                        Curses-style three-pane UI instead of REPL\n"
-        "  --phone <number>             Batch login phone (E.164)\n"
-        "  --code <digits>              Batch login SMS/app code\n"
-        "  --password <pass>            Batch login 2FA password\n"
+        "  --phone <number>             Pre-fill login phone (E.164)\n"
+        "  --code <digits>              Pre-fill SMS/app code\n"
+        "  --password <pass>            Pre-fill 2FA password\n"
         "  --logout                     Clear persisted session and exit\n"
+        "  login [--api-id N --api-hash HEX] [--force]  First-run config wizard\n"
         "\n"
         "See man tg-tui(1) for the full reference.\n"
     );
@@ -902,6 +904,32 @@ int main(int argc, char **argv) {
             fprintf(stderr, "tg-tui: persisted session cleared.\n");
             app_shutdown(&ctx);
             return 0;
+        }
+    }
+
+    /* Handle `login` subcommand before credentials are loaded.
+     * Syntax: tg-tui login [--api-id N --api-hash HEX [--force]] */
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "login") == 0) {
+            /* Parse any --api-id / --api-hash / --force flags after "login". */
+            const char *api_id_str  = NULL;
+            const char *api_hash_str = NULL;
+            int force = 0;
+            for (int j = i + 1; j < argc; j++) {
+                if (strcmp(argv[j], "--api-id") == 0 && j + 1 < argc)
+                    { api_id_str = argv[++j]; }
+                else if (strcmp(argv[j], "--api-hash") == 0 && j + 1 < argc)
+                    { api_hash_str = argv[++j]; }
+                else if (strcmp(argv[j], "--force") == 0)
+                    { force = 1; }
+            }
+            int wrc;
+            if (api_id_str || api_hash_str)
+                wrc = config_wizard_run_batch(api_id_str, api_hash_str, force);
+            else
+                wrc = config_wizard_run_interactive();
+            app_shutdown(&ctx);
+            return wrc != 0 ? 1 : 0;
         }
     }
 

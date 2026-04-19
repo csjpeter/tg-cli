@@ -116,6 +116,12 @@ Download a photo attachment from a specific message (US-08). Defaults
 to \fB~/.cache/tg-cli/downloads/photo-<photo_id>.jpg\fR; cross-DC
 \fBFILE_MIGRATE_X\fR is handled transparently (US-15).
 .TP
+.BI login " [--api-id N --api-hash HEX] [--force]"
+First-run config wizard. Writes \fB~/.config/tg-cli/config.ini\fR
+(mode 0600). Interactive when stdin is a TTY and flags are omitted;
+batch when \fB--api-id\fR and \fB--api-hash\fR are supplied.
+Use \fB--force\fR to overwrite an existing config. See \fB.SH CONFIGURATION\fR.
+.TP
 .B help
 Alias for
 .B --help.
@@ -246,6 +252,28 @@ Clear the persisted session:
 .EX
 tg-cli-ro --logout
 .EE
+
+.SH CONFIGURATION
+.B tg-cli-ro
+requires an \fBapi_id\fR (a short integer) and \fBapi_hash\fR (a 32-character
+hex string) issued by Telegram. Obtain them once, for free, from
+\fIhttps://my.telegram.org\fR \(em "API development tools". See
+.I docs/user/setup-my-telegram-org.md
+for a step-by-step walkthrough.
+.PP
+Three ways to supply the credentials:
+.IP \[bu] 2
+\fBInteractive wizard:\fR run \fBtg-tui login\fR (or \fBtg-cli-ro login\fR)
+for a prompted setup that writes \fB~/.config/tg-cli/config.ini\fR
+(mode 0600) automatically.
+.IP \[bu]
+\fBEnvironment variables:\fR set \fBTG_CLI_API_ID\fR and
+\fBTG_CLI_API_HASH\fR before invoking the binary. Useful in CI or
+containerised environments.
+.IP \[bu]
+\fBManual config file:\fR add \fBapi_id=\fR and \fBapi_hash=\fR lines to
+\fB~/.config/tg-cli/config.ini\fR, then \fBchmod 600\fR that file.
+tg-cli-ro refuses to read a config file that is world-readable.
 
 .SH SIGNALS
 .TP

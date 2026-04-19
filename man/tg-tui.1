@@ -74,6 +74,10 @@ SMS or Telegram-app code.
 .TP
 .B --logout
 Clear persisted session and exit.
+.TP
+.BI login " [--api-id N --api-hash HEX] [--force]"
+First-run config wizard (FEAT-37). Run before entering the REPL/TUI to
+set up \fB~/.config/tg-cli/config.ini\fR. See \fB.SH CONFIGURATION\fR.
 
 .SH REPL COMMANDS
 Commands apply to the current user's account; a leading \fB/\fR is
@@ -243,6 +247,28 @@ Login on a fresh machine:
 .EX
 tg-tui --phone +15551234567 --code 12345 --password hunter2
 .EE
+
+.SH CONFIGURATION
+.B tg-tui
+requires an \fBapi_id\fR (a short integer) and \fBapi_hash\fR (a 32-character
+hex string) issued by Telegram. Obtain them once, for free, from
+\fIhttps://my.telegram.org\fR \(em "API development tools". See
+.I docs/user/setup-my-telegram-org.md
+for a step-by-step walkthrough.
+.PP
+Three ways to supply the credentials:
+.IP \[bu] 2
+\fBInteractive wizard:\fR run \fBtg-tui login\fR for a prompted setup that
+writes \fB~/.config/tg-cli/config.ini\fR (mode 0600) automatically. The
+api_hash prompt masks the input so the hash is never echoed to the terminal.
+.IP \[bu]
+\fBEnvironment variables:\fR set \fBTG_CLI_API_ID\fR and
+\fBTG_CLI_API_HASH\fR before invoking the binary. Useful in CI or
+containerised environments.
+.IP \[bu]
+\fBManual config file:\fR add \fBapi_id=\fR and \fBapi_hash=\fR lines to
+\fB~/.config/tg-cli/config.ini\fR, then \fBchmod 600\fR that file.
+tg-tui refuses to read a config file that is world-readable.
 
 .SH SIGNALS
 .TP
