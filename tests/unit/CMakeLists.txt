@@ -22,6 +22,7 @@ set(TEST_SOURCES
     test_api_call.c
     test_auth_session.c
     test_auth_2fa.c
+    test_auth_logout.c
     test_arg_parse.c
     test_watch_json.c
     test_readline.c

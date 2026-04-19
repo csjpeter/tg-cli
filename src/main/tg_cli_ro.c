@@ -10,7 +10,10 @@
 #include "app/bootstrap.h"
 #include "app/auth_flow.h"
 #include "app/credentials.h"
+#include "app/dc_config.h"
 #include "app/session_store.h"
+#include "infrastructure/auth_logout.h"
+#include "logger.h"
 #include "arg_parse.h"
 #include "json_util.h"
 
@@ -761,11 +764,36 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    /* --logout is a special top-level flag: clears the persisted session
-     * and exits. Handled before arg_parse so it works standalone. */
+    /* --logout: invalidate the session server-side, then wipe the local file. */
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--logout") == 0) {
-            session_store_clear();
+            ApiConfig cfg;
+            MtProtoSession s;
+            Transport t;
+            if (credentials_load(&cfg) == 0) {
+                transport_init(&t);
+                mtproto_session_init(&s);
+                int loaded_dc = 0;
+                if (session_store_load(&s, &loaded_dc) == 0) {
+                    const DcEndpoint *ep = dc_lookup(loaded_dc);
+                    if (ep && transport_connect(&t, ep->host, ep->port) == 0) {
+                        t.dc_id = loaded_dc;
+                        auth_logout(&cfg, &s, &t);
+                        transport_close(&t);
+                    } else {
+                        logger_log(LOG_WARN,
+                            "tg-cli-ro: logout: cannot connect to DC%d, clearing local session",
+                            loaded_dc);
+                        session_store_clear();
+                    }
+                } else {
+                    /* No persisted session — nothing to invalidate. */
+                    session_store_clear();
+                }
+            } else {
+                /* No credentials — just wipe locally. */
+                session_store_clear();
+            }
             fprintf(stderr, "tg-cli-ro: persisted session cleared.\n");
             app_shutdown(&ctx);
             return 0;

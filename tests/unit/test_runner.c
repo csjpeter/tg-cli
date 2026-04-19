@@ -25,6 +25,7 @@ void test_registry(void);
 void test_api_call(void);
 void run_auth_session_tests(void);
 void run_auth_2fa_tests(void);
+void run_auth_logout_tests(void);
 void run_arg_parse_tests(void);
 void run_watch_json_tests(void);
 void run_readline_tests(void);
@@ -77,6 +78,7 @@ int main() {
     RUN_TEST(test_api_call);
     RUN_TEST(run_auth_session_tests);
     RUN_TEST(run_auth_2fa_tests);
+    RUN_TEST(run_auth_logout_tests);
     RUN_TEST(run_arg_parse_tests);
     RUN_TEST(run_watch_json_tests);
     RUN_TEST(run_readline_tests);

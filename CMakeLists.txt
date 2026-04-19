@@ -64,6 +64,7 @@ add_library(tg-proto STATIC
     src/infrastructure/api_call.c
     src/infrastructure/auth_session.c
     src/infrastructure/auth_2fa.c
+    src/infrastructure/auth_logout.c
     src/infrastructure/auth_transfer.c
     src/infrastructure/updates_state_store.c
     src/infrastructure/media_index.c
