@@ -103,6 +103,105 @@ static void test_load_wrong_magic(void) {
     session_store_clear();
 }
 
+/*
+ * Test: test_load_wrong_version
+ *
+ * Writes a session file with the correct "TGCS" magic but version = 3
+ * (STORE_VERSION + 1). session_store_load must return -1 and must not
+ * modify the file.
+ */
+static void test_load_wrong_version(void) {
+    with_tmp_home("wrong-version");
+
+    /* Build the directory tree manually (mirrors test_load_wrong_magic). */
+    mkdir("/tmp/tg-cli-session-test-wrong-version", 0700);
+    char base[256];
+    snprintf(base, sizeof(base),
+             "%s/.config", "/tmp/tg-cli-session-test-wrong-version");
+    mkdir(base, 0700);
+    char dir[256];
+    snprintf(dir, sizeof(dir), "%s/.config/tg-cli",
+             "/tmp/tg-cli-session-test-wrong-version");
+    mkdir(dir, 0700);
+
+    char path[256];
+    snprintf(path, sizeof(path), "%s/.config/tg-cli/session.bin",
+             getenv("HOME"));
+
+    /* Build a minimal header: "TGCS" + version=3 + home_dc_id=0 + count=0. */
+    uint8_t header[16];
+    memset(header, 0, sizeof(header));
+    memcpy(header, "TGCS", 4);
+    int32_t bad_ver = 3;   /* STORE_VERSION (2) + 1 */
+    memcpy(header + 4, &bad_ver, 4);
+
+    FILE *f = fopen(path, "wb");
+    ASSERT(f != NULL, "created session file for wrong-version test");
+    if (f) {
+        fwrite(header, 1, sizeof(header), f);
+        fclose(f);
+    }
+
+    /* Record mtime/size before calling load so we can verify no modification. */
+    struct stat st_before;
+    ASSERT(stat(path, &st_before) == 0, "stat before load");
+
+    MtProtoSession s;
+    mtproto_session_init(&s);
+    int dc = 0;
+    ASSERT(session_store_load(&s, &dc) == -1, "wrong version rejected");
+
+    struct stat st_after;
+    ASSERT(stat(path, &st_after) == 0, "stat after load");
+    ASSERT(st_before.st_size  == st_after.st_size,  "file size unchanged");
+    ASSERT(st_before.st_mtime == st_after.st_mtime, "file mtime unchanged");
+
+    (void)unlink(path);
+}
+
+/*
+ * Test: test_load_truncated_file
+ *
+ * Writes a session file whose content is shorter than the required 16-byte
+ * header. session_store_load must return -1.
+ */
+static void test_load_truncated_file(void) {
+    with_tmp_home("truncated");
+
+    mkdir("/tmp/tg-cli-session-test-truncated", 0700);
+    char base[256];
+    snprintf(base, sizeof(base),
+             "%s/.config", "/tmp/tg-cli-session-test-truncated");
+    mkdir(base, 0700);
+    char dir[256];
+    snprintf(dir, sizeof(dir), "%s/.config/tg-cli",
+             "/tmp/tg-cli-session-test-truncated");
+    mkdir(dir, 0700);
+
+    char path[256];
+    snprintf(path, sizeof(path), "%s/.config/tg-cli/session.bin",
+             getenv("HOME"));
+
+    /* Only 8 bytes — less than the 16-byte STORE_HEADER. */
+    uint8_t short_buf[8];
+    memcpy(short_buf, "TGCS", 4);
+    memset(short_buf + 4, 0, 4);
+
+    FILE *f = fopen(path, "wb");
+    ASSERT(f != NULL, "created truncated session file");
+    if (f) {
+        fwrite(short_buf, 1, sizeof(short_buf), f);
+        fclose(f);
+    }
+
+    MtProtoSession s;
+    mtproto_session_init(&s);
+    int dc = 0;
+    ASSERT(session_store_load(&s, &dc) == -1, "truncated file rejected");
+
+    (void)unlink(path);
+}
+
 /* Multi-DC: save two DCs, each round-trips cleanly. */
 static void test_multi_dc_save_load(void) {
     with_tmp_home("multi-dc");
@@ -348,6 +447,8 @@ void run_session_store_tests(void) {
     RUN_TEST(test_load_missing_file);
     RUN_TEST(test_save_without_key_fails);
     RUN_TEST(test_load_wrong_magic);
+    RUN_TEST(test_load_wrong_version);
+    RUN_TEST(test_load_truncated_file);
     RUN_TEST(test_null_args);
     RUN_TEST(test_multi_dc_save_load);
     RUN_TEST(test_upsert_in_place);
