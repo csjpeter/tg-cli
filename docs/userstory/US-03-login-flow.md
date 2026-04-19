@@ -19,7 +19,7 @@ my account.
 5. `auth.signIn` (done, P3-02).
 6. On `PHONE_MIGRATE_X`: reconnect to DC X, re-run DH, retry sign-in (P4-04).
 7. On `SESSION_PASSWORD_NEEDED`: SRP 2FA password (P3-03).
-8. Persist auth key under `~/.config/tg-cli/auth.key` (mode 0600).
+8. Persist session to `~/.config/tg-cli/session.bin` (mode 0600, includes auth key + DC id + salt + session id).
 
 ## Batch mode (tg-cli-ro)
 ```
@@ -32,7 +32,7 @@ If a secret is not provided, the binary exits non-zero with a clear
 - On first run the key is created; subsequent runs load it and skip login.
 - 2FA is requested only when the server asks for it.
 - PHONE_MIGRATE_X is handled transparently.
-- `auth.key` file mode is 0600.
+- `session.bin` file mode is 0600.
 
 ## Dependencies
 P3-02 (done) · P3-03 · P4-04 · QA-22.
