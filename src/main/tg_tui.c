@@ -554,7 +554,7 @@ static void print_help(void) {
         "Commands (accept '/' prefix too):\n"
         "\n"
         "Read commands:\n"
-        "  me                           Show own profile\n"
+        "  me, self                     Show own profile\n"
         "  dialogs, list [N]            List up to N dialogs (default 20)\n"
         "  history [<peer>] [N]         Saved Messages by default, or <peer>\n"
         "  contacts                     List my contacts\n"
@@ -614,7 +614,7 @@ static int repl(const ApiConfig *cfg, MtProtoSession *s, Transport *t,
         if (!strcmp(cmd, "quit") || !strcmp(cmd, "exit") ||
             !strcmp(cmd, ":q")) return 0;
         if (!strcmp(cmd, "help") || !strcmp(cmd, "?")) { print_help(); continue; }
-        if (!strcmp(cmd, "me"))       { do_me(cfg, s, t); continue; }
+        if (!strcmp(cmd, "me") || !strcmp(cmd, "self")) { do_me(cfg, s, t); continue; }
         if (!strcmp(cmd, "dialogs") || !strcmp(cmd, "list")) {
             do_dialogs(cfg, s, t, atoi(arg));
             continue;
