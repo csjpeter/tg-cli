@@ -93,11 +93,13 @@ static const char *make_tempfile(const char *name, size_t size) {
 static int g_save_file_part_calls = 0;
 static int g_save_big_file_part_calls = 0;
 static int g_get_file_calls = 0;
+static int g_send_media_calls = 0;
 
 static void reset_counters(void) {
     g_save_file_part_calls = 0;
     g_save_big_file_part_calls = 0;
     g_get_file_calls = 0;
+    g_send_media_calls = 0;
 }
 
 /* ================================================================ */
@@ -124,6 +126,7 @@ static void on_save_big_file_part(MtRpcContext *ctx) {
 
 /* messages.sendMedia → minimal updates envelope. */
 static void on_send_media(MtRpcContext *ctx) {
+    g_send_media_calls++;
     TlWriter w;
     tl_writer_init(&w);
     tl_write_uint32(&w, TL_updates);
@@ -879,6 +882,81 @@ static void test_upload_empty_file(void) {
     mt_server_reset();
 }
 
+/* ================================================================ */
+/* NETWORK_MIGRATE upload retry test (TEST-19)                      */
+/* ================================================================ */
+
+/**
+ * upload.saveFilePart responder for the NETWORK_MIGRATE test.
+ *
+ * Call 1 (home DC): arms the reconnect detector and returns
+ *   rpc_error(303, "NETWORK_MIGRATE_4") so the client switches to DC 4.
+ * Call 2+ (DC 4 session, same mock server): returns boolTrue so the
+ *   retried upload succeeds.
+ */
+static void on_save_file_part_migrate(MtRpcContext *ctx) {
+    g_save_file_part_calls++;
+    if (g_save_file_part_calls == 1) {
+        /* Arm reconnect detection so the DC 4 transport's 0xEF marker is
+         * parsed as a new connection rather than a frame length prefix. */
+        mt_server_arm_reconnect();
+        mt_server_reply_error(ctx, 303, "NETWORK_MIGRATE_4");
+    } else {
+        reply_bool_true(ctx);
+    }
+}
+
+/**
+ * FT-19 — NETWORK_MIGRATE_4 retry path for upload.saveFilePart.
+ *
+ * Scenario:
+ *   1. Home DC (DC 2) returns NETWORK_MIGRATE_4 on the first saveFilePart.
+ *   2. upload_chunk_phase opens DC 4 (pre-seeded session → fast path, no DH).
+ *   3. Retried saveFilePart on DC 4 succeeds (boolTrue).
+ *   4. messages.sendMedia fires on the home transport (DC 2).
+ *
+ * Verifications:
+ *   - domain_send_file returns 0 (full success).
+ *   - saveFilePart was called exactly twice: once home, once on DC 4.
+ *   - sendMedia was called exactly once (home DC).
+ */
+static void test_upload_savefilepart_network_migrate(void) {
+    with_tmp_home("up-mig");
+    mt_server_init(); mt_server_reset();
+    reset_counters();
+
+    MtProtoSession s; load_session(&s);         /* seeds DC 2 */
+    ASSERT(mt_server_seed_extra_dc(4) == 0,     "seed DC4 session");
+
+    mt_server_expect(CRC_upload_saveFilePart, on_save_file_part_migrate, NULL);
+    mt_server_expect(CRC_messages_sendMedia,  on_send_media,             NULL);
+
+    const char *path = make_tempfile("up-mig", 1024);
+    ASSERT(path != NULL, "tempfile created");
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    HistoryPeer self = { .kind = HISTORY_PEER_SELF };
+    RpcError err = {0};
+    ASSERT(domain_send_file(&cfg, &s, &t, &self, path,
+                            "migrate test", "text/plain", &err) == 0,
+           "domain_send_file succeeds after NETWORK_MIGRATE_4 retry");
+
+    /* saveFilePart fired once on home DC (→ NETWORK_MIGRATE_4) and
+     * once on DC 4 (→ boolTrue). */
+    ASSERT(g_save_file_part_calls == 2,
+           "saveFilePart called twice: once home DC, once DC 4");
+
+    /* sendMedia fires exactly once on the home transport. */
+    ASSERT(g_send_media_calls == 1,
+           "sendMedia fired once on home DC after cross-DC upload");
+
+    unlink(path);
+    transport_close(&t);
+    mt_server_reset();
+}
+
 void run_upload_download_tests(void) {
     RUN_TEST(test_upload_small_document);
     RUN_TEST(test_upload_multi_chunk_document);
@@ -900,4 +978,5 @@ void run_upload_download_tests(void) {
     RUN_TEST(test_upload_empty_file);
     RUN_TEST(test_upload_over_max_size_rejected);
     RUN_TEST(test_upload_under_max_size_proceeds);
+    RUN_TEST(test_upload_savefilepart_network_migrate);
 }

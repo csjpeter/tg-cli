@@ -69,6 +69,11 @@ static struct {
      * RPC triggers a bad_server_salt reply instead of running the handler. */
     int         bad_salt_once_pending;
     uint64_t    bad_salt_new_salt;
+
+    /* One-shot reconnect detection: when set, the next 0xEF byte at the
+     * parse cursor is treated as a fresh connection marker rather than a
+     * frame length prefix. Cleared automatically after use. */
+    int         reconnect_pending;
 } g_srv;
 
 /* ---- forward decls ---- */
@@ -201,6 +206,20 @@ void mt_server_push_update(const uint8_t *tl, size_t tl_len) {
 
 int mt_server_rpc_call_count(void) { return g_srv.rpc_call_count; }
 
+void mt_server_arm_reconnect(void) {
+    g_srv.reconnect_pending = 1;
+}
+
+int mt_server_seed_extra_dc(int dc_id) {
+    if (!g_srv.seeded) return -1;
+    MtProtoSession s;
+    mtproto_session_init(&s);
+    mtproto_session_set_auth_key(&s, g_srv.auth_key);
+    mtproto_session_set_salt(&s, g_srv.server_salt);
+    s.session_id = g_srv.session_id;
+    return session_store_save_dc(dc_id, &s);
+}
+
 void mt_server_set_bad_salt_once(uint64_t new_salt) {
     g_srv.bad_salt_once_pending = 1;
     g_srv.bad_salt_new_salt = new_salt;
@@ -253,7 +272,11 @@ static void on_client_sent(const uint8_t *buf, size_t len) {
     if (!g_srv.seeded) return;
 
     while (g_srv.parse_cursor < len) {
-        /* Step 0 — consume the initial 0xEF marker on the very first byte. */
+        /* Step 0 — consume the initial 0xEF marker on the very first byte.
+         * Also handle a one-shot reconnect: if reconnect_pending is set and
+         * the next byte is 0xEF, treat it as a new-connection marker (reset
+         * parse state) so that a second transport session opened by production
+         * code (e.g. cross-DC NETWORK_MIGRATE retry) is parsed cleanly. */
         if (!g_srv.saw_marker) {
             if (buf[g_srv.parse_cursor] != 0xEFu) {
                 /* Unexpected first byte — not an abridged connection. */
@@ -262,6 +285,14 @@ static void on_client_sent(const uint8_t *buf, size_t len) {
             g_srv.parse_cursor++;
             g_srv.saw_marker = 1;
             continue;
+        }
+        if (g_srv.reconnect_pending && buf[g_srv.parse_cursor] == 0xEFu) {
+            /* A second transport connection opened by the client. Reset the
+             * parser to treat this 0xEF as the new connection's abridged
+             * marker. */
+            g_srv.reconnect_pending = 0;
+            g_srv.saw_marker = 0;
+            continue;   /* re-enter the saw_marker=0 branch above */
         }
 
         size_t payload_len = 0;

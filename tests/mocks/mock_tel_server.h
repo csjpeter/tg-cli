@@ -131,4 +131,30 @@ void mt_server_set_bad_salt_once(uint64_t new_salt);
  */
 int mt_server_rpc_call_count(void);
 
+/**
+ * @brief Arm a one-shot parse-state reset.
+ *
+ * When set, the next time the mock's on_client_sent callback encounters the
+ * 0xEF abridged-transport marker byte at the current parse cursor, it treats
+ * it as a fresh connection start (resets saw_marker = 0 and advances past the
+ * marker) rather than attempting to decode it as a frame length prefix.
+ *
+ * Use this before a test that causes production code to open a second
+ * transport connection (e.g. NETWORK_MIGRATE cross-DC retry) so that the
+ * second connection's frames are parsed correctly by the same mock server.
+ */
+void mt_server_arm_reconnect(void);
+
+/**
+ * @brief Seed an additional DC session on disk using the current auth key.
+ *
+ * Call after mt_server_seed_session() to pre-populate a secondary-DC entry
+ * in the session store so that dc_session_open(dc_id) takes the fast path
+ * (no DH handshake) in tests that exercise cross-DC migration.
+ *
+ * @param dc_id  The DC number to seed (e.g. 4 for NETWORK_MIGRATE_4 tests).
+ * @return 0 on success, -1 if the primary session has not been seeded yet.
+ */
+int mt_server_seed_extra_dc(int dc_id);
+
 #endif /* MOCK_TEL_SERVER_H */
