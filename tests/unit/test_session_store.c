@@ -442,6 +442,92 @@ static void test_concurrent_write_conflict(void) {
 #endif /* _WIN32 */
 }
 
+/*
+ * Test: concurrent_write_stress
+ *
+ * Forks N_WRITERS children that all try to session_store_save() at the same
+ * time with distinct payloads.  After all children exit, the parent loads the
+ * file and verifies:
+ *   a) load succeeds (file is not corrupt / zero-length).
+ *   b) The resulting session matches exactly one of the N payload patterns
+ *      (no torn / interleaved data).
+ *
+ * Because session_store_save() uses a non-blocking flock(LOCK_EX | LOCK_NB),
+ * all children that lose the race return -1 — that is expected and counted.
+ * The winner commits atomically via rename(2), so the final file must be
+ * exactly one of the N valid payloads.
+ *
+ * POSIX-only: skipped on Windows where flock is not available.
+ */
+static void test_concurrent_write_stress(void) {
+#if defined(_WIN32)
+    g_tests_run++;
+    return;
+#else
+#define N_WRITERS 8
+
+    with_tmp_home("stress-write");
+    session_store_clear();
+
+    /* Write an initial valid store so the file exists before the storm. */
+    MtProtoSession s0;
+    make_session(&s0, 0x01);
+    ASSERT(session_store_save(&s0, 1) == 0, "stress: initial write ok");
+
+    /* Each child uses fill = (child_index + 2) so fill 0x01 is the seed only. */
+    pid_t pids[N_WRITERS];
+
+    for (int i = 0; i < N_WRITERS; i++) {
+        pid_t p = fork();
+        ASSERT(p >= 0, "stress: fork succeeded");
+        if (p == 0) {
+            /* Child: attempt one save and exit with 0 (success) or 1 (lock busy). */
+            MtProtoSession cs;
+            make_session(&cs, (uint8_t)(i + 2));
+            int rc = session_store_save(&cs, i + 2);
+            _exit(rc == 0 ? 0 : 1);
+        }
+        pids[i] = p;
+    }
+
+    /* Reap all children; at least one must have succeeded. */
+    int any_succeeded = 0;
+    for (int i = 0; i < N_WRITERS; i++) {
+        int st = 0;
+        waitpid(pids[i], &st, 0);
+        if (WIFEXITED(st) && WEXITSTATUS(st) == 0)
+            any_succeeded = 1;
+    }
+    ASSERT(any_succeeded, "stress: at least one writer succeeded");
+
+    /* Load must succeed and the payload must belong to exactly one writer. */
+    MtProtoSession r;
+    mtproto_session_init(&r);
+    int dc = 0;
+    ASSERT(session_store_load(&r, &dc) == 0, "stress: load after concurrent writes ok");
+
+    /*
+     * Verify the loaded key is coherent: all bytes in the auth_key must follow
+     * the pattern used by make_session — key[j] = fill + j — for some fill
+     * between 1 and N_WRITERS+1 inclusive.  A torn write would produce a key
+     * whose bytes do NOT all follow any single fill value.
+     */
+    int pattern_matched = 0;
+    for (int fill = 1; fill <= N_WRITERS + 1 && !pattern_matched; fill++) {
+        int ok = 1;
+        for (int j = 0; j < 256 && ok; j++) {
+            if (r.auth_key[j] != (uint8_t)(fill + j))
+                ok = 0;
+        }
+        if (ok) pattern_matched = 1;
+    }
+    ASSERT(pattern_matched, "stress: loaded auth_key matches exactly one writer's payload");
+
+    session_store_clear();
+#undef N_WRITERS
+#endif /* _WIN32 */
+}
+
 void run_session_store_tests(void) {
     RUN_TEST(test_save_load_roundtrip);
     RUN_TEST(test_load_missing_file);
@@ -455,4 +541,5 @@ void run_session_store_tests(void) {
     RUN_TEST(test_save_dc_on_empty_sets_home);
     RUN_TEST(test_write_under_lock);
     RUN_TEST(test_concurrent_write_conflict);
+    RUN_TEST(test_concurrent_write_stress);
 }
