@@ -520,6 +520,47 @@ static void test_search_peer_query_limit(void) {
     ASSERT(r.limit == 30,                      "search peer+query+limit: limit must be 30");
 }
 
+/* ---- FEAT-14: watch --peers parses into watch_peers ---- */
+static void test_watch_peers_single(void) {
+    char *argv[] = {"tg-cli", "watch", "--peers", "@chan", NULL};
+    ArgResult r;
+    int rc = arg_parse(4, argv, &r);
+    ASSERT(rc == ARG_OK,                    "watch --peers single: ARG_OK");
+    ASSERT(r.command == CMD_WATCH,          "watch --peers single: CMD_WATCH");
+    ASSERT(r.watch_peers != NULL,           "watch --peers single: watch_peers not NULL");
+    ASSERT(strcmp(r.watch_peers, "@chan") == 0,
+           "watch --peers single: watch_peers == '@chan'");
+    ASSERT(r.peer == NULL,                  "watch --peers single: peer must be NULL");
+}
+
+/* ---- FEAT-14: watch --peers with comma-separated list ---- */
+static void test_watch_peers_multi(void) {
+    char *argv[] = {"tg-cli", "watch", "--peers", "@a,111,@b", NULL};
+    ArgResult r;
+    int rc = arg_parse(4, argv, &r);
+    ASSERT(rc == ARG_OK,                         "watch --peers multi: ARG_OK");
+    ASSERT(r.watch_peers != NULL,                "watch --peers multi: watch_peers set");
+    ASSERT(strcmp(r.watch_peers, "@a,111,@b") == 0,
+           "watch --peers multi: raw value preserved");
+}
+
+/* ---- FEAT-14: watch without --peers → watch_peers is NULL ---- */
+static void test_watch_no_peers(void) {
+    char *argv[] = {"tg-cli", "watch", NULL};
+    ArgResult r;
+    int rc = arg_parse(2, argv, &r);
+    ASSERT(rc == ARG_OK,            "watch no --peers: ARG_OK");
+    ASSERT(r.watch_peers == NULL,   "watch no --peers: watch_peers must be NULL");
+}
+
+/* ---- FEAT-14: watch --peers missing value → error ---- */
+static void test_watch_peers_missing_value(void) {
+    char *argv[] = {"tg-cli", "watch", "--peers", NULL};
+    ArgResult r;
+    ASSERT(arg_parse(3, argv, &r) == ARG_ERROR,
+           "watch --peers w/o value: must return ARG_ERROR");
+}
+
 /* ---- Test: upload (alias for send-file) ---- */
 static void test_upload_alias(void) {
     char *argv[] = {"tg-cli", "upload", "@user", "/tmp/file.txt", NULL};
@@ -599,4 +640,8 @@ void run_arg_parse_tests(void) {
     RUN_TEST(test_search_peer_query_limit);
     RUN_TEST(test_upload_alias);
     RUN_TEST(test_upload_with_caption);
+    RUN_TEST(test_watch_peers_single);
+    RUN_TEST(test_watch_peers_multi);
+    RUN_TEST(test_watch_no_peers);
+    RUN_TEST(test_watch_peers_missing_value);
 }

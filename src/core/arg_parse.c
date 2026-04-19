@@ -259,7 +259,7 @@ static int parse_watch(int argc, char **argv, int i, ArgResult *out) {
                 fprintf(stderr, "tg-cli watch: --peers requires a value\n");
                 return ARG_ERROR;
             }
-            out->peer = argv[i + 1]; /* comma-separated list stored as-is */
+            out->watch_peers = argv[i + 1]; /* comma-separated list stored as-is */
             i += 2;
         } else if (str_eq(argv[i], "--interval")) {
             if (i + 1 >= argc) {

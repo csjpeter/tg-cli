@@ -167,12 +167,104 @@ static void on_sigint(int sig) { (void)sig; g_stop = 1; }
 /** Initial sleep on first error. */
 #define WATCH_BACKOFF_INIT_S   5
 
+/** Maximum number of peers accepted by --peers. */
+#define WATCH_PEERS_MAX 64
+
+/**
+ * @brief Parse and resolve the --peers comma-separated list.
+ *
+ * Iterates over comma-separated tokens from @p spec.  Each token may be
+ * a numeric id (positive integer), "@username" / "username", or "self"
+ * (treated as peer_id 0 which matches messages with peer_id == 0).
+ *
+ * Resolved peer ids are stored in @p ids (capacity @p cap).
+ *
+ * @return Number of ids stored in @p ids, or -1 on hard error.
+ */
+static int watch_peers_resolve(const ApiConfig *cfg, MtProtoSession *s,
+                                Transport *t, const char *spec,
+                                int64_t *ids, int cap) {
+    if (!spec || !*spec) return 0;
+
+    /* Work on a mutable copy so strtok can modify it. */
+    char buf[4096];
+    size_t slen = strlen(spec);
+    if (slen >= sizeof(buf)) {
+        fprintf(stderr, "watch: --peers value too long\n");
+        return -1;
+    }
+    memcpy(buf, spec, slen + 1);
+
+    int n = 0;
+    char *tok = strtok(buf, ",");
+    while (tok && n < cap) {
+        /* Strip leading/trailing whitespace. */
+        while (*tok == ' ' || *tok == '\t') tok++;
+        char *end = tok + strlen(tok);
+        while (end > tok && (end[-1] == ' ' || end[-1] == '\t')) *--end = '\0';
+
+        if (!*tok) { tok = strtok(NULL, ","); continue; }
+
+        /* "self" → peer_id 0 (Saved Messages; peer_id is 0 for self messages
+         * because getDifference does not expose peer for them). */
+        if (strcmp(tok, "self") == 0) {
+            ids[n++] = 0;
+            tok = strtok(NULL, ",");
+            continue;
+        }
+
+        /* Pure numeric id (optionally negative for legacy chats). */
+        char *numend = NULL;
+        long long numid = strtoll(tok, &numend, 10);
+        if (numend && *numend == '\0') {
+            ids[n++] = (int64_t)numid;
+            tok = strtok(NULL, ",");
+            continue;
+        }
+
+        /* @username or username — resolve via domain_resolve_username. */
+        ResolvedPeer rp = {0};
+        if (domain_resolve_username(cfg, s, t, tok, &rp) != 0) {
+            fprintf(stderr, "watch: --peers: cannot resolve '%s'\n", tok);
+            return -1;
+        }
+        ids[n++] = rp.id;
+        tok = strtok(NULL, ",");
+    }
+    return n;
+}
+
+/** Return 1 if @p peer_id matches any entry in @p ids[0..n-1], else 0.
+ *  When @p n == 0 (no filter), always returns 1. */
+static int watch_peer_allowed(const int64_t *ids, int n, int64_t peer_id) {
+    if (n == 0) return 1;
+    for (int i = 0; i < n; i++) {
+        if (ids[i] == peer_id) return 1;
+    }
+    return 0;
+}
+
 static int cmd_watch(const ArgResult *args) {
     ApiConfig cfg; MtProtoSession s; Transport t;
     int brc = session_bringup(args, &cfg, &s, &t);
     if (brc != 0) return brc;
 
     signal(SIGINT, on_sigint);
+
+    /* Resolve --peers filter once up front. */
+    int64_t peer_filter[WATCH_PEERS_MAX];
+    int     peer_filter_n = 0;
+    if (args->watch_peers) {
+        peer_filter_n = watch_peers_resolve(&cfg, &s, &t,
+                                            args->watch_peers,
+                                            peer_filter, WATCH_PEERS_MAX);
+        if (peer_filter_n < 0) {
+            transport_close(&t);
+            return 1;
+        }
+        if (!args->quiet)
+            fprintf(stderr, "watch: filtering to %d peer(s)\n", peer_filter_n);
+    }
 
     UpdatesState state = {0};
 
@@ -224,28 +316,35 @@ static int cmd_watch(const ArgResult *args) {
         if (args->json) {
             /* NDJSON: emit one JSON object per new message, one per line.
              * Each line is flushed immediately so pipes get live data.
-             * Schema: {"peer":null,"msg_id":<int>,"date":<int>,"text":"<str>"}
-             * "peer" is null because getDifference does not expose per-message
-             * peer identifiers in the current UpdatesDifference struct. */
+             * Schema: {"peer_id":<int>,"msg_id":<int>,"date":<int>,"text":"<str>"} */
             char esc[HISTORY_TEXT_MAX * 6 + 1]; /* worst-case: every byte → \uXXXX */
             for (int i = 0; i < diff.new_messages_count; i++) {
+                if (!watch_peer_allowed(peer_filter, peer_filter_n,
+                                        diff.new_messages[i].peer_id))
+                    continue;
                 json_escape_str(esc, sizeof(esc), diff.new_messages[i].text);
-                printf("{\"peer\":null,\"msg_id\":%d,\"date\":%d,\"text\":\"%s\"}\n",
+                printf("{\"peer_id\":%lld,\"msg_id\":%d,\"date\":%d,\"text\":\"%s\"}\n",
+                       (long long)diff.new_messages[i].peer_id,
                        diff.new_messages[i].id,
                        diff.new_messages[i].date,
                        esc);
                 fflush(stdout);
             }
         } else {
+            int printed = 0;
             for (int i = 0; i < diff.new_messages_count; i++) {
+                if (!watch_peer_allowed(peer_filter, peer_filter_n,
+                                        diff.new_messages[i].peer_id))
+                    continue;
                 printf("[%d] %d %s\n",
                        diff.new_messages[i].id,
                        diff.new_messages[i].date,
                        diff.new_messages[i].complex
                            ? "(complex \xe2\x80\x94 text not parsed)"
                            : diff.new_messages[i].text);
+                printed++;
             }
-            if (diff.new_messages_count == 0 && !args->quiet) {
+            if (printed == 0 && !args->quiet) {
                 printf("(no new messages; pts=%d date=%d)\n",
                        state.pts, state.date);
             }

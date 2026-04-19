@@ -40,6 +40,7 @@ typedef struct {
     int64_t   media_id; /**< photo_id or document_id, 0 when N/A. */
     int32_t   media_dc; /**< dc_id for photos; 0 otherwise. */
     MediaInfo media_info; /**< Full metadata for MEDIA_PHOTO downloads. */
+    int64_t   peer_id;  /**< Dialog peer id (from Message.peer_id Peer); 0 if unknown. */
 } HistoryEntry;
 
 /** @brief InputPeer kind used when building the getHistory request. */

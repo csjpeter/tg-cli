@@ -75,6 +75,9 @@ typedef struct {
 
     /* Watch extras */
     int         watch_interval; /**< --interval N for watch [2..3600], default 30. */
+    const char *watch_peers;    /**< --peers X,Y,Z for watch: comma-separated peer list.
+                                  *  Each token may be @username, numeric id, or "self".
+                                  *  NULL means "no filter — emit all messages". */
 
     /* History extras */
     int         no_media; /**< --no-media: suppress pure-media messages; show only caption for mixed. */

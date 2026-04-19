@@ -44,8 +44,8 @@ static void test_watch_json_with_peers_and_interval(void) {
     ASSERT(r.command == CMD_WATCH,           "watch json+peers+interval: CMD_WATCH");
     ASSERT(r.json == 1,                      "watch json+peers+interval: json=1");
     ASSERT(r.watch_interval == 10,           "watch json+peers+interval: interval=10");
-    ASSERT(r.peer != NULL,                   "watch json+peers+interval: peer set");
-    ASSERT(strcmp(r.peer, "@news") == 0,     "watch json+peers+interval: peer=@news");
+    ASSERT(r.watch_peers != NULL,                   "watch json+peers+interval: watch_peers set");
+    ASSERT(strcmp(r.watch_peers, "@news") == 0,     "watch json+peers+interval: watch_peers=@news");
 }
 
 /* ---- Test: json_escape_str — plain ASCII passes through unchanged ---- */

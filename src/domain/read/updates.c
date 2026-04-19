@@ -46,7 +46,19 @@ static int parse_message(TlReader *r, HistoryEntry *out) {
     if (crc == TL_messageService) { out->complex = 1; return -1; }
 
     if (flags & (1u << 8))   if (tl_skip_peer(r) != 0) { out->complex=1; return -1; }
-    if (tl_skip_peer(r) != 0) { out->complex = 1; return -1; }
+    /* peer_id:Peer — mandatory; extract the numeric id for filtering. */
+    {
+        if (r->len - r->pos < 12) { out->complex = 1; return -1; }
+        uint32_t pcrc = tl_read_uint32(r);
+        int64_t  pid  = tl_read_int64(r);
+        switch (pcrc) {
+        case TL_peerUser: case TL_peerChat: case TL_peerChannel:
+            out->peer_id = pid;
+            break;
+        default:
+            out->complex = 1; return -1;
+        }
+    }
     if (flags & (1u << 28))  if (tl_skip_peer(r) != 0) { out->complex=1; return -1; }
     if (flags & (1u << 2))   if (tl_skip_message_fwd_header(r) != 0) { out->complex=1; return -1; }
     if (flags & (1u << 11))  { if (r->len - r->pos < 8) { out->complex=1; return -1; } tl_read_int64(r); }
