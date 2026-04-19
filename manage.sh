@@ -35,7 +35,7 @@ install_deps() {
                 if [[ "$VERSION_ID" == "24.04" ]]; then
                     echo "Detected Ubuntu 24.04. Installing dependencies..."
                     sudo apt-get update
-                    sudo apt-get install -y build-essential cmake libcurl4-openssl-dev libssl-dev lcov valgrind
+                    sudo apt-get install -y build-essential cmake libssl-dev lcov valgrind
                 else
                     echo "Unsupported Ubuntu version: $VERSION_ID. Only 24.04 is explicitly supported."
                     exit 1
@@ -46,7 +46,7 @@ install_deps() {
                     echo "Detected Rocky Linux 9. Installing dependencies..."
                     sudo dnf install -y epel-release
                     sudo dnf groupinstall -y "Development Tools"
-                    sudo dnf install -y cmake libcurl-devel openssl-devel lcov valgrind
+                    sudo dnf install -y cmake openssl-devel lcov valgrind
                 else
                     echo "Unsupported Rocky version: $VERSION_ID. Only 9.x is explicitly supported."
                     exit 1
