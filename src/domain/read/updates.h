@@ -23,7 +23,7 @@
 typedef struct {
     int32_t pts;
     int32_t qts;
-    int32_t date;
+    int64_t date;  /**< Widened to int64_t for 2038-safety; wire format is still int32. */
     int32_t seq;
     int32_t unread_count;
 } UpdatesState;

@@ -233,6 +233,68 @@ static void test_updates_difference_peer_id(void) {
     ASSERT(matched == 1, "peer_id: exactly one message from peer 111");
 }
 
+/* ---- FEAT-24: int64_t date — 2038-safety tests ---- */
+
+/* A date value of 2^30 (1073741824) fits in int32 but is close to the 2038
+ * boundary; verify it round-trips through HistoryEntry.date without truncation. */
+static void test_date_large_value_roundtrip(void) {
+    mock_socket_reset(); mock_crypto_reset();
+
+    int32_t wire_date = (int32_t)(1 << 30); /* 1073741824 — fits in int32 */
+
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, TL_updates_state);
+    tl_write_int32(&w, 1);            /* pts */
+    tl_write_int32(&w, 0);            /* qts */
+    tl_write_int32(&w, wire_date);    /* date = 2^30 */
+    tl_write_int32(&w, 1);            /* seq */
+    tl_write_int32(&w, 0);            /* unread_count */
+    uint8_t payload[64]; memcpy(payload, w.data, w.len);
+    size_t plen = w.len; tl_writer_free(&w);
+
+    uint8_t resp[256]; size_t rlen = 0;
+    build_fake_encrypted_response(payload, plen, resp, &rlen);
+    mock_socket_set_response(resp, rlen);
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    fix_session(&s); fix_transport(&t); fix_cfg(&cfg);
+
+    UpdatesState st = {0};
+    int rc = domain_updates_state(&cfg, &s, &t, &st);
+    ASSERT(rc == 0, "FEAT-24: large date parse ok");
+    ASSERT(st.date == (int64_t)(1 << 30),
+           "FEAT-24: large date (2^30) preserved as int64");
+}
+
+/* A negative int32 date sentinel (e.g. -1) must sign-extend correctly to
+ * int64_t -1, not become a large positive value. */
+static void test_date_negative_sentinel_preserved(void) {
+    mock_socket_reset(); mock_crypto_reset();
+
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, TL_updates_state);
+    tl_write_int32(&w, 0);   /* pts */
+    tl_write_int32(&w, 0);   /* qts */
+    tl_write_int32(&w, -1);  /* date = -1 sentinel */
+    tl_write_int32(&w, 0);   /* seq */
+    tl_write_int32(&w, 0);   /* unread_count */
+    uint8_t payload[64]; memcpy(payload, w.data, w.len);
+    size_t plen = w.len; tl_writer_free(&w);
+
+    uint8_t resp[256]; size_t rlen = 0;
+    build_fake_encrypted_response(payload, plen, resp, &rlen);
+    mock_socket_set_response(resp, rlen);
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    fix_session(&s); fix_transport(&t); fix_cfg(&cfg);
+
+    UpdatesState st = {0};
+    int rc = domain_updates_state(&cfg, &s, &t, &st);
+    ASSERT(rc == 0, "FEAT-24: negative date parse ok");
+    ASSERT(st.date == (int64_t)-1LL,
+           "FEAT-24: negative sentinel (-1) sign-extended correctly to int64");
+}
+
 void run_domain_updates_tests(void) {
     RUN_TEST(test_updates_state_parse);
     RUN_TEST(test_updates_difference_empty);
@@ -240,4 +302,6 @@ void run_domain_updates_tests(void) {
     RUN_TEST(test_updates_difference_messages);
     RUN_TEST(test_updates_null_args);
     RUN_TEST(test_updates_difference_peer_id);
+    RUN_TEST(test_date_large_value_roundtrip);
+    RUN_TEST(test_date_negative_sentinel_preserved);
 }

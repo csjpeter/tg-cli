@@ -289,9 +289,9 @@ static int cmd_watch(const ArgResult *args) {
 
     int interval = args->watch_interval > 0 ? args->watch_interval : 30;
     if (!args->quiet)
-        fprintf(stderr, "watch: seeded pts=%d qts=%d date=%d, "
+        fprintf(stderr, "watch: seeded pts=%d qts=%d date=%lld, "
                         "polling every %ds (SIGINT to quit)\n",
-                        state.pts, state.qts, state.date, interval);
+                        state.pts, state.qts, (long long)state.date, interval);
 
     int backoff = 0; /* seconds of extra sleep on error; 0 means no error */
 
@@ -328,10 +328,10 @@ static int cmd_watch(const ArgResult *args) {
                                         diff.new_messages[i].peer_id))
                     continue;
                 json_escape_str(esc, sizeof(esc), diff.new_messages[i].text);
-                if (printf("{\"peer_id\":%lld,\"msg_id\":%d,\"date\":%d,\"text\":\"%s\"}\n",
+                if (printf("{\"peer_id\":%lld,\"msg_id\":%d,\"date\":%lld,\"text\":\"%s\"}\n",
                            (long long)diff.new_messages[i].peer_id,
                            diff.new_messages[i].id,
-                           diff.new_messages[i].date,
+                           (long long)diff.new_messages[i].date,
                            esc) < 0
                     || fflush(stdout) != 0) {
                     if (errno == EPIPE) {
@@ -347,9 +347,9 @@ static int cmd_watch(const ArgResult *args) {
                 if (!watch_peer_allowed(peer_filter, peer_filter_n,
                                         diff.new_messages[i].peer_id))
                     continue;
-                if (printf("[%d] %d %s\n",
+                if (printf("[%d] %lld %s\n",
                            diff.new_messages[i].id,
-                           diff.new_messages[i].date,
+                           (long long)diff.new_messages[i].date,
                            diff.new_messages[i].complex
                                ? "(complex \xe2\x80\x94 text not parsed)"
                                : diff.new_messages[i].text) < 0) {
@@ -358,8 +358,8 @@ static int cmd_watch(const ArgResult *args) {
                 printed++;
             }
             if (!g_stop && printed == 0 && !args->quiet) {
-                if (printf("(no new messages; pts=%d date=%d)\n",
-                           state.pts, state.date) < 0 && errno == EPIPE) {
+                if (printf("(no new messages; pts=%d date=%lld)\n",
+                           state.pts, (long long)state.date) < 0 && errno == EPIPE) {
                     g_stop = 1;
                 }
             }
@@ -456,22 +456,22 @@ static int cmd_search(const ArgResult *args) {
         for (int i = 0; i < count; i++) {
             if (i) printf(",");
             json_escape_str(esc, sizeof(esc), entries[i].text);
-            printf("{\"id\":%d,\"out\":%s,\"date\":%d,\"text\":\"%s\","
+            printf("{\"id\":%d,\"out\":%s,\"date\":%lld,\"text\":\"%s\","
                    "\"complex\":%s}",
                    entries[i].id,
                    entries[i].out ? "true" : "false",
-                   entries[i].date,
+                   (long long)entries[i].date,
                    esc,
                    entries[i].complex ? "true" : "false");
         }
         printf("]\n");
     } else {
-        printf("%-8s %-4s %-10s %s\n", "id", "out", "date", "text");
+        printf("%-8s %-4s %-20s %s\n", "id", "out", "date", "text");
         for (int i = 0; i < count; i++) {
-            printf("%-8d %-4s %-10d %s\n",
+            printf("%-8d %-4s %-20lld %s\n",
                    entries[i].id,
                    entries[i].out ? "yes" : "no",
-                   entries[i].date,
+                   (long long)entries[i].date,
                    entries[i].complex ? "(complex — text not parsed)"
                                       : entries[i].text);
         }
@@ -621,12 +621,12 @@ static int cmd_history(const ArgResult *args) {
                                              cached_path,
                                              sizeof(cached_path)) == 1);
             }
-            printf("{\"id\":%d,\"out\":%s,\"date\":%d,\"text\":\"%s\","
+            printf("{\"id\":%d,\"out\":%s,\"date\":%lld,\"text\":\"%s\","
                    "\"complex\":%s,\"media\":\"%s\",\"media_id\":%lld"
                    ",\"media_path\":\"%s\"}",
                    entries[i].id,
                    entries[i].out ? "true" : "false",
-                   entries[i].date, entries[i].text,
+                   (long long)entries[i].date, entries[i].text,
                    entries[i].complex ? "true" : "false",
                    ml, mid,
                    has_cache ? cached_path : "");
@@ -647,35 +647,35 @@ static int cmd_history(const ArgResult *args) {
                                              sizeof(cached_path)) == 1);
             }
             if (entries[i].complex) {
-                printf("[%d] %s %d (complex — text not parsed)\n",
+                printf("[%d] %s %lld (complex — text not parsed)\n",
                        entries[i].id, entries[i].out ? ">" : "<",
-                       entries[i].date);
+                       (long long)entries[i].date);
                 printed++;
             } else if (ml[0] && args->no_media) {
                 /* --no-media: pure-media (no caption) → skip entirely;
                  * mixed (caption present) → print caption only, no label. */
                 if (entries[i].text[0] == '\0') continue;
-                printf("[%d] %s %d %s\n",
+                printf("[%d] %s %lld %s\n",
                        entries[i].id, entries[i].out ? ">" : "<",
-                       entries[i].date, entries[i].text);
+                       (long long)entries[i].date, entries[i].text);
                 printed++;
             } else if (ml[0]) {
                 /* Display inline cached path if available, else just label. */
                 if (has_cache) {
-                    printf("[%d] %s %d [%s: %s] %s\n",
+                    printf("[%d] %s %lld [%s: %s] %s\n",
                            entries[i].id, entries[i].out ? ">" : "<",
-                           entries[i].date, ml,
+                           (long long)entries[i].date, ml,
                            cached_path, entries[i].text);
                 } else {
-                    printf("[%d] %s %d [%s] %s\n",
+                    printf("[%d] %s %lld [%s] %s\n",
                            entries[i].id, entries[i].out ? ">" : "<",
-                           entries[i].date, ml, entries[i].text);
+                           (long long)entries[i].date, ml, entries[i].text);
                 }
                 printed++;
             } else {
-                printf("[%d] %s %d %s\n",
+                printf("[%d] %s %lld %s\n",
                        entries[i].id, entries[i].out ? ">" : "<",
-                       entries[i].date, entries[i].text);
+                       (long long)entries[i].date, entries[i].text);
                 printed++;
             }
         }

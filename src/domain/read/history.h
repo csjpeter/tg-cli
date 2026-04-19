@@ -31,7 +31,7 @@
 
 typedef struct {
     int32_t   id;
-    int32_t   date;     /**< Unix epoch seconds, 0 if unknown. */
+    int64_t   date;     /**< Unix epoch seconds, 0 if unknown. Widened to int64_t for 2038-safety; wire format is still int32. */
     int       out;      /**< Non-zero if message is outgoing. */
     char      text[HISTORY_TEXT_MAX]; /**< Empty if complex/unparseable. */
     int       truncated;

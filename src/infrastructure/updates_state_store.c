@@ -53,8 +53,8 @@ int updates_state_load(UpdatesState *out) {
         if (line[0] == '#' || line[0] == '\0') continue;
 
         char key[64];
-        int  val;
-        if (sscanf(line, "%63[^=]=%d", key, &val) != 2) {
+        long long val;
+        if (sscanf(line, "%63[^=]=%lld", key, &val) != 2) {
             fclose(fp);
             logger_log(LOG_WARN, "updates_state_load: malformed line: %s", line);
             return -2;
@@ -62,7 +62,7 @@ int updates_state_load(UpdatesState *out) {
 
         if (strcmp(key, "pts") == 0)  { tmp.pts  = (int32_t)val; fields++; }
         else if (strcmp(key, "qts") == 0)  { tmp.qts  = (int32_t)val; fields++; }
-        else if (strcmp(key, "date") == 0) { tmp.date = (int32_t)val; fields++; }
+        else if (strcmp(key, "date") == 0) { tmp.date = (int64_t)val; fields++; }
         else if (strcmp(key, "seq") == 0)  { tmp.seq  = (int32_t)val; fields++; }
         /* unread_count is informational only — not required. */
         else if (strcmp(key, "unread_count") == 0) {
@@ -119,7 +119,7 @@ int updates_state_save(const UpdatesState *st) {
     fprintf(fp, "# tg-cli updates state — do not edit by hand\n");
     fprintf(fp, "pts=%d\n",          (int)st->pts);
     fprintf(fp, "qts=%d\n",          (int)st->qts);
-    fprintf(fp, "date=%d\n",         (int)st->date);
+    fprintf(fp, "date=%lld\n",        (long long)st->date);
     fprintf(fp, "seq=%d\n",          (int)st->seq);
     fprintf(fp, "unread_count=%d\n", (int)st->unread_count);
 

@@ -135,7 +135,7 @@ static int parse_message(TlReader *r, HistoryEntry *out) {
         if (tl_skip_message_reply_header(r) != 0) { out->complex = 1; return -1; }
     }
     if (r->len - r->pos < 4) { out->complex = 1; return -1; }
-    out->date = tl_read_int32(r);
+    out->date = (int64_t)(int32_t)tl_read_int32(r);
 
     /* message:string — always present. */
     RAII_STRING char *msg = tl_read_string(r);

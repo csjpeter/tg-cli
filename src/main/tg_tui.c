@@ -184,10 +184,10 @@ static void do_history_any(const ApiConfig *cfg, MtProtoSession *s,
         return;
     }
     for (int i = 0; i < count; i++) {
-        printf("[%d] %s %d %s\n",
+        printf("[%d] %s %lld %s\n",
                entries[i].id,
                entries[i].out ? ">" : "<",
-               entries[i].date,
+               (long long)entries[i].date,
                entries[i].complex ? "(complex — text not parsed)"
                                    : entries[i].text);
     }
@@ -293,7 +293,7 @@ static void do_search(const ApiConfig *cfg, MtProtoSession *s, Transport *t,
     }
 
     for (int i = 0; i < n; i++) {
-        printf("%d  %d  %s\n", e[i].id, e[i].date,
+        printf("%d  %lld  %s\n", e[i].id, (long long)e[i].date,
                e[i].complex ? "(complex)" : e[i].text);
     }
     if (n == 0) puts("(no matches)");

@@ -65,7 +65,7 @@ static int parse_message(TlReader *r, HistoryEntry *out) {
     if (flags2 & (1u << 0))  { if (r->len - r->pos < 8) { out->complex=1; return -1; } tl_read_int64(r); }
     if (flags & (1u << 3))   if (tl_skip_message_reply_header(r) != 0) { out->complex=1; return -1; }
     if (r->len - r->pos < 4) { out->complex=1; return -1; }
-    out->date = tl_read_int32(r);
+    out->date = (int64_t)(int32_t)tl_read_int32(r);
 
     char *msg = tl_read_string(r);
     if (msg) {
@@ -132,7 +132,7 @@ static int parse_state(TlReader *r, UpdatesState *out) {
     }
     out->pts  = tl_read_int32(r);
     out->qts  = tl_read_int32(r);
-    out->date = tl_read_int32(r);
+    out->date = (int64_t)(int32_t)tl_read_int32(r);
     out->seq  = tl_read_int32(r);
     out->unread_count = tl_read_int32(r);
     return 0;
@@ -177,7 +177,7 @@ int domain_updates_difference(const ApiConfig *cfg,
     tl_write_uint32(&w, CRC_updates_getDifference);
     tl_write_uint32(&w, 0);                /* flags = 0 (no pts_total_limit) */
     tl_write_int32 (&w, in->pts);
-    tl_write_int32 (&w, in->date);
+    tl_write_int32 (&w, (int32_t)in->date);  /* wire is still int32 per TL schema */
     tl_write_int32 (&w, in->qts);
 
     uint8_t query[64];
@@ -207,7 +207,7 @@ int domain_updates_difference(const ApiConfig *cfg,
     if (crc == TL_updates_differenceEmpty) {
         out->is_empty = 1;
         /* differenceEmpty: date:int seq:int */
-        out->next_state.date = tl_read_int32(&r);
+        out->next_state.date = (int64_t)(int32_t)tl_read_int32(&r);
         out->next_state.seq  = tl_read_int32(&r);
         return 0;
     }
