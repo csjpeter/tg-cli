@@ -773,6 +773,80 @@ static void test_upload_nonexistent_path(void) {
 }
 
 /**
+ * File exceeding UPLOAD_MAX_SIZE (1.5 GiB): upload_chunk_phase rejects
+ * the file before any RPC is issued.  We use a sparse file created with
+ * truncate(2) — it reports a size of 2 GiB but consumes no disk space.
+ */
+static void test_upload_over_max_size_rejected(void) {
+    with_tmp_home("up-overmax");
+    mt_server_init(); mt_server_reset();
+    reset_counters();
+    MtProtoSession s; load_session(&s);
+    /* No responders — any RPC would cause the mock to fail. */
+
+    /* Create a sparse file whose reported size is 2 GiB (0x80000000 bytes),
+     * comfortably above UPLOAD_MAX_SIZE = 1.5 GiB.  truncate(2) extends the
+     * file without writing actual blocks, so this costs ~0 disk space. */
+    const char *big_path = "/tmp/tg-cli-fixture-overmax-TEST18.bin";
+    {
+        FILE *fp = fopen(big_path, "wb");
+        ASSERT(fp != NULL, "create sparse file placeholder");
+        fclose(fp);
+    }
+    /* 2 GiB = 2 * 1024 * 1024 * 1024 */
+    off_t two_gib = (off_t)2 * 1024 * 1024 * 1024;
+    ASSERT(truncate(big_path, two_gib) == 0, "truncate to 2 GiB (sparse)");
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    HistoryPeer self = { .kind = HISTORY_PEER_SELF };
+    RpcError err = {0};
+    ASSERT(domain_send_file(&cfg, &s, &t, &self, big_path,
+                            NULL, NULL, &err) == -1,
+           "2 GiB file returns -1 (over UPLOAD_MAX_SIZE)");
+    ASSERT(mt_server_rpc_call_count() == 0,
+           "over-max-size: no RPC fired");
+
+    unlink(big_path);
+    transport_close(&t);
+    mt_server_reset();
+}
+
+/**
+ * File just under UPLOAD_MAX_SIZE proceeds normally.  We use a small real
+ * file (1 KiB) — the point is that the size-cap branch is NOT taken.
+ * (The existing test_upload_small_document already covers this path, but
+ * having it adjacent to the over-limit test makes the boundary explicit.)
+ */
+static void test_upload_under_max_size_proceeds(void) {
+    with_tmp_home("up-undermax");
+    mt_server_init(); mt_server_reset();
+    reset_counters();
+    MtProtoSession s; load_session(&s);
+    mt_server_expect(CRC_upload_saveFilePart, on_save_file_part, NULL);
+    mt_server_expect(CRC_messages_sendMedia,  on_send_media,     NULL);
+
+    const char *path = make_tempfile("up-undermax", 1024);
+    ASSERT(path != NULL, "1 KiB tempfile created");
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    HistoryPeer self = { .kind = HISTORY_PEER_SELF };
+    RpcError err = {0};
+    ASSERT(domain_send_file(&cfg, &s, &t, &self, path,
+                            NULL, NULL, &err) == 0,
+           "1 KiB file (under UPLOAD_MAX_SIZE) succeeds");
+    ASSERT(mt_server_rpc_call_count() >= 1,
+           "under-max-size: at least one RPC fired");
+
+    unlink(path);
+    transport_close(&t);
+    mt_server_reset();
+}
+
+/**
  * Empty file (0 bytes): upload_chunk_phase rejects st_size == 0 before
  * any RPC is issued.
  */
@@ -824,4 +898,6 @@ void run_upload_download_tests(void) {
     RUN_TEST(test_upload_null_path);
     RUN_TEST(test_upload_nonexistent_path);
     RUN_TEST(test_upload_empty_file);
+    RUN_TEST(test_upload_over_max_size_rejected);
+    RUN_TEST(test_upload_under_max_size_proceeds);
 }
