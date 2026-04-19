@@ -79,6 +79,10 @@ optional.
 Show own profile (US-05).
 .TP
 .BI dialogs " [N]"
+.PD 0
+.TP
+.BI list " [N]"
+.PD
 List up to N dialogs (default 20) (US-04).
 .TP
 .BI history " [<peer>] [N]"
@@ -114,10 +118,18 @@ Send as a reply to an existing message id (US-12).
 Edit a previously sent message (US-13).
 .TP
 .BI delete " <peer> <msg_id> [revoke]"
+.PD 0
+.TP
+.BI del " <peer> <msg_id> [revoke]"
+.PD
 Delete a message; add the \fBrevoke\fR token to remove it for all
 participants (US-13).
 .TP
 .BI forward " <from> <to> <msg_id>"
+.PD 0
+.TP
+.BI fwd " <from> <to> <msg_id>"
+.PD
 Forward one message between peers (US-13).
 .TP
 .BI upload " <peer> <path> [caption]"
@@ -125,7 +137,7 @@ Upload a file as a document with an optional caption (US-14).
 
 .SS Session
 .TP
-.B help
+.B help, ?
 Show the full command list.
 .TP
 .B quit, exit, :q
