@@ -43,3 +43,124 @@ jobs:
         # Promote to fail-on-warning by removing '|| true' once the
         # baseline issues tracked in issues/verified/CI-02-*.md are fixed.
         run: ./manage.sh tidy || true
+
+  build-macos:
+    runs-on: macos-latest
+    # macOS backend (posix/) is complete; allow failures only while any
+    # remaining macOS-specific issues are tracked down.
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: brew install gcc openssl cmake
+
+      - name: Build (Release)
+        env:
+          OPENSSL_ROOT_DIR: /opt/homebrew/opt/openssl
+        run: |
+          # Resolve the versioned GCC installed by Homebrew (e.g. gcc-14)
+          GCC_BIN=$(ls /opt/homebrew/bin/gcc-* 2>/dev/null | sort -V | tail -1)
+          GCC_BIN="${GCC_BIN:-gcc}"
+          mkdir -p build
+          cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release \
+                   -DCMAKE_C_COMPILER="$GCC_BIN" \
+                   -DOPENSSL_ROOT_DIR="${OPENSSL_ROOT_DIR}"
+          cmake --build . -- -j$(sysctl -n hw.logicalcpu)
+
+      - name: Unit + functional tests
+        run: |
+          cd build
+          ./tests/unit/test-runner
+          ./tests/functional/functional-test-runner
+
+  build-windows-mingw:
+    runs-on: windows-latest
+    # Windows backend (windows/) is present but not yet fully verified;
+    # allow failures until the backend is known-good.
+    continue-on-error: true
+
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-openssl
+            make
+
+      - name: Build (Release)
+        run: |
+          mkdir -p build
+          cd build
+          cmake .. -G"MSYS Makefiles" \
+                   -DCMAKE_BUILD_TYPE=Release \
+                   -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc
+          cmake --build . -- -j$(nproc)
+
+  build-android-ndk:
+    runs-on: ubuntu-24.04
+    # Android NDK cross-compile smoke test; backend uses posix/ sources.
+    # Allowed to fail while NDK path quirks are being resolved.
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install CMake
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake
+
+      - name: Set up Android NDK
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r27c
+          add-to-path: true
+
+      - name: Build OpenSSL for Android (arm64-v8a)
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          # Cross-compile a minimal OpenSSL for Android arm64
+          sudo apt-get install -y wget
+          wget -q https://www.openssl.org/source/openssl-3.3.2.tar.gz
+          tar xf openssl-3.3.2.tar.gz
+          cd openssl-3.3.2
+          TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
+          export PATH="$TOOLCHAIN/bin:$PATH"
+          export ANDROID_NDK_ROOT="$ANDROID_NDK_HOME"
+          ./Configure android-arm64 \
+            --prefix="$GITHUB_WORKSPACE/openssl-android" \
+            no-shared no-tests no-ui-console
+          make -j$(nproc)
+          make install_sw
+
+      - name: Build tg-cli (Release, aarch64-linux-android)
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          TOOLCHAIN="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake"
+          mkdir -p build-android
+          cd build-android
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-26 \
+            -DOPENSSL_ROOT_DIR="$GITHUB_WORKSPACE/openssl-android" \
+            -DOPENSSL_INCLUDE_DIR="$GITHUB_WORKSPACE/openssl-android/include" \
+            -DOPENSSL_CRYPTO_LIBRARY="$GITHUB_WORKSPACE/openssl-android/lib/libcrypto.a" \
+            -DOPENSSL_SSL_LIBRARY="$GITHUB_WORKSPACE/openssl-android/lib/libssl.a"
+          cmake --build . -- -j$(nproc)
