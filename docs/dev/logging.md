@@ -12,7 +12,7 @@ and no libcurl**, so there is no `CURLINFO_*` dump to inspect.
 
 | Level | Meaning |
 |-------|---------|
-| `LOG_DEBUG` | Envelope-level MTProto dumps: `auth_key_id`, `msg_id`, `seq_no`, TL constructor CRC, ciphertext length. Plaintext bodies are included when `TG_CLI_LOG_PLAINTEXT=1` is set — off by default to keep secrets out of log files. |
+| `LOG_DEBUG` | Envelope-level MTProto dumps: `auth_key_id`, `msg_id`, `seq_no`, TL constructor CRC, ciphertext length. Plaintext TL bodies are not included (planned: `TG_CLI_LOG_PLAINTEXT` env var; see FEAT-XX). |
 | `LOG_INFO` | Application milestones: startup, config loaded, DC connect, handshake complete, session persisted, clean shutdown. |
 | `LOG_WARN` | Non-fatal issues: `bad_server_salt` retry, `FILE_MIGRATE_X`, missing optional config field, permission warning on `session.bin`. |
 | `LOG_ERROR` | Fatal errors: connection refused, DH verification failure, TL parse error. Also echoed to stderr. |
@@ -44,9 +44,8 @@ At `LOG_DEBUG` the RPC layer (`src/infrastructure/mtproto_rpc.c` +
 - decrypted inner envelope: `salt`, `session_id`, `msg_id`, `seq_no`,
   `length`, TL constructor CRC32.
 
-The TL body itself is **not dumped by default** — it can carry message
-bodies, 2FA tokens, or access_hashes. Enable `TG_CLI_LOG_PLAINTEXT=1`
-only on a throwaway test account.
+The TL body itself is **not dumped** — it can carry message bodies, 2FA tokens,
+or access_hashes. (Planned feature: `TG_CLI_LOG_PLAINTEXT=1` env var for opt-in plaintext logging on test accounts.)
 
 ## Purging Logs
 
