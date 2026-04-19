@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <time.h>
+#include <sys/wait.h>
 
 /* ── Time helpers ────────────────────────────────────────────────────── */
 
@@ -112,5 +113,29 @@ int pty_settle(PtySession *s, int quiet_ms) {
         } else {
             return -1; /* Error */
         }
+    }
+}
+
+int pty_wait_exit(PtySession *s, int timeout_ms) {
+    if (!s || s->child_pid <= 0) return -1;
+
+    /* Drain any remaining output first so the screen buffer is up to date. */
+    pty_drain(s);
+
+    long deadline = now_ms() + timeout_ms;
+    for (;;) {
+        int status = 0;
+        pid_t rc = waitpid(s->child_pid, &status, WNOHANG);
+        if (rc == s->child_pid) {
+            /* Drain once more to capture any output flushed just before exit. */
+            pty_drain(s);
+            s->child_pid = -1;
+            if (WIFEXITED(status)) return WEXITSTATUS(status);
+            if (WIFSIGNALED(status)) return 128 + WTERMSIG(status);
+            return -1;
+        }
+        if (rc < 0) return -1;
+        if (now_ms() >= deadline) return -1;
+        usleep(10000); /* poll at 10 ms intervals */
     }
 }

@@ -47,6 +47,9 @@ endif()
 # Find OpenSSL
 find_package(OpenSSL REQUIRED)
 
+# Find pthreads (used by the PTY test stub server)
+find_package(Threads REQUIRED)
+
 # Platform-specific sources
 if(WIN32)
     set(PLATFORM_SOURCES

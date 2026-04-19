@@ -99,6 +99,18 @@ int pty_wait_for(PtySession *s, const char *text, int timeout_ms);
 int pty_settle(PtySession *s, int quiet_ms);
 
 /**
+ * @brief Waits for the child process to exit and returns its exit status.
+ *
+ * Drains any remaining PTY output before waiting so the screen buffer
+ * reflects the final state.
+ *
+ * @param s          Session handle.
+ * @param timeout_ms Maximum wait in milliseconds.
+ * @return Exit status (0..255) on success, -1 on timeout or error.
+ */
+int pty_wait_exit(PtySession *s, int timeout_ms);
+
+/**
  * @brief Reads and processes any pending PTY output (non-blocking).
  * @return Number of bytes read, or 0 if nothing available.
  */
