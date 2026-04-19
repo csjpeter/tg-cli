@@ -197,8 +197,11 @@ The peer identifier is invalid or inaccessible. May be returned by any write com
 Success.
 .TP
 .B 1
-Arg-parse error, bootstrap failure, missing credentials, or RPC error
-(including FLOOD_WAIT_X and message/peer validation errors).
+Runtime error (bootstrap failure, missing credentials, RPC error,
+network error, message/peer validation failure).
+.TP
+.B 2
+Argument parse error (invalid flag or subcommand combination).
 
 .SH EXAMPLES
 .PP
