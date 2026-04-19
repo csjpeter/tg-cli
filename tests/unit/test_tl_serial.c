@@ -61,6 +61,9 @@ void test_tl_vector_overflow_int32(void);
 void test_tl_vector_overflow_uint64(void);
 void test_tl_vector_overflow_string(void);
 void test_tl_vector_overflow_reader_saturates(void);
+void test_tl_read_bytes_giant_length_claim(void);
+void test_tl_read_bytes_long_prefix_exact(void);
+void test_tl_read_bytes_invalid_ff_prefix(void);
 
 /* ================================================================
  * Writer tests
@@ -754,6 +757,73 @@ void test_tl_vector_overflow_reader_saturates(void) {
 }
 
 /* ================================================================
+ * TEST-36: tl_read_bytes giant / invalid length prefix tests
+ * ================================================================ */
+
+/**
+ * @brief 4-byte buffer [0xFE, 0xFF, 0xFF, 0xFF] claims 16 MB of data.
+ * The reader_has() guard must reject this without allocating 16 MB and
+ * return NULL cleanly.
+ */
+void test_tl_read_bytes_giant_length_claim(void) {
+    unsigned char buf[4] = {0xFE, 0xFF, 0xFF, 0xFF};
+    TlReader r = tl_reader_init(buf, sizeof(buf));
+    size_t len = 0;
+    unsigned char *b = tl_read_bytes(&r, &len);
+    ASSERT(b == NULL, "giant length claim must return NULL");
+    ASSERT(len == 0, "out_len must remain 0 on failure");
+    ASSERT(r.pos == r.len, "reader must be saturated after failure");
+}
+
+/**
+ * @brief Exact maximum valid long-form case: 4-byte header [0xFE, 0x00, 0x01, 0x00]
+ * followed by exactly 256 real bytes (260 total, already 4-aligned).
+ * Asserts correct length and content are returned.
+ */
+void test_tl_read_bytes_long_prefix_exact(void) {
+    size_t total = 4 + 256; /* header + data, already 4-aligned: 260 */
+    unsigned char *buf = (unsigned char *)calloc(1, total);
+    buf[0] = 0xFE;
+    buf[1] = 0x00; /* length LE: 0x000100 = 256 */
+    buf[2] = 0x01;
+    buf[3] = 0x00;
+    for (size_t i = 0; i < 256; i++) buf[4 + i] = (unsigned char)(i & 0xFF);
+
+    TlReader r = tl_reader_init(buf, total);
+    size_t len = 0;
+    unsigned char *b = tl_read_bytes(&r, &len);
+    ASSERT(b != NULL, "exact 256-byte long prefix must succeed");
+    ASSERT(len == 256, "length must be 256");
+    int ok = 1;
+    for (size_t i = 0; i < 256; i++) {
+        if (b[i] != (unsigned char)(i & 0xFF)) { ok = 0; break; }
+    }
+    ASSERT(ok, "content must match the input bytes");
+    ASSERT(r.pos == (size_t)total, "pos must advance to end of buffer");
+    free(b);
+    free(buf);
+}
+
+/**
+ * @brief First byte 0xFF is an invalid TL bytes prefix (reserved/undefined).
+ * The reader should treat it as a long-form prefix (>= 254) and then fail
+ * cleanly because the claimed length will exceed the tiny buffer.
+ */
+void test_tl_read_bytes_invalid_ff_prefix(void) {
+    /* 0xFF as first byte: the code treats first >= 254 as long form,
+     * reads 3-byte LE length from bytes 1-3.  With a 4-byte buffer that
+     * is all 0xFF, the claimed length is 0xFFFFFF = 16777215 bytes which
+     * far exceeds the 4-byte buffer.  reader_has() must reject it. */
+    unsigned char buf[4] = {0xFF, 0xFF, 0xFF, 0xFF};
+    TlReader r = tl_reader_init(buf, sizeof(buf));
+    size_t len = 0;
+    unsigned char *b = tl_read_bytes(&r, &len);
+    ASSERT(b == NULL, "0xFF prefix with insufficient buffer must return NULL");
+    ASSERT(len == 0, "out_len must remain 0 on 0xFF prefix failure");
+    ASSERT(r.pos == r.len, "reader must be saturated after 0xFF prefix failure");
+}
+
+/* ================================================================
  * Test suite entry point
  * ================================================================ */
 
@@ -808,4 +878,7 @@ void test_tl_serial(void) {
     RUN_TEST(test_tl_vector_overflow_uint64);
     RUN_TEST(test_tl_vector_overflow_string);
     RUN_TEST(test_tl_vector_overflow_reader_saturates);
+    RUN_TEST(test_tl_read_bytes_giant_length_claim);
+    RUN_TEST(test_tl_read_bytes_long_prefix_exact);
+    RUN_TEST(test_tl_read_bytes_invalid_ff_prefix);
 }
