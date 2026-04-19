@@ -181,11 +181,11 @@ bin/tg-cli
 
 ### Prerequisites
 
-You need an **api_id** and **api_hash** from Telegram (free):
+You need an api_id and api_hash from Telegram (free — one-time setup).
 
-1. Log in at https://my.telegram.org
-2. Go to "API development tools"
-3. Fill out the form
+See [docs/user/setup-my-telegram-org.md](docs/user/setup-my-telegram-org.md)
+for the step-by-step guide, or run `tg-tui login` after building to use
+the interactive wizard.
 
 ---
 

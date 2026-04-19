@@ -26,6 +26,7 @@ Format: one story per file, ≤30 lines.
 | US-15 | Cross-DC media routing (upload + download) | tg-cli-ro, tg-tui, tg-cli | done |
 | US-16 | Resolve `@username` + persistent session + `--logout` | all | done |
 | US-17 | Functional test coverage for every use case | tests | done (FT-01..07) |
+| US-18 | Onboarding and configuration (wizard + setup guide) | tg-tui, tg-cli, tg-cli-ro | pending |
 
 ## Conventions
 
