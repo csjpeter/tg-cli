@@ -11,6 +11,10 @@
 
 #define TG_CLI_VERSION "0.1.0"
 
+#ifndef TG_CLI_GIT_COMMIT
+#  define TG_CLI_GIT_COMMIT "unknown"
+#endif
+
 /* ---- Internal helpers ---- */
 
 /* Sentinels returned only by try_global_flag — never exposed to callers. */
@@ -471,5 +475,5 @@ int arg_parse(int argc, char **argv, ArgResult *out) {
 }
 
 void arg_print_version(void) {
-    printf("tg-cli %s\n", TG_CLI_VERSION);
+    printf("tg-cli %s (git %s)\n", TG_CLI_VERSION, TG_CLI_GIT_COMMIT);
 }

@@ -29,6 +29,21 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug"
     add_link_options(-fsanitize=address,undefined)
 endif()
 
+# Capture git commit hash at configure time
+find_package(Git QUIET)
+if(Git_FOUND)
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} describe --always --dirty
+        OUTPUT_VARIABLE TG_CLI_GIT_COMMIT
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+endif()
+if(NOT TG_CLI_GIT_COMMIT)
+    set(TG_CLI_GIT_COMMIT "unknown")
+endif()
+
 # Find OpenSSL
 find_package(OpenSSL REQUIRED)
 
@@ -94,6 +109,7 @@ target_include_directories(tg-proto PUBLIC
     src/vendor/tinf
 )
 
+target_compile_definitions(tg-proto PUBLIC TG_CLI_GIT_COMMIT="${TG_CLI_GIT_COMMIT}")
 target_link_libraries(tg-proto PUBLIC OpenSSL::SSL OpenSSL::Crypto)
 
 # Real OpenSSL crypto implementation. Production binaries link this;
