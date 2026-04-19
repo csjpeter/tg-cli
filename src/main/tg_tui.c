@@ -22,6 +22,12 @@
 #include "domain/read/user_info.h"
 #include "domain/read/contacts.h"
 #include "domain/read/search.h"
+#include "domain/read/media.h"
+
+#include "infrastructure/media_index.h"
+
+#include "platform/path.h"
+#include "fs_util.h"
 
 #include "domain/write/send.h"
 #include "domain/write/edit.h"
@@ -431,6 +437,86 @@ static void do_upload(const ApiConfig *cfg, MtProtoSession *s, Transport *t,
     printf("uploaded %s as %s\n", path, as_photo ? "photo" : "document");
 }
 
+static void do_download(const ApiConfig *cfg, MtProtoSession *s, Transport *t,
+                         char *arg) {
+    /* Syntax: download <peer> <msg_id> [out] */
+    if (!arg || !*arg) {
+        puts("usage: download <peer> <msg_id> [out]");
+        return;
+    }
+    char *rest = split_rest(arg);
+    if (!*rest) { puts("usage: download <peer> <msg_id> [out]"); return; }
+    char *out_arg = split_rest(rest);
+
+    int32_t mid = atoi(rest);
+    if (mid <= 0) { puts("download: <msg_id> must be positive"); return; }
+
+    HistoryPeer peer = {0};
+    if (resolve_history_peer(cfg, s, t, arg, &peer) != 0) {
+        printf("download: cannot resolve '%s'\n", arg);
+        return;
+    }
+
+    /* Fetch the single message using offset_id = msg_id + 1, limit = 1. */
+    HistoryEntry entry = {0};
+    int count = 0;
+    if (domain_get_history(cfg, s, t, &peer, mid + 1, 1, &entry, &count) != 0
+        || count == 0 || entry.id != mid) {
+        printf("download: message %d not found in this peer\n", mid);
+        return;
+    }
+    if (entry.media != MEDIA_PHOTO && entry.media != MEDIA_DOCUMENT) {
+        printf("download: message %d has no downloadable photo/document "
+               "(media kind=%d)\n", mid, (int)entry.media);
+        return;
+    }
+    if (entry.media_info.access_hash == 0
+        || entry.media_info.file_reference_len == 0) {
+        puts("download: missing access_hash or file_reference");
+        return;
+    }
+
+    /* Compose output path: explicit [out] > default cache path. */
+    char path_buf[2048];
+    const char *out_path = (*out_arg) ? out_arg : NULL;
+    if (!out_path) {
+        const char *cache = platform_cache_dir();
+        if (!cache) cache = "/tmp";
+        char dir_buf[1536];
+        snprintf(dir_buf, sizeof(dir_buf), "%s/tg-cli/downloads", cache);
+        fs_mkdir_p(dir_buf, 0700);
+        if (entry.media == MEDIA_DOCUMENT) {
+            const char *fn = entry.media_info.document_filename;
+            if (fn[0]) {
+                snprintf(path_buf, sizeof(path_buf), "%s/%s", dir_buf, fn);
+            } else {
+                snprintf(path_buf, sizeof(path_buf), "%s/doc-%lld",
+                         dir_buf, (long long)entry.media_info.document_id);
+            }
+        } else {
+            snprintf(path_buf, sizeof(path_buf), "%s/photo-%lld.jpg",
+                     dir_buf, (long long)entry.media_info.photo_id);
+        }
+        out_path = path_buf;
+    }
+
+    if (domain_download_media_cross_dc(cfg, s, t, &entry.media_info,
+                                        out_path) != 0) {
+        puts("download: failed (see logs)");
+        return;
+    }
+
+    /* Record in the media index so `history` can show inline paths. */
+    int64_t media_id = (entry.media == MEDIA_DOCUMENT)
+                     ? entry.media_info.document_id
+                     : entry.media_info.photo_id;
+    if (media_index_put(media_id, out_path) != 0) {
+        puts("download: warning: failed to update media index");
+    }
+
+    printf("saved: %s\n", out_path);
+}
+
 static void do_read(const ApiConfig *cfg, MtProtoSession *s, Transport *t,
                      const char *arg) {
     if (!arg || !*arg) { puts("usage: read <peer>"); return; }
@@ -476,6 +562,7 @@ static void print_help(void) {
         "  search [<peer>] <query>       Message search: per-peer or global (top 20)\n"
         "  poll                         One-shot updates.getDifference\n"
         "  read <peer>                  Mark peer's history as read\n"
+        "  download <peer> <msg_id> [out]  Download photo or document from message\n"
         "\n"
         "Write commands:\n"
         "  send <peer> <text>           Send a text message\n"
@@ -574,6 +661,7 @@ static int repl(const ApiConfig *cfg, MtProtoSession *s, Transport *t,
         }
         if (!strcmp(cmd, "read"))     { do_read(cfg, s, t, arg); continue; }
         if (!strcmp(cmd, "upload"))   { do_upload(cfg, s, t, arg); continue; }
+        if (!strcmp(cmd, "download")) { do_download(cfg, s, t, arg); continue; }
 
         printf("unknown command: %s  (try 'help')\n", cmd);
     }

@@ -109,6 +109,14 @@ to drain pending events (US-07).
 .TP
 .BI read " <peer>"
 Mark the peer's history as read (US-12).
+.TP
+.BI download " <peer> <msg_id> [out]"
+Download the photo or document attached to message \fImsg_id\fR in
+\fIpeer\fR. If \fIout\fR is omitted the file is saved to
+\fB~/.cache/tg-cli/downloads/\fR using an auto-generated name
+(\fBphoto-\fIid\fB.jpg\fR or the document filename). On success the
+saved path is printed. Updates the media index so subsequent
+\fBhistory\fR output can show inline paths (FEAT-10).
 
 .SS Write
 .TP
@@ -217,6 +225,8 @@ tg> send @user "hello there"
 tg> reply @user 12345 "nice"
 tg> edit  @user 12345 "fixed typo"
 tg> upload @user ~/docs/report.pdf "final version"
+tg> download @user 12345
+tg> download @user 12345 ~/pic.jpg
 tg> poll
 tg> :q
 .EE
