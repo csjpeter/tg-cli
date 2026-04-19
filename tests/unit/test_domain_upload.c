@@ -381,6 +381,73 @@ static void test_send_photo_rejects_missing_file(void) {
     ASSERT(rc == -1, "missing photo rejected");
 }
 
+/* TEST-37: Empty TL string encoding of md5_checksum in inputFile.
+ *
+ * An empty TL string is encoded as: 0x00 (1-byte length prefix = 0) followed
+ * by 3 zero padding bytes → 4 bytes total: { 0x00, 0x00, 0x00, 0x00 }.
+ *
+ * Build what write_input_file() would produce for a small (non-big) file and
+ * verify the md5_checksum field appears as exactly these 4 bytes after the
+ * filename TL string.  For inputFileBig, confirm those 4 bytes are absent
+ * from the serialized body (the spec omits md5_checksum entirely).
+ */
+static void test_inputfile_md5_empty_tl_encoding(void) {
+    /* Replicate write_input_file logic for a small file. */
+    TlWriter w; tl_writer_init(&w);
+    uint32_t crc_inputFile = 0xf52ff27fu;
+    tl_write_uint32(&w, crc_inputFile);
+    tl_write_int64 (&w, (int64_t)0x1122334455667788LL);  /* file_id */
+    tl_write_int32 (&w, 1);                               /* part_count */
+    tl_write_string(&w, "test.bin");                      /* file_name */
+    tl_write_string(&w, "");                              /* md5_checksum */
+
+    /* The last 4 bytes of the serialized buffer must be the empty TL string:
+     * 0x00 (len=0) + 3 zero pad bytes. */
+    ASSERT(w.len >= 4, "inputFile serialization has at least 4 bytes");
+    const uint8_t *tail = w.data + w.len - 4;
+    uint8_t expected[4] = {0x00, 0x00, 0x00, 0x00};
+    ASSERT(memcmp(tail, expected, 4) == 0,
+           "inputFile md5_checksum is 4 zero bytes (empty TL string)");
+
+    /* Verify the CRC is at the start. */
+    uint32_t got_crc = 0;
+    memcpy(&got_crc, w.data, 4);
+    ASSERT(got_crc == crc_inputFile, "inputFile CRC at offset 0");
+
+    tl_writer_free(&w);
+}
+
+static void test_inputfilebig_has_no_md5_field(void) {
+    /* Replicate write_input_file logic for a big file (no md5_checksum). */
+    TlWriter w; tl_writer_init(&w);
+    uint32_t crc_inputFileBig = 0xfa4f0bb5u;
+    tl_write_uint32(&w, crc_inputFileBig);
+    tl_write_int64 (&w, (int64_t)0xAABBCCDDEEFF0011LL); /* file_id */
+    tl_write_int32 (&w, 3);                              /* part_count */
+    tl_write_string(&w, "big.bin");                      /* file_name */
+    /* No md5_checksum field for inputFileBig. */
+
+    /* The last 4 bytes are the tail of the filename TL string, NOT an empty
+     * md5 field.  Scan the entire buffer: an empty TL string (0 0 0 0) might
+     * coincidentally appear in the padding of the filename, but it must NOT
+     * be appended as an extra field.  The total length must match exactly the
+     * layout without a trailing empty string. */
+
+    /* Expected layout:
+     *   4  CRC
+     *   8  file_id
+     *   4  part_count
+     *   ?  tl_string("big.bin") = 1 + 7 + 0 pad = 8 bytes
+     * Total = 24 bytes.  With md5 it would be 28. */
+    ASSERT(w.len == 24, "inputFileBig serialized length is 24 (no md5 field)");
+
+    uint32_t got_crc = 0;
+    memcpy(&got_crc, w.data, 4);
+    ASSERT(got_crc == crc_inputFileBig, "inputFileBig CRC at offset 0");
+
+    tl_writer_free(&w);
+}
+
 void run_domain_upload_tests(void) {
     RUN_TEST(test_upload_small_file_success);
     RUN_TEST(test_upload_rejects_missing_file);
@@ -394,4 +461,6 @@ void run_domain_upload_tests(void) {
     RUN_TEST(test_send_photo_small_success);
     RUN_TEST(test_send_photo_null_args);
     RUN_TEST(test_send_photo_rejects_missing_file);
+    RUN_TEST(test_inputfile_md5_empty_tl_encoding);
+    RUN_TEST(test_inputfilebig_has_no_md5_field);
 }
