@@ -27,6 +27,24 @@ jobs:
       - name: Unit tests with Valgrind
         run: ./manage.sh valgrind
 
+  ro-isolation:
+    runs-on: ubuntu-24.04
+    needs: build-and-test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake libssl-dev binutils
+
+      - name: Build (Release)
+        run: ./manage.sh build
+
+      - name: Check tg-cli-ro write-symbol isolation (ADR-0005)
+        run: ./manage.sh check-ro-isolation
+
   static-analysis:
     runs-on: ubuntu-24.04
 

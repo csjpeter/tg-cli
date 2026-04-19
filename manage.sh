@@ -15,17 +15,18 @@ show_help() {
     echo "Usage: ./manage.sh [command]"
     echo ""
     echo "Commands:"
-    echo "  deps           Install system dependencies (supports Ubuntu 24.04, Rocky 9)"
-    echo "  build          Build the project in Release mode"
-    echo "  debug          Build the project in Debug mode (with ASAN)"
-    echo "  run            Build and run the application"
-    echo "  test [filter]  Build and run unit + functional tests (with ASAN); optional substring filter"
-    echo "  valgrind       Build and run unit tests with Valgrind"
-    echo "  coverage       Run tests and generate coverage report"
-    echo "  tidy           Run clang-tidy static analysis on src/ (warn-only)"
-    echo "  clean-logs     Purge all application log files"
-    echo "  clean          Remove all build artifacts"
-    echo "  help           Show this help message"
+    echo "  deps               Install system dependencies (supports Ubuntu 24.04, Rocky 9)"
+    echo "  build              Build the project in Release mode"
+    echo "  debug              Build the project in Debug mode (with ASAN)"
+    echo "  run                Build and run the application"
+    echo "  test [filter]      Build and run unit + functional tests (with ASAN); optional substring filter"
+    echo "  valgrind           Build and run unit tests with Valgrind"
+    echo "  coverage           Run tests and generate coverage report"
+    echo "  tidy               Run clang-tidy static analysis on src/ (warn-only)"
+    echo "  check-ro-isolation Verify tg-cli-ro contains no write-domain symbols (ADR-0005)"
+    echo "  clean-logs         Purge all application log files"
+    echo "  clean              Remove all build artifacts"
+    echo "  help               Show this help message"
 }
 
 install_deps() {
@@ -185,6 +186,9 @@ case "$1" in
         ;;
     tidy)
         run_tidy
+        ;;
+    check-ro-isolation)
+        bash ci/check-ro-isolation.sh "${2:-$BIN_DIR/tg-cli-ro}"
         ;;
     clean-logs)
         rm -rf ~/.cache/tg-cli/logs/*

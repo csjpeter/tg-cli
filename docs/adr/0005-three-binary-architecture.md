@@ -43,8 +43,10 @@ feature flags as write features become available). `tg-cli` links both.
 
 If any source file under `src/domain/read/` contains a call to a mutating
 API (e.g. `messages.sendMessage`), CI will fail because `tg-cli-ro` won't
-compile/link. A CI grep-check prevents `tg-cli-ro` from accidentally
-pulling in write constructors.
+compile/link. Additionally, `ci/check-ro-isolation.sh` (also available as
+`./manage.sh check-ro-isolation`) runs `nm` against the built binary and
+fails if any `tg-domain-write` symbol is found. This check runs as the
+`ro-isolation` CI job in `.github/workflows/ci.yml`.
 
 ## Shared machinery
 
