@@ -1,6 +1,6 @@
 /**
  * @file domain/read/user_info.c
- * @brief contacts.resolveUsername minimal parser.
+ * @brief contacts.resolveUsername minimal parser with session-scoped cache.
  */
 
 #include "domain/read/user_info.h"
@@ -13,8 +13,61 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define CRC_contacts_resolveUsername 0xf93ccba3u
+
+/* ---- In-memory TTL cache ---- */
+
+/** TTL for resolved username cache entries (seconds). */
+#define RESOLVE_CACHE_TTL_S  300
+
+/** Maximum number of cached username resolutions. */
+#define RESOLVE_CACHE_MAX    32
+
+typedef struct {
+    int          valid;
+    time_t       fetched_at;
+    char         key[64];    /**< username without '@'. */
+    ResolvedPeer value;
+} ResolveCacheEntry;
+
+static ResolveCacheEntry s_rcache[RESOLVE_CACHE_MAX];
+
+void resolve_cache_flush(void) {
+    memset(s_rcache, 0, sizeof(s_rcache));
+}
+
+static const ResolvedPeer *rcache_lookup(const char *name) {
+    time_t now = time(NULL);
+    for (int i = 0; i < RESOLVE_CACHE_MAX; i++) {
+        if (!s_rcache[i].valid) continue;
+        if (strcmp(s_rcache[i].key, name) != 0) continue;
+        if ((now - s_rcache[i].fetched_at) >= RESOLVE_CACHE_TTL_S) {
+            s_rcache[i].valid = 0; /* expired */
+            return NULL;
+        }
+        return &s_rcache[i].value;
+    }
+    return NULL;
+}
+
+static void rcache_store(const char *name, const ResolvedPeer *rp) {
+    /* Prefer an empty slot; evict the oldest on full table. */
+    int slot = 0;
+    time_t oldest = s_rcache[0].fetched_at;
+    for (int i = 0; i < RESOLVE_CACHE_MAX; i++) {
+        if (!s_rcache[i].valid) { slot = i; break; }
+        if (s_rcache[i].fetched_at < oldest) { oldest = s_rcache[i].fetched_at; slot = i; }
+    }
+    s_rcache[slot].valid      = 1;
+    s_rcache[slot].fetched_at = time(NULL);
+    size_t klen = strlen(name);
+    if (klen >= sizeof(s_rcache[slot].key)) klen = sizeof(s_rcache[slot].key) - 1;
+    memcpy(s_rcache[slot].key, name, klen);
+    s_rcache[slot].key[klen] = '\0';
+    s_rcache[slot].value = *rp;
+}
 
 static void copy_small(char *dst, size_t cap, const char *src) {
     if (!dst || cap == 0) return;
@@ -77,8 +130,16 @@ int domain_resolve_username(const ApiConfig *cfg,
                              ResolvedPeer *out) {
     if (!cfg || !s || !t || !username || !out) return -1;
     memset(out, 0, sizeof(*out));
-    copy_small(out->username, sizeof(out->username),
-               *username == '@' ? username + 1 : username);
+    const char *bare = (*username == '@') ? username + 1 : username;
+    copy_small(out->username, sizeof(out->username), bare);
+
+    /* Check session-scoped cache first. */
+    const ResolvedPeer *cached = rcache_lookup(bare);
+    if (cached) {
+        *out = *cached;
+        logger_log(LOG_DEBUG, "resolve: cache hit for '%s'", bare);
+        return 0;
+    }
 
     uint8_t query[128];
     size_t qlen = 0;
@@ -143,7 +204,10 @@ int domain_resolve_username(const ApiConfig *cfg,
 
     /* users:Vector<User> */
     vec = tl_read_uint32(&r);
-    if (vec != TL_vector) return 0; /* we have basic info */
+    if (vec != TL_vector) {
+        rcache_store(bare, out);
+        return 0; /* we have basic info */
+    }
     uint32_t nusers = tl_read_uint32(&r);
     for (uint32_t i = 0; i < nusers; i++) {
         uint32_t ucrc = tl_read_uint32(&r);
@@ -159,5 +223,6 @@ int domain_resolve_username(const ApiConfig *cfg,
         break;
     }
 
+    rcache_store(bare, out);
     return 0;
 }

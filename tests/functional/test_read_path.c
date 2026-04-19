@@ -30,6 +30,9 @@
 #include "domain/read/updates.h"
 #include "arg_parse.h"
 
+/* for resolve cache flush */
+extern void resolve_cache_flush(void);
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -47,6 +50,11 @@
 #define CRC_updates_getState          0xedd4882aU
 #define CRC_updates_getDifference     0x19c2f763U
 #define CRC_peerNotifySettings        0xa83b0426U
+
+/* InputPeer CRCs (wire values for TEST-06 assertions). */
+#define CRC_inputPeerSelf             0x7da07ec9U
+#define CRC_inputPeerUser             0xdde8a54cU
+#define CRC_inputPeerChannel          0x27bcbbfcU
 
 /* ---- helpers ---- */
 
@@ -354,6 +362,86 @@ static void on_updates_diff_empty(MtRpcContext *ctx) {
 /* Generic handler for asserting RPC errors propagate. */
 static void on_generic_500(MtRpcContext *ctx) {
     mt_server_reply_error(ctx, 500, "INTERNAL_SERVER_ERROR");
+}
+
+/* contacts.resolvedPeer pointing at channel id 9001 with access_hash. */
+static void on_resolve_channel(MtRpcContext *ctx) {
+    TlWriter w;
+    tl_writer_init(&w);
+    tl_write_uint32(&w, TL_contacts_resolvedPeer);
+    tl_write_uint32(&w, TL_peerChannel);
+    tl_write_int64 (&w, 9001LL);
+    /* chats vector: one channel */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, TL_channel);
+    /* flags: bit 13 = has access_hash */
+    tl_write_uint32(&w, (1u << 13));
+    tl_write_uint32(&w, 0);                   /* flags2 */
+    tl_write_int64 (&w, 9001LL);
+    tl_write_int64 (&w, 0x0102030405060708LL);/* access_hash */
+    /* users vector: empty */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 0);
+    mt_server_reply_result(ctx, w.data, w.len);
+    tl_writer_free(&w);
+}
+
+/* Capture the InputPeer CRC and first 8 bytes of peer args from a
+ * getHistory request body (starts at CRC_messages_getHistory).
+ *
+ * Layout: [crc_getHistory:4][peer_crc:4][...peer_args...][offset_id:4]...
+ * We expose this via a static so the responder can write it and the test
+ * can read it after the call returns. */
+typedef struct {
+    uint32_t peer_crc;
+    int64_t  peer_id;
+    int64_t  peer_hash; /* valid only when peer_crc carries hash */
+    int32_t  offset_id; /* first int32 after the peer */
+} CapturedHistoryReq;
+
+static CapturedHistoryReq g_captured_req;
+
+static void on_history_capture(MtRpcContext *ctx) {
+    /* req_body starts with CRC_messages_getHistory (4 bytes). Skip it. */
+    if (ctx->req_body_len < 8) { on_history_empty(ctx); return; }
+    const uint8_t *p = ctx->req_body + 4; /* skip getHistory CRC */
+    size_t rem = ctx->req_body_len - 4;
+
+    uint32_t pcrc = (uint32_t)p[0] | ((uint32_t)p[1] << 8)
+                  | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+    g_captured_req.peer_crc  = pcrc;
+    g_captured_req.peer_id   = 0;
+    g_captured_req.peer_hash = 0;
+    g_captured_req.offset_id = 0;
+    p += 4; rem -= 4;
+
+    if (pcrc == CRC_inputPeerSelf) {
+        /* No additional fields; offset_id follows. */
+        if (rem >= 4) {
+            int32_t oi = (int32_t)((uint32_t)p[0] | ((uint32_t)p[1] << 8)
+                                  | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24));
+            g_captured_req.offset_id = oi;
+        }
+    } else if (pcrc == CRC_inputPeerUser || pcrc == CRC_inputPeerChannel) {
+        /* id:int64 + access_hash:int64 */
+        if (rem < 16) { on_history_empty(ctx); return; }
+        int64_t id = 0;
+        for (int i = 0; i < 8; i++) id |= ((int64_t)p[i]) << (i * 8);
+        p += 8; rem -= 8;
+        int64_t hash = 0;
+        for (int i = 0; i < 8; i++) hash |= ((int64_t)p[i]) << (i * 8);
+        p += 8; rem -= 8;
+        g_captured_req.peer_id   = id;
+        g_captured_req.peer_hash = hash;
+        if (rem >= 4) {
+            int32_t oi = (int32_t)((uint32_t)p[0] | ((uint32_t)p[1] << 8)
+                                  | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24));
+            g_captured_req.offset_id = oi;
+        }
+    }
+
+    on_history_empty(ctx);
 }
 
 /* ================================================================ */
@@ -711,6 +799,193 @@ static void test_self_alias_maps_to_cmd_me(void) {
     ASSERT(ar_me.command == CMD_ME, "me maps to CMD_ME");
 }
 
+/* ================================================================ */
+/* TEST-06: history peer variants                                   */
+/* ================================================================ */
+
+/* Case 1 — history self: getHistory must carry inputPeerSelf. */
+static void test_history_self(void) {
+    with_tmp_home("hist-self");
+    mt_server_init(); mt_server_reset();
+    resolve_cache_flush();
+    MtProtoSession s; load_session(&s);
+    memset(&g_captured_req, 0, sizeof(g_captured_req));
+    mt_server_expect(CRC_messages_getHistory, on_history_capture, NULL);
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    HistoryPeer peer = { .kind = HISTORY_PEER_SELF };
+    HistoryEntry rows[4]; int n = -1;
+    ASSERT(domain_get_history(&cfg, &s, &t, &peer, 0, 4, rows, &n) == 0,
+           "history_self ok");
+    ASSERT(g_captured_req.peer_crc == CRC_inputPeerSelf,
+           "wire carries inputPeerSelf");
+
+    transport_close(&t);
+    mt_server_reset();
+}
+
+/* Case 2 — history numeric user id: getHistory must carry inputPeerUser
+ * with id=123 and access_hash=0. */
+static void test_history_user_numeric_id(void) {
+    with_tmp_home("hist-uid");
+    mt_server_init(); mt_server_reset();
+    resolve_cache_flush();
+    MtProtoSession s; load_session(&s);
+    memset(&g_captured_req, 0, sizeof(g_captured_req));
+    mt_server_expect(CRC_messages_getHistory, on_history_capture, NULL);
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    HistoryPeer peer = { .kind = HISTORY_PEER_USER, .peer_id = 123, .access_hash = 0 };
+    HistoryEntry rows[4]; int n = -1;
+    ASSERT(domain_get_history(&cfg, &s, &t, &peer, 0, 4, rows, &n) == 0,
+           "history numeric id ok");
+    ASSERT(g_captured_req.peer_crc == CRC_inputPeerUser,
+           "wire carries inputPeerUser");
+    ASSERT(g_captured_req.peer_id == 123LL, "peer_id == 123");
+    ASSERT(g_captured_req.peer_hash == 0LL, "access_hash == 0");
+
+    transport_close(&t);
+    mt_server_reset();
+}
+
+/* Case 3 — history @foo: resolveUsername fires, then getHistory carries
+ * inputPeerUser with id=8001 and the resolved access_hash. */
+static void test_history_username_resolve(void) {
+    with_tmp_home("hist-uname");
+    mt_server_init(); mt_server_reset();
+    resolve_cache_flush();
+    MtProtoSession s; load_session(&s);
+    memset(&g_captured_req, 0, sizeof(g_captured_req));
+    mt_server_expect(CRC_contacts_resolveUsername, on_resolve_user, NULL);
+    mt_server_expect(CRC_messages_getHistory, on_history_capture, NULL);
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    /* Resolve @foo first, then pass the result into history. */
+    ResolvedPeer rp = {0};
+    ASSERT(domain_resolve_username(&cfg, &s, &t, "@foo", &rp) == 0,
+           "resolve @foo ok");
+    ASSERT(rp.kind == RESOLVED_KIND_USER, "resolved as USER");
+    ASSERT(rp.id == 8001LL, "resolved id == 8001");
+
+    HistoryPeer peer = {
+        .kind        = HISTORY_PEER_USER,
+        .peer_id     = rp.id,
+        .access_hash = rp.access_hash,
+    };
+    HistoryEntry rows[4]; int n = -1;
+    ASSERT(domain_get_history(&cfg, &s, &t, &peer, 0, 4, rows, &n) == 0,
+           "getHistory after resolve ok");
+    ASSERT(g_captured_req.peer_crc == CRC_inputPeerUser,
+           "wire carries inputPeerUser");
+    ASSERT(g_captured_req.peer_id == 8001LL, "peer_id == 8001");
+    ASSERT((uint64_t)g_captured_req.peer_hash == 0xDEADBEEFCAFEBABEULL,
+           "access_hash threaded through");
+
+    transport_close(&t);
+    mt_server_reset();
+}
+
+/* Case 4 — history @channel: resolved as channel, access_hash threads to
+ * getHistory via inputPeerChannel. */
+static void test_history_channel_access_hash(void) {
+    with_tmp_home("hist-chan");
+    mt_server_init(); mt_server_reset();
+    resolve_cache_flush();
+    MtProtoSession s; load_session(&s);
+    memset(&g_captured_req, 0, sizeof(g_captured_req));
+    mt_server_expect(CRC_contacts_resolveUsername, on_resolve_channel, NULL);
+    mt_server_expect(CRC_messages_getHistory, on_history_capture, NULL);
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    ResolvedPeer rp = {0};
+    ASSERT(domain_resolve_username(&cfg, &s, &t, "@mychannel", &rp) == 0,
+           "resolve @mychannel ok");
+    ASSERT(rp.kind == RESOLVED_KIND_CHANNEL, "resolved as CHANNEL");
+    ASSERT(rp.id == 9001LL, "channel id == 9001");
+    ASSERT((uint64_t)rp.access_hash == 0x0102030405060708ULL,
+           "channel access_hash");
+
+    HistoryPeer peer = {
+        .kind        = HISTORY_PEER_CHANNEL,
+        .peer_id     = rp.id,
+        .access_hash = rp.access_hash,
+    };
+    HistoryEntry rows[4]; int n = -1;
+    ASSERT(domain_get_history(&cfg, &s, &t, &peer, 0, 4, rows, &n) == 0,
+           "getHistory channel ok");
+    ASSERT(g_captured_req.peer_crc == CRC_inputPeerChannel,
+           "wire carries inputPeerChannel");
+    ASSERT(g_captured_req.peer_id == 9001LL, "channel peer_id == 9001");
+    ASSERT((uint64_t)g_captured_req.peer_hash == 0x0102030405060708ULL,
+           "channel access_hash on wire");
+
+    transport_close(&t);
+    mt_server_reset();
+}
+
+/* Case 5 — --offset flag: offset_id=50 lands on the wire. */
+static void test_history_offset_flag(void) {
+    with_tmp_home("hist-off");
+    mt_server_init(); mt_server_reset();
+    resolve_cache_flush();
+    MtProtoSession s; load_session(&s);
+    memset(&g_captured_req, 0, sizeof(g_captured_req));
+    mt_server_expect(CRC_messages_getHistory, on_history_capture, NULL);
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    HistoryPeer peer = { .kind = HISTORY_PEER_SELF };
+    HistoryEntry rows[4]; int n = -1;
+    ASSERT(domain_get_history(&cfg, &s, &t, &peer, 50, 4, rows, &n) == 0,
+           "history offset ok");
+    ASSERT(g_captured_req.peer_crc == CRC_inputPeerSelf,
+           "peer is inputPeerSelf");
+    ASSERT(g_captured_req.offset_id == 50, "offset_id == 50 on wire");
+
+    transport_close(&t);
+    mt_server_reset();
+}
+
+/* Case 6 — resolve cache hit: two consecutive calls fire one RPC.
+ * The second call must return the same data from cache. */
+static void test_history_cache_hit(void) {
+    with_tmp_home("hist-cache");
+    mt_server_init(); mt_server_reset();
+    resolve_cache_flush();
+    MtProtoSession s; load_session(&s);
+    mt_server_expect(CRC_contacts_resolveUsername, on_resolve_user, NULL);
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    /* First call: goes to the wire. */
+    ResolvedPeer rp1 = {0};
+    ASSERT(domain_resolve_username(&cfg, &s, &t, "@cached_user", &rp1) == 0,
+           "first resolve ok");
+    int calls_after_first = mt_server_rpc_call_count();
+
+    /* Second call: must be served from cache — no new RPC. */
+    ResolvedPeer rp2 = {0};
+    ASSERT(domain_resolve_username(&cfg, &s, &t, "@cached_user", &rp2) == 0,
+           "second resolve ok (from cache)");
+    ASSERT(mt_server_rpc_call_count() == calls_after_first,
+           "no additional RPC for cache hit");
+    ASSERT(rp2.id == rp1.id, "cached id matches");
+    ASSERT(rp2.access_hash == rp1.access_hash, "cached hash matches");
+
+    transport_close(&t);
+    mt_server_reset();
+}
+
 void run_read_path_tests(void) {
     RUN_TEST(test_get_self);
     RUN_TEST(test_get_self_premium);
@@ -721,6 +996,12 @@ void run_read_path_tests(void) {
     RUN_TEST(test_dialogs_not_modified_variant);
     RUN_TEST(test_history_empty);
     RUN_TEST(test_history_one_message_empty);
+    RUN_TEST(test_history_self);
+    RUN_TEST(test_history_user_numeric_id);
+    RUN_TEST(test_history_username_resolve);
+    RUN_TEST(test_history_channel_access_hash);
+    RUN_TEST(test_history_offset_flag);
+    RUN_TEST(test_history_cache_hit);
     RUN_TEST(test_contacts_empty);
     RUN_TEST(test_contacts_two);
     RUN_TEST(test_resolve_username_happy);
