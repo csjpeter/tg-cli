@@ -752,6 +752,32 @@ static void test_resolve_username_not_found(void) {
     mt_server_reset();
 }
 
+/* TEST-22: resolveUsername returns TL_channel — verify ResolvedPeer is populated
+ * with kind=CHANNEL, correct id and access_hash.  No follow-up getHistory call
+ * is made; this exercises the channel branch of domain_resolve_username alone. */
+static void test_resolve_username_channel(void) {
+    with_tmp_home("resolve-chan");
+    mt_server_init(); mt_server_reset();
+    resolve_cache_flush();
+    MtProtoSession s; load_session(&s);
+    mt_server_expect(CRC_contacts_resolveUsername, on_resolve_channel, NULL);
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    ResolvedPeer rp = {0};
+    ASSERT(domain_resolve_username(&cfg, &s, &t, "@mychannel", &rp) == 0,
+           "resolve channel ok");
+    ASSERT(rp.kind == RESOLVED_KIND_CHANNEL, "kind == RESOLVED_KIND_CHANNEL");
+    ASSERT(rp.id == 9001LL, "channel id == 9001");
+    ASSERT(rp.have_hash == 1, "have_hash set for channel");
+    ASSERT((uint64_t)rp.access_hash == 0x0102030405060708ULL,
+           "channel access_hash value matches");
+
+    transport_close(&t);
+    mt_server_reset();
+}
+
 static void test_updates_state(void) {
     with_tmp_home("upd-state");
     mt_server_init(); mt_server_reset();
@@ -1365,6 +1391,7 @@ void run_read_path_tests(void) {
     RUN_TEST(test_contacts_two);
     RUN_TEST(test_resolve_username_happy);
     RUN_TEST(test_resolve_username_not_found);
+    RUN_TEST(test_resolve_username_channel);
     RUN_TEST(test_get_full_user_happy);
     RUN_TEST(test_updates_state);
     RUN_TEST(test_updates_difference_empty);
