@@ -40,6 +40,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 /* CRCs that are not already exposed by a public header. Keys that would
@@ -611,6 +612,55 @@ static void test_batch_rejects_missing_credentials(void) {
     }
 }
 
+static void test_credentials_env_override(void) {
+    /* Write a config.ini with known values that should be overridden. */
+    char tmp[256];
+    snprintf(tmp, sizeof(tmp), "/tmp/tg-cli-ft-login-env-override");
+    char cfg_dir[512];
+    snprintf(cfg_dir, sizeof(cfg_dir), "%s/.config/tg-cli", tmp);
+    char ini[600];
+    snprintf(ini, sizeof(ini), "%s/config.ini", cfg_dir);
+
+    /* Create directory and write INI with values that differ from env. */
+    (void)mkdir(tmp, 0700);
+    (void)mkdir(cfg_dir, 0700);
+    {
+        FILE *fp = fopen(ini, "w");
+        if (fp) {
+            fprintf(fp, "api_id=1111\napi_hash=aaahash\n");
+            fclose(fp);
+        }
+    }
+
+    /* Override HOME so platform_config_dir() uses our tmp tree. */
+    char saved_home[512];
+    const char *orig_home = getenv("HOME");
+    if (orig_home) snprintf(saved_home, sizeof(saved_home), "%s", orig_home);
+    else saved_home[0] = '\0';
+    setenv("HOME", tmp, 1);
+
+    /* Set env vars that must take precedence over the INI file. */
+    setenv("TG_CLI_API_ID",   "9999",    1);
+    setenv("TG_CLI_API_HASH", "zzzHash", 1);
+
+    ApiConfig cfg;
+    int rc = credentials_load(&cfg);
+    ASSERT(rc == 0, "credentials_load returns 0 when env vars are set");
+    ASSERT(cfg.api_id == 9999,
+           "credentials_load returns api_id from env, not INI");
+    ASSERT(cfg.api_hash != NULL,
+           "credentials_load returns non-NULL api_hash from env");
+    ASSERT(strcmp(cfg.api_hash, "zzzHash") == 0,
+           "credentials_load returns api_hash value from env, not INI");
+
+    /* Cleanup. */
+    unsetenv("TG_CLI_API_ID");
+    unsetenv("TG_CLI_API_HASH");
+    if (saved_home[0]) setenv("HOME", saved_home, 1);
+    else unsetenv("HOME");
+    (void)unlink(ini);
+}
+
 void run_login_flow_tests(void) {
     RUN_TEST(test_send_code_happy);
     RUN_TEST(test_send_code_invalid_phone);
@@ -625,4 +675,5 @@ void run_login_flow_tests(void) {
     RUN_TEST(test_session_persistence_roundtrip);
     RUN_TEST(test_logout_clears_session);
     RUN_TEST(test_batch_rejects_missing_credentials);
+    RUN_TEST(test_credentials_env_override);
 }
