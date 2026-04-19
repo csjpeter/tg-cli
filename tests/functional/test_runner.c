@@ -27,6 +27,7 @@ void run_write_path_tests(void);
 void run_upload_download_tests(void);
 void run_dialogs_cache_ttl_tests(void);
 void run_tui_e2e_tests(void);
+void run_send_stdin_tests(void);
 
 int main(void) {
     run_ige_aes_functional_tests();
@@ -42,6 +43,7 @@ int main(void) {
     run_upload_download_tests();
     run_dialogs_cache_ttl_tests();
     run_tui_e2e_tests();
+    run_send_stdin_tests();
 
     printf("\n--- Functional Test Results ---\n");
     printf("Tests Run:    %d\n", g_tests_run);
