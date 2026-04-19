@@ -116,6 +116,7 @@ static void test_dialogs_cache_ttl(void) {
     /* Arm the fake clock at t=0. */
     s_fake_time = 1000;
     dialogs_cache_set_now_fn(fake_now);
+    dialogs_cache_flush();
 
     mt_server_expect(CRC_messages_getDialogs, on_dialogs_one, NULL);
 
