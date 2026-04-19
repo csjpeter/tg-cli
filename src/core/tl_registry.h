@@ -70,7 +70,8 @@
 #define TL_messageEmpty         0x90a6ca84
 #define TL_messageService       0x2b085862
 #define TL_messages_dialogs     0x15ba6c40
-#define TL_messages_dialogsSlice 0x71e094f3
+#define TL_messages_dialogsSlice     0x71e094f3
+#define TL_messages_dialogsNotModified 0xf0e3e596
 #define TL_messages_messages    0x8c718e87
 #define TL_messages_messagesSlice 0x3a54685e
 #define TL_messages_channelMessages 0xc776ba4e

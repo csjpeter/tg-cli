@@ -208,6 +208,17 @@ static void on_dialogs_slice(MtRpcContext *ctx) {
     tl_writer_free(&w);
 }
 
+/* messages.dialogsNotModified#f0e3e596 count:int — server says nothing changed;
+ * reports 37 total dialogs in the cache. */
+static void on_dialogs_not_modified(MtRpcContext *ctx) {
+    TlWriter w;
+    tl_writer_init(&w);
+    tl_write_uint32(&w, TL_messages_dialogsNotModified);
+    tl_write_int32 (&w, 37);    /* count */
+    mt_server_reply_result(ctx, w.data, w.len);
+    tl_writer_free(&w);
+}
+
 /* messages.messages empty. */
 static void on_history_empty(MtRpcContext *ctx) {
     TlWriter w;
@@ -430,6 +441,33 @@ static void test_dialogs_slice_variant(void) {
     mt_server_reset();
 }
 
+/* TEST-03: messages.dialogsNotModified variant — server returns the not-modified
+ * constructor with a count field.  The domain should return success with zero
+ * entries and surface the server count via total_count so callers know their
+ * cached list is still valid. */
+static void test_dialogs_not_modified_variant(void) {
+    with_tmp_home("dlg-notmod");
+    mt_server_init(); mt_server_reset();
+    MtProtoSession s; load_session(&s);
+    mt_server_expect(CRC_messages_getDialogs, on_dialogs_not_modified, NULL);
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    DialogEntry rows[8];
+    int n = -1;
+    int total = -1;
+    ASSERT(domain_get_dialogs(&cfg, &s, &t, 8, 0, rows, &n, &total) == 0,
+           "get_dialogs succeeds on not-modified");
+    /* Zero entries — caller must consult its cache. */
+    ASSERT(n == 0, "zero entries on not-modified");
+    /* Server-reported count must propagate so the caller knows cache is valid. */
+    ASSERT(total == 37, "total_count carries server count");
+
+    transport_close(&t);
+    mt_server_reset();
+}
+
 static void test_history_empty(void) {
     with_tmp_home("hist-empty");
     mt_server_init(); mt_server_reset();
@@ -617,6 +655,7 @@ void run_read_path_tests(void) {
     RUN_TEST(test_dialogs_empty);
     RUN_TEST(test_dialogs_one_user);
     RUN_TEST(test_dialogs_slice_variant);
+    RUN_TEST(test_dialogs_not_modified_variant);
     RUN_TEST(test_history_empty);
     RUN_TEST(test_history_one_message_empty);
     RUN_TEST(test_contacts_empty);

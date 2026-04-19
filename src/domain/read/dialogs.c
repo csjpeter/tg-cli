@@ -129,6 +129,20 @@ int domain_get_dialogs(const ApiConfig *cfg,
         return -1;
     }
 
+    /* messages.dialogsNotModified#f0e3e596 count:int
+     * Returned by the server when the client's hash matches the cached list —
+     * no entries follow.  We surface count via total_count and return 0
+     * dialogs so callers know the cache is valid. */
+    if (top == TL_messages_dialogsNotModified) {
+        TlReader r = tl_reader_init(resp, resp_len);
+        tl_read_uint32(&r); /* skip constructor */
+        int32_t srv_count = tl_read_int32(&r);
+        if (total_count) *total_count = (int)srv_count;
+        logger_log(LOG_DEBUG,
+                   "dialogs: not-modified, server count=%d", srv_count);
+        return 0; /* *out_count remains 0; caller should use its cache */
+    }
+
     if (top != TL_messages_dialogs && top != TL_messages_dialogsSlice) {
         logger_log(LOG_ERROR,
                    "dialogs: unexpected top constructor 0x%08x", top);
