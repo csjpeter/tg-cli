@@ -510,6 +510,121 @@ static void test_path_is_image(void) {
 }
 
 /* ================================================================ */
+/* Caption propagation tests (TEST-16)                              */
+/* ================================================================ */
+
+/* Stores a copy of the sendMedia body for inspection. */
+static uint8_t  g_send_media_body[4096];
+static size_t   g_send_media_body_len = 0;
+
+static void on_send_media_capture(MtRpcContext *ctx) {
+    /* Save a copy of the full request body so the test can inspect it. */
+    size_t cap = ctx->req_body_len;
+    if (cap > sizeof(g_send_media_body))
+        cap = sizeof(g_send_media_body);
+    memcpy(g_send_media_body, ctx->req_body, cap);
+    g_send_media_body_len = cap;
+
+    /* Reply with a minimal updates envelope. */
+    TlWriter w;
+    tl_writer_init(&w);
+    tl_write_uint32(&w, TL_updates);
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 0);
+    tl_write_int32 (&w, 0); tl_write_int32 (&w, 0);
+    mt_server_reply_result(ctx, w.data, w.len);
+    tl_writer_free(&w);
+}
+
+/* Return 1 if @p needle (len @p nlen) appears anywhere inside
+ * [body, body+blen).  Simple byte-scan, no dependency on <string.h>
+ * memmem (which is a GNU extension). */
+static int body_contains(const uint8_t *body, size_t blen,
+                          const char *needle, size_t nlen) {
+    if (nlen == 0 || blen < nlen) return 0;
+    for (size_t i = 0; i <= blen - nlen; ++i) {
+        if (memcmp(body + i, needle, nlen) == 0) return 1;
+    }
+    return 0;
+}
+
+/**
+ * domain_send_file with caption "final version" → the exact byte sequence
+ * "final version" must appear inside the messages.sendMedia wire body.
+ */
+static void test_send_file_caption_propagates(void) {
+    with_tmp_home("cap-set");
+    mt_server_init(); mt_server_reset();
+    reset_counters();
+    g_send_media_body_len = 0;
+
+    MtProtoSession s; load_session(&s);
+    mt_server_expect(CRC_upload_saveFilePart, on_save_file_part,     NULL);
+    mt_server_expect(CRC_messages_sendMedia,  on_send_media_capture, NULL);
+
+    const char *path = make_tempfile("cap-set", 512);
+    ASSERT(path != NULL, "tempfile created");
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    HistoryPeer self = { .kind = HISTORY_PEER_SELF };
+    RpcError err = {0};
+    ASSERT(domain_send_file(&cfg, &s, &t, &self, path,
+                            "final version", "text/plain", &err) == 0,
+           "domain_send_file with caption ok");
+
+    const char *cap = "final version";
+    ASSERT(body_contains(g_send_media_body, g_send_media_body_len,
+                         cap, strlen(cap)),
+           "caption 'final version' found in sendMedia wire bytes");
+
+    unlink(path);
+    transport_close(&t);
+    mt_server_reset();
+}
+
+/**
+ * domain_send_file with no caption (NULL) → empty TL string on the wire.
+ * An empty TL string is encoded as a single 0x00 byte (length=0, no padding
+ * needed since 1+0=1, padded to 4 → 3 zero pad bytes).  We check that the
+ * literal string "final version" does NOT appear in the request.
+ */
+static void test_send_file_no_caption_empty_string(void) {
+    with_tmp_home("cap-empty");
+    mt_server_init(); mt_server_reset();
+    reset_counters();
+    g_send_media_body_len = 0;
+
+    MtProtoSession s; load_session(&s);
+    mt_server_expect(CRC_upload_saveFilePart, on_save_file_part,     NULL);
+    mt_server_expect(CRC_messages_sendMedia,  on_send_media_capture, NULL);
+
+    const char *path = make_tempfile("cap-empty", 512);
+    ASSERT(path != NULL, "tempfile created");
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    HistoryPeer self = { .kind = HISTORY_PEER_SELF };
+    RpcError err = {0};
+    ASSERT(domain_send_file(&cfg, &s, &t, &self, path,
+                            NULL, "text/plain", &err) == 0,
+           "domain_send_file without caption ok");
+
+    /* The request body must NOT contain a non-empty caption string. */
+    const char *cap = "final version";
+    ASSERT(!body_contains(g_send_media_body, g_send_media_body_len,
+                          cap, strlen(cap)),
+           "no spurious caption in sendMedia wire bytes when caption is NULL");
+
+    unlink(path);
+    transport_close(&t);
+    mt_server_reset();
+}
+
+/* ================================================================ */
 /* Cache-reuse tests (TEST-08)                                      */
 /* ================================================================ */
 
@@ -613,4 +728,6 @@ void run_upload_download_tests(void) {
     RUN_TEST(test_path_is_image);
     RUN_TEST(test_download_photo_cache_reuse);
     RUN_TEST(test_download_document_cache_reuse);
+    RUN_TEST(test_send_file_caption_propagates);
+    RUN_TEST(test_send_file_no_caption_empty_string);
 }
