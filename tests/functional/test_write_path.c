@@ -140,6 +140,10 @@ static void on_send_message_peer_invalid(MtRpcContext *ctx) {
     mt_server_reply_error(ctx, 400, "PEER_ID_INVALID");
 }
 
+static void on_send_message_flood_wait(MtRpcContext *ctx) {
+    mt_server_reply_error(ctx, 420, "FLOOD_WAIT_30");
+}
+
 static void on_edit_message(MtRpcContext *ctx) {
     reply_updates_empty(ctx);
 }
@@ -256,6 +260,32 @@ static void test_send_message_rpc_error(void) {
     ASSERT(err.error_code == 400, "400");
     ASSERT(strcmp(err.error_msg, "PEER_ID_INVALID") == 0,
            "PEER_ID_INVALID propagated");
+
+    transport_close(&t);
+    mt_server_reset();
+}
+
+static void test_send_message_flood_wait(void) {
+    with_tmp_home("send-flood");
+    mt_server_init(); mt_server_reset();
+    MtProtoSession s; load_session(&s);
+    mt_server_expect(CRC_messages_sendMessage, on_send_message_flood_wait, NULL);
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    HistoryPeer self = { .kind = HISTORY_PEER_SELF };
+    int32_t mid = 0;
+    RpcError err = {0};
+    int rc = domain_send_message(&cfg, &s, &t, &self, "hi", &mid, &err);
+    ASSERT(rc == -1, "FLOOD_WAIT_30 must return -1");
+    ASSERT(err.error_code == 420, "error_code == 420");
+    ASSERT(strcmp(err.error_msg, "FLOOD_WAIT_30") == 0,
+           "error_msg is FLOOD_WAIT_30");
+    ASSERT(err.flood_wait_secs == 30, "flood_wait_secs parsed as 30");
+    /* Verify no auto-retry: exactly one RPC call dispatched. */
+    ASSERT(mt_server_rpc_call_count() == 1,
+           "no auto-retry: exactly 1 RPC call");
 
     transport_close(&t);
     mt_server_reset();
@@ -414,6 +444,7 @@ void run_write_path_tests(void) {
     RUN_TEST(test_send_message_reply);
     RUN_TEST(test_send_message_empty_rejected);
     RUN_TEST(test_send_message_rpc_error);
+    RUN_TEST(test_send_message_flood_wait);
     RUN_TEST(test_edit_message_happy);
     RUN_TEST(test_edit_message_not_modified);
     RUN_TEST(test_delete_messages_user);
