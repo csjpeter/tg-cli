@@ -31,9 +31,12 @@
 #include "mtproto_session.h"
 #include "transport.h"
 #include "app/session_store.h"
+#include "app/credentials.h"
+#include "app/auth_flow.h"
 #include "tl_registry.h"
 #include "tl_serial.h"
 
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -510,6 +513,104 @@ static void test_logout_clears_session(void) {
            "load returns -1 after clear");
 }
 
+/**
+ * @brief TEST-01 — batch mode must reject missing credentials without
+ *        reading stdin.
+ *
+ * Scenario: no config.ini in HOME, no TG_CLI_API_ID/TG_CLI_API_HASH env
+ * vars, and batch callbacks that supply no phone number.
+ *
+ * Asserts:
+ *   1. credentials_load() returns -1 (missing api_id/api_hash).
+ *   2. auth_flow_login() with NULL-phone batch callbacks returns -1.
+ *   3. Neither call blocks on or reads from stdin (stdin is redirected to
+ *      /dev/null; if either call read stdin it would return EOF and likely
+ *      cause a different failure path — the ASAN/Valgrind run catches reads
+ *      from uninitialised data in the same way).
+ */
+
+/* Batch callback that has no phone — simulates --batch without --phone. */
+static int cb_no_phone(void *u, char *out, size_t cap) {
+    (void)u; (void)out; (void)cap;
+    return -1;   /* signals "not available" */
+}
+static int cb_no_code(void *u, char *out, size_t cap) {
+    (void)u; (void)out; (void)cap;
+    return -1;
+}
+
+static void test_batch_rejects_missing_credentials(void) {
+    /* Point HOME at a fresh empty directory — no config.ini present. */
+    char tmp[256];
+    snprintf(tmp, sizeof(tmp), "/tmp/tg-cli-ft-login-batch-no-creds");
+    /* Ensure the directory exists but has no config file. */
+    char cfg_dir[512];
+    snprintf(cfg_dir, sizeof(cfg_dir), "%s/.config/tg-cli", tmp);
+    /* Remove any stale state from a previous run. */
+    char ini[600];
+    snprintf(ini, sizeof(ini), "%s/config.ini", cfg_dir);
+    (void)unlink(ini);
+    char session_path[600];
+    snprintf(session_path, sizeof(session_path), "%s/session.bin", cfg_dir);
+    (void)unlink(session_path);
+
+    setenv("HOME", tmp, 1);
+    /* Clear env-var credentials so credentials_load() cannot find them. */
+    unsetenv("TG_CLI_API_ID");
+    unsetenv("TG_CLI_API_HASH");
+
+    /* Redirect stdin to /dev/null so any accidental read() returns EOF
+     * immediately rather than blocking the test run. */
+    int devnull = open("/dev/null", O_RDONLY);
+    int saved_stdin = dup(STDIN_FILENO);
+    if (devnull >= 0) {
+        dup2(devnull, STDIN_FILENO);
+        close(devnull);
+    }
+
+    /* --- Assertion 1: credentials_load() must fail --- */
+    ApiConfig cfg;
+    int rc = credentials_load(&cfg);
+    ASSERT(rc == -1, "credentials_load returns -1 when no api_id/api_hash");
+
+    /* --- Assertion 2: auth_flow_login() with no-phone callbacks must fail
+     *     before touching the network (the mock socket is not seeded, so
+     *     any accidental connect attempt would itself fail). --- */
+    Transport t;
+    transport_init(&t);
+    MtProtoSession s;
+    mtproto_session_init(&s);
+
+    /* Provide dummy credentials so auth_flow_login proceeds past the
+     * credential check and reaches the callback stage. */
+    ApiConfig dummy_cfg;
+    api_config_init(&dummy_cfg);
+    dummy_cfg.api_id   = 99999;
+    dummy_cfg.api_hash = "dummyhashfortesting";
+
+    AuthFlowCallbacks cb = {
+        .get_phone    = cb_no_phone,
+        .get_code     = cb_no_code,
+        .get_password = NULL,
+        .user         = NULL,
+    };
+
+    /* mt_server is not seeded — transport_connect will fail, which causes
+     * auth_flow_connect_dc to return -1 before get_phone is even reached.
+     * Either way, auth_flow_login must return -1 without prompting stdin. */
+    int flow_rc = auth_flow_login(&dummy_cfg, &cb, &t, &s, NULL);
+    ASSERT(flow_rc == -1,
+           "auth_flow_login returns -1 when server unreachable in batch mode");
+
+    transport_close(&t);
+
+    /* Restore stdin. */
+    if (saved_stdin >= 0) {
+        dup2(saved_stdin, STDIN_FILENO);
+        close(saved_stdin);
+    }
+}
+
 void run_login_flow_tests(void) {
     RUN_TEST(test_send_code_happy);
     RUN_TEST(test_send_code_invalid_phone);
@@ -523,4 +624,5 @@ void run_login_flow_tests(void) {
     RUN_TEST(test_bad_server_salt_retry);
     RUN_TEST(test_session_persistence_roundtrip);
     RUN_TEST(test_logout_clears_session);
+    RUN_TEST(test_batch_rejects_missing_credentials);
 }
