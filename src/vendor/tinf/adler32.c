@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Zlib */
+
 /*
  * Adler-32 checksum
  *

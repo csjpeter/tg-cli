@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 #ifndef CACHE_STORE_H
 #define CACHE_STORE_H
 

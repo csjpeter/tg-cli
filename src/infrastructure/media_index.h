@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file infrastructure/media_index.h
  * @brief Persistent index mapping media_id → local file path.

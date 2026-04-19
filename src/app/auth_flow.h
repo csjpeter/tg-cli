@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file app/auth_flow.h
  * @brief High-level login flow orchestration.

@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file domain/read/self.h
  * @brief US-05 — retrieve the authenticated user's own profile.

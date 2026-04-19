@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file core/json_util.c
  * @brief Minimal JSON string escaping — see json_util.h.

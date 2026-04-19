@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 #include "cache_store.h"
 #include "fs_util.h"
 #include "platform/path.h"

@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file ige_aes.h
  * @brief AES-256-IGE (Infinite Garble Extension) encryption mode.

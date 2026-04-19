@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 #include "config_store.h"
 #include "config.h"
 #include "fs_util.h"

@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file mtproto_session.h
  * @brief MTProto session state — msg_id, seq_no, salt, auth_key management.

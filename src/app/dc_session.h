@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file app/dc_session.h
  * @brief Open an MTProto session on an arbitrary DC, reusing a cached

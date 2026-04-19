@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file infrastructure/auth_logout.h
  * @brief Server-side logout: auth.logOut#3e72ba19.

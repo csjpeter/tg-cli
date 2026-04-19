@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file main/tg_cli.c
  * @brief tg-cli — batch read+write Telegram CLI entry point.

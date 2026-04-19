@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file infrastructure/updates_state_store.c
  * @brief Persist UpdatesState to ~/.cache/tg-cli/updates.state (INI format).

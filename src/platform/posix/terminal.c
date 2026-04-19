@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * POSIX terminal implementation.
  * Uses termios(3), ioctl TIOCGWINSZ, wcwidth(3).

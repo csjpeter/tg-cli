@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file socket.c
  * @brief Winsock2 TCP socket implementation for Windows (MinGW-w64).

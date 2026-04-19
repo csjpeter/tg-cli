@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file tl_serial.c
  * @brief TL (Type Language) binary serialization implementation.

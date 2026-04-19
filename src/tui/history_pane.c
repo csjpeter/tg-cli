@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file tui/history_pane.c
  * @brief Message history view-model implementation (US-11 v2).

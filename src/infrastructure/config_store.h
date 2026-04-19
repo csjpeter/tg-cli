@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 #ifndef CONFIG_STORE_H
 #define CONFIG_STORE_H
 

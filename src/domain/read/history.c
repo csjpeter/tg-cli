@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file domain/read/history.c
  * @brief Minimal messages.getHistory parser (US-06 v1).

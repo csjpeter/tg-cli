@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file app/dc_session.c
  * @brief Implementation of per-DC session bring-up.

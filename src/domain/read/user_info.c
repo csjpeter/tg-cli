@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file domain/read/user_info.c
  * @brief contacts.resolveUsername minimal parser with session-scoped cache.

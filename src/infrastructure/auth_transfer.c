@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file auth_transfer.c
  * @brief P10-04 — auth.exportAuthorization + auth.importAuthorization.

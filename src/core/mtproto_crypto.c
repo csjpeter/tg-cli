@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file mtproto_crypto.c
  * @brief MTProto 2.0 encryption layer implementation.

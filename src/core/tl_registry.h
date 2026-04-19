@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file tl_registry.h
  * @brief TL constructor registry — maps constructor IDs to names.

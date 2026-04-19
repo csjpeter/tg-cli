@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 #ifndef TUI_SCREEN_H
 #define TUI_SCREEN_H
 

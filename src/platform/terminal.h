@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 #ifndef PLATFORM_TERMINAL_H
 #define PLATFORM_TERMINAL_H
 

@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file mtproto_auth.h
  * @brief MTProto 2.0 auth key generation via DH key exchange.

@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file domain/read/media.h
  * @brief P6-01 — download media (photos) via upload.getFile.

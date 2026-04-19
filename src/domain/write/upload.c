@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file domain/write/upload.c
  * @brief upload.saveFilePart + messages.sendMedia (US-P6-02).

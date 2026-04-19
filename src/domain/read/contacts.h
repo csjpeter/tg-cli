@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file domain/read/contacts.h
  * @brief US-09 / P7-01 — list contacts.getContacts.

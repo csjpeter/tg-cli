@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file mtproto_rpc.c
  * @brief MTProto RPC framework — message framing, encryption, decryption.

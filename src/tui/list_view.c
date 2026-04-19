@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file tui/list_view.c
  * @brief Scroll + selection helper for vertical list panes (US-11 v2).

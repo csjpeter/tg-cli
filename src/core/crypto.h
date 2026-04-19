@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file crypto.h
  * @brief Thin wrappers around OpenSSL crypto primitives.

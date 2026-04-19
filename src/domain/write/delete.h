@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file domain/write/delete.h
  * @brief US-P5-06 — messages.deleteMessages + channels.deleteMessages.

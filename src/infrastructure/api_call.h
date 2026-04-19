@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file api_call.h
  * @brief Telegram API call wrapper — initConnection + invokeWithLayer.

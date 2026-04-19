@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * POSIX path implementation.
  * Uses $HOME / $XDG_CACHE_HOME / $XDG_CONFIG_HOME, falling back to

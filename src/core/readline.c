@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file readline.c
  * @brief Custom interactive line editor built on top of terminal.h.

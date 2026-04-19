@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file arg_parse.h
  * @brief Custom command-line argument parser for tg-cli.

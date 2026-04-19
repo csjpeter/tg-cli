@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file domain/write/upload.h
  * @brief US-P6-02 — upload a local file and send it as a document.

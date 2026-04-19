@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file tl_skip.h
  * @brief Advance a TlReader past nested TL objects without fully parsing them.

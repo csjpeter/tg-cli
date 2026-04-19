@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Zlib */
+
 /*
  * tinf - tiny inflate library (inflate, gzip, zlib)
  *

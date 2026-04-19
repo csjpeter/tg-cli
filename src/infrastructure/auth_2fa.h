@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file auth_2fa.h
  * @brief 2FA login completion: account.getPassword + auth.checkPassword (SRP).

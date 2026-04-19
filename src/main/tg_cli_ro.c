@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file main/tg_cli_ro.c
  * @brief tg-cli-ro — batch, read-only Telegram CLI entry point.

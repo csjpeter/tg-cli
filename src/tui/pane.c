@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file tui/pane.c
  * @brief Pane geometry and layout implementation (US-11 v2).

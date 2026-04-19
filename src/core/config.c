@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 #include "config.h"
 #include <stdlib.h>
 #include <string.h>

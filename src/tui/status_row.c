@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file tui/status_row.c
  * @brief Status-row rendering implementation (US-11 v2).

@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file app/bootstrap.h
  * @brief Shared runtime bootstrap: directories, logger init, config load.

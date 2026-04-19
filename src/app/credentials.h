@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file app/credentials.h
  * @brief Load api_id/api_hash from environment or config file.

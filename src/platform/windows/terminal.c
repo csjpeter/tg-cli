@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /* Windows terminal implementation — to be implemented for MinGW-w64 */
 /* Uses Windows Console API: GetConsoleMode, SetConsoleMode,
  * GetConsoleScreenBufferInfo, ReadConsoleInput */

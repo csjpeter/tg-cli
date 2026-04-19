@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file auth_transfer.h
  * @brief auth.exportAuthorization / auth.importAuthorization — cross-DC

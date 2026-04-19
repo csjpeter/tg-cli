@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file app/session_store.h
  * @brief Persist and restore MTProto sessions (one per DC) across runs.

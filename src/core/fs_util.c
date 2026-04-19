@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 #include "fs_util.h"
 #include "platform/path.h"
 #include <stdio.h>

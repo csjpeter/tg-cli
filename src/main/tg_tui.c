@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file main/tg_tui.c
  * @brief tg-tui — interactive Telegram client entry point.

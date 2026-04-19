@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file tui/dialog_pane.c
  * @brief Dialog list view-model implementation (US-11 v2).

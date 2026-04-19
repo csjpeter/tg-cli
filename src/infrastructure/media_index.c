@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file infrastructure/media_index.c
  * @brief media_id → local path index stored at ~/.cache/tg-cli/media.idx

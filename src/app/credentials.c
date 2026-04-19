@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file app/credentials.c
  * @brief Env + INI-file api_id/api_hash loader.

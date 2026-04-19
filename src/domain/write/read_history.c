@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file domain/write/read_history.c
  * @brief messages.readHistory + channels.readHistory (US-P5-04).

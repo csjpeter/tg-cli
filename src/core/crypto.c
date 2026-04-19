@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file crypto.c
  * @brief Production OpenSSL implementation of crypto.h wrappers.

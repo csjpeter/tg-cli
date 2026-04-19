@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: BSL-1.0 */
+/* Copyright (c) TDLib contributors */
+
 /**
  * @file telegram_server_key.h
  * @brief Telegram server RSA public key (hardcoded).

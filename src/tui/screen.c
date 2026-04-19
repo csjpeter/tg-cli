@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright 2026 Peter Csaszar */
+
 /**
  * @file tui/screen.c
  * @brief Double-buffered terminal screen implementation (US-11 v2).
