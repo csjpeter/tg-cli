@@ -20,6 +20,7 @@ void test_ige(void);
 void test_mtproto_crypto(void);
 void test_phase2(void);
 void test_rpc(void);
+void run_transport_eintr_tests(void);
 void test_auth(void);
 void test_gzip(void);
 void test_registry(void);
@@ -81,6 +82,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_mtproto_crypto);
     RUN_TEST(test_phase2);
     RUN_TEST(test_rpc);
+    RUN_TEST(run_transport_eintr_tests);
     RUN_TEST(test_auth);
     RUN_TEST(test_gzip);
     RUN_TEST(test_registry);

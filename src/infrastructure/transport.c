@@ -10,6 +10,7 @@
 #include "platform/socket.h"
 #include "logger.h"
 
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -37,9 +38,13 @@ int transport_connect(Transport *t, const char *host, int port) {
         return -1;
     }
 
-    /* Send abridged transport marker */
+    /* Send abridged transport marker, retrying on EINTR */
     uint8_t marker = ABRIDGED_MARKER;
-    if (sys_socket_send(t->fd, &marker, 1) != 1) {
+    ssize_t msent;
+    do {
+        msent = sys_socket_send(t->fd, &marker, 1);
+    } while (msent < 0 && errno == EINTR);
+    if (msent != 1) {
         logger_log(LOG_ERROR, "transport: failed to send abridged marker");
         sys_socket_close(t->fd);
         t->fd = -1;
@@ -66,7 +71,11 @@ int transport_send(Transport *t, const uint8_t *data, size_t len) {
 
     if (wire_len < 0x7F) {
         uint8_t prefix = (uint8_t)wire_len;
-        if (sys_socket_send(t->fd, &prefix, 1) != 1) {
+        ssize_t n;
+        do {
+            n = sys_socket_send(t->fd, &prefix, 1);
+        } while (n < 0 && errno == EINTR);
+        if (n != 1) {
             logger_log(LOG_ERROR, "transport: failed to send 1-byte length prefix");
             return -1;
         }
@@ -78,16 +87,23 @@ int transport_send(Transport *t, const uint8_t *data, size_t len) {
         prefix[1] = (uint8_t)(wire_len & 0xFF);
         prefix[2] = (uint8_t)((wire_len >> 8) & 0xFF);
         prefix[3] = (uint8_t)((wire_len >> 16) & 0xFF);
-        if (sys_socket_send(t->fd, prefix, 4) != 4) {
+        ssize_t n;
+        do {
+            n = sys_socket_send(t->fd, prefix, 4);
+        } while (n < 0 && errno == EINTR);
+        if (n != 4) {
             logger_log(LOG_ERROR, "transport: failed to send 4-byte length prefix");
             return -1;
         }
     }
 
-    /* Send payload in chunks */
+    /* Send payload in chunks, retrying on EINTR */
     size_t total = 0;
     while (total < len) {
-        ssize_t sent = sys_socket_send(t->fd, data + total, len - total);
+        ssize_t sent;
+        do {
+            sent = sys_socket_send(t->fd, data + total, len - total);
+        } while (sent < 0 && errno == EINTR);
         if (sent <= 0) {
             logger_log(LOG_ERROR, "transport: send failed after %zu/%zu bytes", total, len);
             return -1;
@@ -100,9 +116,12 @@ int transport_send(Transport *t, const uint8_t *data, size_t len) {
 int transport_recv(Transport *t, uint8_t *out, size_t max_len, size_t *out_len) {
     if (!t || !out || !out_len || t->fd < 0) return -1;
 
-    /* Read first byte of length prefix */
+    /* Read first byte of length prefix, retrying on EINTR */
     uint8_t first;
-    ssize_t r = sys_socket_recv(t->fd, &first, 1);
+    ssize_t r;
+    do {
+        r = sys_socket_recv(t->fd, &first, 1);
+    } while (r < 0 && errno == EINTR);
     if (r != 1) {
         logger_log(LOG_ERROR, "transport: failed to read length prefix byte");
         return -1;
@@ -114,7 +133,9 @@ int transport_recv(Transport *t, uint8_t *out, size_t max_len, size_t *out_len) 
     } else {
         /* 0x7F marker → 3-byte LE length follows. */
         uint8_t extra[3];
-        r = sys_socket_recv(t->fd, extra, 3);
+        do {
+            r = sys_socket_recv(t->fd, extra, 3);
+        } while (r < 0 && errno == EINTR);
         if (r != 3) {
             logger_log(LOG_ERROR, "transport: failed to read 3-byte length prefix");
             return -1;
@@ -134,10 +155,12 @@ int transport_recv(Transport *t, uint8_t *out, size_t max_len, size_t *out_len) 
         return -1;
     }
 
-    /* Read payload */
+    /* Read payload, retrying on EINTR */
     size_t total = 0;
     while (total < payload_len) {
-        r = sys_socket_recv(t->fd, out + total, payload_len - total);
+        do {
+            r = sys_socket_recv(t->fd, out + total, payload_len - total);
+        } while (r < 0 && errno == EINTR);
         if (r <= 0) {
             logger_log(LOG_ERROR, "transport: recv failed after %zu/%zu bytes", total, payload_len);
             return -1;

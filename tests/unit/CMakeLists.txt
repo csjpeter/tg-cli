@@ -16,6 +16,7 @@ set(TEST_SOURCES
     test_mtproto_crypto.c
     test_phase2.c
     test_rpc.c
+    test_transport.c
     test_auth.c
     test_gzip.c
     test_registry.c

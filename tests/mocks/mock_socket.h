@@ -39,5 +39,7 @@ void        mock_socket_fail_connect(void);      /* next connect() fails */
 void        mock_socket_fail_send_at(int nth);   /* Nth send() returns -1 */
 void        mock_socket_fail_recv_at(int nth);   /* Nth recv() returns -1 */
 void        mock_socket_short_send_at(int nth);  /* Nth send() returns 1 short */
+void        mock_socket_eintr_send_at(int nth);  /* Nth send() returns -1/EINTR, next call proceeds normally */
+void        mock_socket_eintr_recv_at(int nth);  /* Nth recv() returns -1/EINTR, next call proceeds normally */
 
 #endif /* MOCK_SOCKET_H */

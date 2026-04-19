@@ -8,6 +8,7 @@
 
 #include "platform/socket.h"
 
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -37,6 +38,8 @@ static struct {
     int fail_send_at;    /* 0 = never */
     int fail_recv_at;
     int short_send_at;
+    int eintr_send_at;   /* Nth send() returns -1/EINTR, then succeeds */
+    int eintr_recv_at;   /* Nth recv() returns -1/EINTR, then succeeds */
     int send_call_n;     /* call counters */
     int recv_call_n;
 
@@ -87,6 +90,8 @@ void mock_socket_fail_connect(void)     { g_mock_socket.fail_connect = 1; }
 void mock_socket_fail_send_at(int n)    { g_mock_socket.fail_send_at = n; }
 void mock_socket_fail_recv_at(int n)    { g_mock_socket.fail_recv_at = n; }
 void mock_socket_short_send_at(int n)   { g_mock_socket.short_send_at = n; }
+void mock_socket_eintr_send_at(int n)   { g_mock_socket.eintr_send_at = n; }
+void mock_socket_eintr_recv_at(int n)   { g_mock_socket.eintr_recv_at = n; }
 
 void mock_socket_set_on_sent(void (*fn)(const uint8_t *, size_t)) {
     g_mock_socket.on_sent = fn;
@@ -118,6 +123,14 @@ ssize_t sys_socket_send(int fd, const void *buf, size_t len) {
     if (!buf || len == 0) return 0;
 
     g_mock_socket.send_call_n++;
+
+    if (g_mock_socket.eintr_send_at &&
+        g_mock_socket.send_call_n == g_mock_socket.eintr_send_at) {
+        g_mock_socket.eintr_send_at = 0;
+        errno = EINTR;
+        return -1;
+    }
+
     if (g_mock_socket.fail_send_at &&
         g_mock_socket.send_call_n == g_mock_socket.fail_send_at) {
         g_mock_socket.fail_send_at = 0;
@@ -156,6 +169,14 @@ ssize_t sys_socket_recv(int fd, void *buf, size_t len) {
     if (!buf || len == 0) return 0;
 
     g_mock_socket.recv_call_n++;
+
+    if (g_mock_socket.eintr_recv_at &&
+        g_mock_socket.recv_call_n == g_mock_socket.eintr_recv_at) {
+        g_mock_socket.eintr_recv_at = 0;
+        errno = EINTR;
+        return -1;
+    }
+
     if (g_mock_socket.fail_recv_at &&
         g_mock_socket.recv_call_n == g_mock_socket.fail_recv_at) {
         g_mock_socket.fail_recv_at = 0;
