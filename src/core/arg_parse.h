@@ -69,6 +69,9 @@ typedef struct {
     const char *peer2;       /**< Destination peer for `forward`.        */
     int         revoke;      /**< --revoke for delete.                   */
     int         reply_to;    /**< --reply <msg_id> for send.             */
+
+    /* Watch extras */
+    int         watch_interval; /**< --interval N for watch [2..3600], default 30. */
 } ArgResult;
 
 /**

@@ -166,15 +166,16 @@ static int cmd_watch(const ArgResult *args) {
         transport_close(&t);
         return 1;
     }
+    int interval = args->watch_interval > 0 ? args->watch_interval : 30;
     if (!args->quiet)
         fprintf(stderr, "watch: seeded pts=%d qts=%d date=%d, "
-                        "polling every 30s (SIGINT to quit)\n",
-                        state.pts, state.qts, state.date);
+                        "polling every %ds (SIGINT to quit)\n",
+                        state.pts, state.qts, state.date, interval);
 
     while (!g_stop) {
         UpdatesDifference diff = {0};
         if (domain_updates_difference(&cfg, &s, &t, &state, &diff) != 0) {
-            fprintf(stderr, "watch: getDifference failed, retrying in 30s\n");
+            fprintf(stderr, "watch: getDifference failed, retrying in %ds\n", interval);
         } else {
             state = diff.next_state;
             if (args->json) {
@@ -209,7 +210,7 @@ static int cmd_watch(const ArgResult *args) {
             fflush(stdout);
         }
         /* Sleep in 1-second chunks so SIGINT is responsive. */
-        for (int i = 0; i < 30 && !g_stop; i++) sleep(1);
+        for (int i = 0; i < interval && !g_stop; i++) sleep(1);
     }
 
     transport_close(&t);
@@ -621,7 +622,7 @@ static void print_usage(void) {
         "  search   [<peer>] <query>        Search messages (US-10)\n"
         "  contacts                         List contacts (US-09)\n"
         "  user-info <peer>                 User/channel info (US-09)\n"
-        "  watch    [--peers X,Y]           Watch updates (US-07)\n"
+        "  watch    [--peers X,Y] [--interval SEC]  Watch updates (US-07)\n"
         "  download <peer> <msg_id> [--out PATH]  Download photo (US-08)\n"
         "\n"
         "Global flags:\n"

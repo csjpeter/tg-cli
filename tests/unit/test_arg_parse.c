@@ -373,6 +373,71 @@ static void test_dialogs_not_archived_by_default(void) {
     ASSERT(r.archived == 0, "dialogs: archived must default to 0");
 }
 
+/* ---- Test: watch --interval in-range value ---- */
+static void test_watch_interval_valid(void) {
+    char *argv[] = {"tg-cli", "watch", "--interval", "5", NULL};
+    ArgResult r;
+    int rc = arg_parse(4, argv, &r);
+    ASSERT(rc == ARG_OK,             "watch --interval 5: must return ARG_OK");
+    ASSERT(r.command == CMD_WATCH,   "watch --interval 5: CMD_WATCH");
+    ASSERT(r.watch_interval == 5,    "watch --interval 5: interval must be 5");
+}
+
+/* ---- Test: watch --interval boundary values ---- */
+static void test_watch_interval_boundaries(void) {
+    ArgResult r;
+    char *argv_min[] = {"tg-cli", "watch", "--interval", "2", NULL};
+    ASSERT(arg_parse(4, argv_min, &r) == ARG_OK,
+           "watch --interval 2 (min): ARG_OK");
+    ASSERT(r.watch_interval == 2, "watch --interval 2: interval==2");
+
+    char *argv_max[] = {"tg-cli", "watch", "--interval", "3600", NULL};
+    ASSERT(arg_parse(4, argv_max, &r) == ARG_OK,
+           "watch --interval 3600 (max): ARG_OK");
+    ASSERT(r.watch_interval == 3600, "watch --interval 3600: interval==3600");
+}
+
+/* ---- Test: watch --interval below range → error ---- */
+static void test_watch_interval_too_low(void) {
+    char *argv[] = {"tg-cli", "watch", "--interval", "1", NULL};
+    ArgResult r;
+    ASSERT(arg_parse(4, argv, &r) == ARG_ERROR,
+           "watch --interval 1: must return ARG_ERROR (below range)");
+}
+
+/* ---- Test: watch --interval above range → error ---- */
+static void test_watch_interval_too_high(void) {
+    char *argv[] = {"tg-cli", "watch", "--interval", "3601", NULL};
+    ArgResult r;
+    ASSERT(arg_parse(4, argv, &r) == ARG_ERROR,
+           "watch --interval 3601: must return ARG_ERROR (above range)");
+}
+
+/* ---- Test: watch --interval non-numeric → error ---- */
+static void test_watch_interval_non_numeric(void) {
+    char *argv[] = {"tg-cli", "watch", "--interval", "fast", NULL};
+    ArgResult r;
+    ASSERT(arg_parse(4, argv, &r) == ARG_ERROR,
+           "watch --interval fast: must return ARG_ERROR");
+}
+
+/* ---- Test: watch --interval missing value → error ---- */
+static void test_watch_interval_missing_value(void) {
+    char *argv[] = {"tg-cli", "watch", "--interval", NULL};
+    ArgResult r;
+    ASSERT(arg_parse(3, argv, &r) == ARG_ERROR,
+           "watch --interval w/o value: must return ARG_ERROR");
+}
+
+/* ---- Test: watch default interval is 30 ---- */
+static void test_watch_default_interval(void) {
+    char *argv[] = {"tg-cli", "watch", NULL};
+    ArgResult r;
+    int rc = arg_parse(2, argv, &r);
+    ASSERT(rc == ARG_OK,               "watch (no options): ARG_OK");
+    ASSERT(r.watch_interval == 30,     "watch: default interval must be 30");
+}
+
 void run_arg_parse_tests(void) {
     RUN_TEST(test_no_args);
     RUN_TEST(test_help_flag);
@@ -412,4 +477,11 @@ void run_arg_parse_tests(void) {
     RUN_TEST(test_dialogs_archived);
     RUN_TEST(test_dialogs_archived_with_limit);
     RUN_TEST(test_dialogs_not_archived_by_default);
+    RUN_TEST(test_watch_interval_valid);
+    RUN_TEST(test_watch_interval_boundaries);
+    RUN_TEST(test_watch_interval_too_low);
+    RUN_TEST(test_watch_interval_too_high);
+    RUN_TEST(test_watch_interval_non_numeric);
+    RUN_TEST(test_watch_interval_missing_value);
+    RUN_TEST(test_watch_default_interval);
 }

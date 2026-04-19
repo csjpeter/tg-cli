@@ -215,6 +215,7 @@ static int parse_me(int argc, char **argv, int i, ArgResult *out) {
 
 static int parse_watch(int argc, char **argv, int i, ArgResult *out) {
     out->command = CMD_WATCH;
+    out->watch_interval = 30; /* default 30 s */
     while (i < argc) {
         if (str_eq(argv[i], "--peers")) {
             if (i + 1 >= argc) {
@@ -222,6 +223,24 @@ static int parse_watch(int argc, char **argv, int i, ArgResult *out) {
                 return ARG_ERROR;
             }
             out->peer = argv[i + 1]; /* comma-separated list stored as-is */
+            i += 2;
+        } else if (str_eq(argv[i], "--interval")) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "tg-cli watch: --interval requires a number\n");
+                return ARG_ERROR;
+            }
+            int val = 0;
+            if (parse_int(argv[i + 1], &val) != 0) {
+                fprintf(stderr, "tg-cli watch: --interval value is not a number\n");
+                return ARG_ERROR;
+            }
+            if (val < 2 || val > 3600) {
+                fprintf(stderr,
+                        "tg-cli watch: --interval %d out of range [2, 3600]\n",
+                        val);
+                return ARG_ERROR;
+            }
+            out->watch_interval = val;
             i += 2;
         } else {
             fprintf(stderr, "tg-cli watch: unknown option: %s\n", argv[i]);

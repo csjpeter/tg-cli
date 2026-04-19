@@ -80,12 +80,15 @@ Search messages (US-10). Without \fIpeer\fR the query is global.
 .BI user-info " <peer>"
 Show user or channel info (US-09).
 .TP
-.BI watch " [--peers X,Y]"
+.BI watch " [--peers X,Y] [--interval SEC]"
 Poll-loop over
 .BR updates.getDifference (3MTP)
 for incoming messages (US-07). Optional
 .B --peers
 filters the event stream.
+Optional
+.B --interval
+sets the polling period in seconds (range 2\(en3600, default 30).
 .TP
 .BI download " <peer> <msg_id> [--out PATH]"
 Download a photo attachment from a specific message (US-08). Defaults
