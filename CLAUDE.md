@@ -47,21 +47,40 @@ There is no Makefile — `manage.sh` calls CMake directly. There is no mechanism
 The project follows a strict layered CLEAN architecture with zero circular dependencies:
 
 ```
-Application    →  src/main.c
-Domain         →  src/domain/           (Telegram service logic — TBD)
-Infrastructure →  src/infrastructure/{config_store,cache_store}.c
-Core           →  src/core/{logger,fs_util,config}.c + raii.h
-Platform       →  src/platform/{terminal,path}.h
-                    src/platform/posix/{terminal,path}.c    (Linux/macOS/Android)
-                    src/platform/windows/{terminal,path}.c  (MinGW-w64)
+Entry points   →  src/main/{tg_cli,tg_cli_ro,tg_tui}.c   (three binaries, ADR-0005)
+App            →  src/app/           (bootstrap, auth flow, credentials, DC config,
+                                      DC session, session store)
+TUI            →  src/tui/           (screen, pane, list_view, dialog_pane,
+                                      history_pane, status_row, app state machine)
+Domain         →  src/domain/read/   (self, dialogs, history, search, user_info,
+                                      contacts, updates, media)
+                  src/domain/write/  (send, edit, delete, forward, read_history,
+                                      upload)
+Infrastructure →  src/infrastructure/ (config_store, cache_store, transport,
+                                      mtproto_auth, mtproto_rpc, api_call,
+                                      auth_session, auth_2fa, auth_transfer)
+Core           →  src/core/          (logger, fs_util, raii.h, arg_parse,
+                                      readline, tl_serial, tl_skip, tl_registry,
+                                      ige_aes, mtproto_crypto, mtproto_session,
+                                      crypto wrappers, config)
+Platform       →  src/platform/{terminal,path,socket}.h
+                    src/platform/posix/    (Linux/macOS/Android)
+                    src/platform/windows/  (MinGW-w64)
+Vendor         →  src/vendor/tinf    (bundled tiny gzip decoder)
 ```
 
 Dependency rule: every layer may depend on layers below it; `platform/` sits
-alongside `core/` and is depended upon by `domain/` and `infrastructure/`.
-No layer may contain `#ifdef` guards for platform selection — that is the
-build system's (CMake's) responsibility.
+alongside `core/` and is depended upon by `infrastructure/`, `domain/`, `app/`,
+`tui/`, and `main/`. `tg-cli-ro` is compile-time read-only: it never links
+`tg-domain-write` (ADR-0005). No layer may contain `#ifdef` guards for platform
+selection — that is the build system's (CMake's) responsibility.
 
-**Data flow:** `main.c` initializes logger and paths → MTProto handshake (auth key DH exchange) → encrypted channel → Telegram API calls (TL serialized) → results to stdout, diagnostics to `~/.cache/tg-cli/logs/`.
+**Data flow:** `src/main/<binary>.c` calls `app_bootstrap()` → logger/paths/config
+init → optional phone+SMS+2FA login via `src/app/auth_flow.c` → MTProto handshake
+(auth key DH) on first connect → encrypted channel via `mtproto_rpc` + `api_call`
+→ Telegram API calls (TL serialized, invokeWithLayer + initConnection wrapped)
+→ domain layer parses the response → results to stdout, diagnostics to
+`~/.cache/tg-cli/logs/`.
 
 **Config** is stored at `~/.config/tg-cli/config.ini` with mode 0600 (api_id, api_hash, DC info).
 
@@ -79,7 +98,7 @@ The project uses GNU `__attribute__((cleanup(...)))` for automatic resource deal
 
 ## Custom Test Framework
 
-No external test libraries are used. Tests use `ASSERT(condition, message)` and `RUN_TEST(test_func)` macros from `tests/common/test_helpers.h`. Unit tests live in `tests/unit/`.
+No external test libraries are used. Tests use `ASSERT(condition, message)` and `RUN_TEST(test_func)` macros from `tests/common/test_helpers.h`. Unit tests live in `tests/unit/`. Functional tests live in `tests/functional/` and drive the production domain layer against the in-process mock Telegram server (`tests/mocks/mock_tel_server.{h,c}`) with real OpenSSL on both sides — see [ADR-0006](docs/adr/0006-test-strategy.md), [ADR-0007](docs/adr/0007-mock-telegram-server.md), and [docs/dev/mock-server.md](docs/dev/mock-server.md).
 
 ## Language & Standard
 

@@ -74,12 +74,19 @@ the protocol specification.
 The project follows a strict layered CLEAN architecture:
 
 ```
-Application    →  src/main.c
-Domain         →  src/domain/           (Telegram service logic)
-Infrastructure →  src/infrastructure/   (config, cache, transport, RPC)
-Core           →  src/core/             (logger, fs_util, TL serial, AES-IGE, MTProto crypto)
-Platform       →  src/platform/         (terminal + path abstraction for posix/windows)
+Entry points   →  src/main/{tg_cli,tg_cli_ro,tg_tui}.c   (three binaries — ADR-0005)
+App            →  src/app/             (bootstrap, auth flow, DC session, session store)
+TUI            →  src/tui/             (screen, panes, list view, status row, app)
+Domain         →  src/domain/read/ + src/domain/write/   (Telegram service logic)
+Infrastructure →  src/infrastructure/  (config, cache, transport, RPC, api_call, auth)
+Core           →  src/core/            (logger, fs_util, TL serial/skip/registry,
+                                        AES-IGE, MTProto crypto, crypto wrappers)
+Platform       →  src/platform/        (terminal + path + socket, posix + windows)
 ```
+
+`tg-cli-ro` is compile-time read-only: the `tg-domain-write` library is
+not linked into it (ADR-0005), so no mutation RPC is reachable even if
+an arg-parse bug were exploited.
 
 ### MTProto protocol stack (what we build):
 

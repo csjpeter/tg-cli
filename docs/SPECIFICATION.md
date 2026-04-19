@@ -3,7 +3,7 @@
 > Living document. Captures the user's feature requests and design
 > constraints as stated during development. Keep compact and evergreen.
 
-Last updated: 2026-04-17
+Last updated: 2026-04-19
 
 ---
 
@@ -71,8 +71,11 @@ All F-0x output respects:
 - **Platforms:** Linux (primary), macOS, Windows (MinGW-w64), Android (NDK).
 - **Toolchain:** GCC or Clang (MSVC explicitly out of scope).
 - **Dependencies:** C stdlib, POSIX, libssl (OpenSSL). No libcurl, no TDLib.
-- **Testing:** unit (mock IO) → functional (real crypto) → integration
-  (fake server). Core+infra line coverage ≥ 90% (TUI tracked separately).
+- **Testing:** three levels — unit (mock IO), functional (real
+  OpenSSL against an in-process mock Telegram server), Valgrind
+  (memory-safety gate). Core+infra line coverage ≥ 90 %; combined
+  line coverage target ≥ 85 %. See `docs/adr/0006-test-strategy.md`
+  and `docs/dev/testing.md`.
 - **Memory:** zero leaks under Valgrind, zero ASAN errors.
 - **Security:** auth key file 0600; no secrets in logs; no injection into
   TL payloads.

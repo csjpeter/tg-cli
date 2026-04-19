@@ -619,9 +619,16 @@ static void print_usage(void) {
         "  dialogs  [--limit N]             List dialogs (US-04)\n"
         "  history  <peer> [--limit N]      Fetch history (US-06)\n"
         "  search   [<peer>] <query>        Search messages (US-10)\n"
+        "  contacts                         List contacts (US-09)\n"
         "  user-info <peer>                 User/channel info (US-09)\n"
         "  watch    [--peers X,Y]           Watch updates (US-07)\n"
         "  download <peer> <msg_id> [--out PATH]  Download photo (US-08)\n"
+        "\n"
+        "Global flags:\n"
+        "  --json              Machine-readable JSON output (where supported)\n"
+        "  --quiet             Suppress informational output\n"
+        "  --help, -h          Show this help and exit\n"
+        "  --version, -v       Show version and exit\n"
         "\n"
         "Batch-mode login flags:\n"
         "  --phone <number>    E.g. +15551234567\n"
@@ -632,6 +639,9 @@ static void print_usage(void) {
         "Credentials:\n"
         "  TG_CLI_API_ID / TG_CLI_API_HASH env vars, or\n"
         "  api_id= / api_hash= in ~/.config/tg-cli/config.ini\n"
+        "\n"
+        "See man tg-cli-ro(1) for the full reference, or\n"
+        "https://github.com/csjpeter/tg-cli for the source.\n"
     );
 }
 

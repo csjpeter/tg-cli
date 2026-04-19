@@ -1,0 +1,251 @@
+.\" Manpage for tg-cli.
+.\" Hand-maintained; keep in sync with src/main/tg_cli.c print_usage().
+.TH TG-CLI 1 "2026-04-19" "tg-cli 0.1.0" "User Commands"
+
+.SH NAME
+tg-cli \- unofficial batch Telegram client (read + write) speaking MTProto 2.0
+
+.SH SYNOPSIS
+.B tg-cli
+[\fIGLOBAL FLAGS\fR] \fISUBCOMMAND\fR [\fIARGS\fR]
+
+.SH DESCRIPTION
+.B tg-cli
+is a batch-mode command-line Telegram user-client. It speaks the MTProto
+2.0 protocol directly over TCP sockets \(em there is no HTTP stack, no
+TDLib, and no third-party Telegram library.
+.PP
+Three binaries share one protocol codebase. Use
+.B tg-cli-ro
+(see
+.BR tg-cli-ro (1))
+for read-only scripted work and
+.B tg-tui
+(see
+.BR tg-tui (1))
+for the interactive REPL.
+.B tg-cli
+itself covers the write subcommands \(em
+.BR send ,
+.BR read ,
+.BR edit ,
+.BR delete ,
+.BR forward ,
+and
+.B send-file
+\(em and delegates all read access to
+.BR tg-cli-ro .
+The binary is pipe-friendly: pass
+.B --stdin
+to
+.B send
+to read the message body from standard input.
+
+.SH GLOBAL FLAGS
+.TP
+.B --batch
+Non-interactive batch mode (the default for \fBtg-cli\fR). No prompts.
+.TP
+.B --json
+Emit machine-readable JSON on stdout where supported.
+.TP
+.B --quiet
+Suppress informational/diagnostic text on stdout.
+.TP
+.BI --config " path"
+Use a non-default config file path (default: \fB~/.config/tg-cli/config.ini\fR).
+.TP
+.BI --phone " number"
+Phone number in E.164 form (e.g. \fB+15551234567\fR). Used for the first
+login; afterwards the session is resumed from \fB~/.config/tg-cli/session.bin\fR.
+.TP
+.BI --code " digits"
+SMS or Telegram-app code received during login.
+.TP
+.BI --password " pass"
+Two-factor-authentication password. Only required when the account has
+2FA enabled (SRP exchange via
+.BR account.getPassword (3MTP)
+and
+.BR auth.checkPassword (3MTP)).
+.TP
+.B --logout
+Clear the persisted session at \fB~/.config/tg-cli/session.bin\fR and
+exit.
+.TP
+.BR --help , " -h"
+Show help and exit.
+.TP
+.BR --version , " -v"
+Show the version string and exit.
+
+.SH SUBCOMMANDS
+For read subcommands (\fBme\fR, \fBdialogs\fR, \fBhistory\fR,
+\fBsearch\fR, \fBcontacts\fR, \fBuser-info\fR, \fBwatch\fR,
+\fBdownload\fR), use
+.BR tg-cli-ro (1)
+or
+.BR tg-tui (1).
+
+.SS Write subcommands (tg-cli only)
+.TP
+.BI send " <peer> [--reply N] <message>"
+Send a text message. With \fB--reply N\fR, send it as a reply to
+message id N (US-12).
+.TP
+.BI send " <peer> --stdin"
+Read the message body from standard input. Useful in shell pipes:
+.B echo hello | tg-cli send @peer --stdin
+(P8-03).
+.TP
+.BI read " <peer> [--max-id N]"
+Mark peer's history as read up to message id N (or all unread) (US-12).
+.TP
+.BI edit " <peer> <msg_id> <text>"
+Edit a previously sent message (US-13).
+.TP
+.BI delete " <peer> <msg_id> [--revoke]"
+Delete a message; with \fB--revoke\fR it is removed for all participants
+as well (US-13).
+.TP
+.BI forward " <from_peer> <to_peer> <msg_id>"
+Forward one message between peers (US-13).
+.TP
+.BI send-file " <peer> <path> [--caption T]"
+Upload a local file as a document with an optional caption. Small files
+(< 10 MiB) use
+.BR upload.saveFilePart (3MTP);
+larger ones are automatically chunked via
+.BR upload.saveBigFilePart (3MTP)
+up to a 1.5 GiB cap (US-14).
+
+.SH PEER SYNTAX
+Peers accept any of:
+.IP \[bu] 2
+\fB@username\fR \(em resolved via
+.BR contacts.resolveUsername (3MTP)
+(US-16).
+.IP \[bu]
+numeric id \(em e.g. \fB123456789\fR or \fB-100xxxxxxxxxx\fR (channel).
+.IP \[bu]
+the sentinel \fBme\fR \(em your own "Saved Messages" dialog.
+
+.SH CREDENTIALS
+.B tg-cli
+needs an \fBapi_id\fR and \fBapi_hash\fR (obtain one free from
+\fIhttps://my.telegram.org\fR \(em "API development tools"). Provide them
+via either:
+.IP \[bu] 2
+environment: \fBTG_CLI_API_ID\fR, \fBTG_CLI_API_HASH\fR.
+.IP \[bu]
+config file: \fBapi_id=\fR, \fBapi_hash=\fR lines in
+\fB~/.config/tg-cli/config.ini\fR (mode 0600).
+
+.SH FILES
+.TP
+.B ~/.config/tg-cli/config.ini
+INI file holding \fBapi_id\fR, \fBapi_hash\fR, and current DC metadata.
+Created with mode 0600.
+.TP
+.B ~/.config/tg-cli/session.bin
+Persistent MTProto auth key + DC id + server salt. Created with mode
+0600. Removed by
+.B --logout.
+.TP
+.B ~/.cache/tg-cli/downloads/
+Default destination for downloaded media. Created with mode 0700.
+.TP
+.B ~/.cache/tg-cli/logs/session.log
+Diagnostic log. Rotated at 5 MB; see
+.BR tg-cli (7)
+and
+.I docs/dev/logging.md
+for levels.
+
+.SH ENVIRONMENT
+.TP
+.B TG_CLI_API_ID
+Overrides \fBapi_id\fR from the config file.
+.TP
+.B TG_CLI_API_HASH
+Overrides \fBapi_hash\fR from the config file.
+.TP
+.B TG_CLI_LOG_PLAINTEXT
+If set to \fB1\fR, the logger will include plaintext TL bodies at
+\fILOG_DEBUG\fR. Off by default \(em enable only on a throwaway account.
+.TP
+.B HOME
+Used to locate the config, cache, and session directories.
+
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 1
+Arg-parse error, bootstrap failure, missing credentials, or RPC error.
+
+.SH EXAMPLES
+.PP
+Send a one-line message:
+.EX
+tg-cli send @peer "hi there"
+.EE
+.PP
+Pipe a file's content as a message:
+.EX
+cat body.txt | tg-cli send @peer --stdin
+.EE
+.PP
+Reply to a specific message id:
+.EX
+tg-cli send @peer --reply 12345 "threaded answer"
+.EE
+.PP
+Upload a document with a caption:
+.EX
+tg-cli send-file @peer ./report.pdf --caption "final version"
+.EE
+.PP
+Mark a peer's history as read:
+.EX
+tg-cli read @peer
+.EE
+.PP
+Clear the persisted session (requires re-login next time):
+.EX
+tg-cli --logout
+.EE
+
+.SH SECURITY
+.B tg-cli
+implements MTProto 2.0 end-to-transport encryption: AES-256-IGE over a
+2048-bit DH auth key, SHA-256 message keys, MITM-hardened via
+\fBnew_nonce_hash1\fR verification during the handshake. Credentials and
+session files are written with mode 0600. The logger does not include
+plaintext message bodies by default. See
+.I docs/legal-research.md
+for licensing and API-ToS notes.
+
+.SH SEE ALSO
+.BR tg-cli-ro (1),
+.BR tg-tui (1).
+.PP
+Project documentation:
+.I https://github.com/csjpeter/tg-cli.
+Specification: \fIdocs/SPECIFICATION.md\fR; roadmap: \fIdocs/userstory/US-00-roadmap.md\fR.
+
+.SH LIMITATIONS
+This is an \fBunofficial\fR client; it is not affiliated with, nor
+endorsed by, Telegram FZ-LLC. Secret (end-to-end) chats, voice/video
+calls, payments, and sticker creation are out of scope. MSVC is not a
+supported compiler.
+
+.SH BUGS
+Report issues at \fIhttps://github.com/csjpeter/tg-cli/issues\fR.
+
+.SH LICENSE
+GPL-3.0-or-later. See \fBLICENSE\fR in the source tree.
+
+.SH AUTHOR
+Peter Csaszar <peter@csaszar.email>.

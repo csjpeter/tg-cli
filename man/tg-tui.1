@@ -1,0 +1,245 @@
+.\" Manpage for tg-tui.
+.\" Hand-maintained; keep in sync with src/main/tg_tui.c print_help() and --tui mode.
+.TH TG-TUI 1 "2026-04-19" "tg-cli 0.1.0" "User Commands"
+
+.SH NAME
+tg-tui \- interactive Telegram client with REPL and optional curses-style TUI
+
+.SH SYNOPSIS
+.B tg-tui
+[\fB--tui\fR] [\fIGLOBAL FLAGS\fR]
+
+.SH DESCRIPTION
+.B tg-tui
+is the interactive member of the
+.B tg-cli
+family. It shares the MTProto 2.0 codebase with
+.BR tg-cli (1)
+and
+.BR tg-cli-ro (1),
+but adds a readline-style REPL by default, and an optional curses-style
+pane-based UI when started with \fB--tui\fR. It supports the full read
++ write surface (send, reply, edit, delete, forward, read markers, file
+upload).
+
+.SH MODES
+.SS Default REPL
+Without \fB--tui\fR,
+.B tg-tui
+drops into an interactive line-editor at the prompt \fBtg>\fR. Built-in
+line editing: left/right cursor, Home/End, backspace/delete, Ctrl-A /
+Ctrl-E / Ctrl-K, Up/Down history, Ctrl-R reverse-search. History is
+kept in-session only (no disk persistence).
+.PP
+All commands accept an optional leading \fB/\fR (IRC-style). Press
+\fBCtrl-D\fR, or type \fBquit\fR, \fBexit\fR, or \fB:q\fR, to leave.
+
+.SS --tui mode (curses-style)
+With \fB--tui\fR,
+.B tg-tui
+switches to a three-pane layout:
+.IP \[bu] 2
+left \(em dialog list (scrollable, with unread badges),
+.IP \[bu]
+right \(em history pane for the selected dialog,
+.IP \[bu]
+bottom \(em status row (mode-sensitive hints + last error / "loading\[u2026]").
+.PP
+Uses the in-project TUI engine (double-buffered screen, SIGWINCH-aware
+resize, 5\ s timeout poll for live updates via
+.BR updates.getDifference (3MTP)).
+Bindings: \fBj\fR / \fBk\fR move selection, \fBg\fR / \fBG\fR jump to
+top/bottom, \fBh\fR / \fBl\fR switch pane focus, \fBEnter\fR opens the
+selected dialog, \fBq\fR / \fBQ\fR quits.
+
+.SH GLOBAL FLAGS
+.TP
+.B --tui
+Use the curses-style UI instead of the REPL.
+.TP
+.BI --phone " number"
+Phone number in E.164 form for first-time login.
+.TP
+.BI --code " digits"
+SMS or Telegram-app code.
+.TP
+.BI --password " pass"
+2FA password.
+.TP
+.B --logout
+Clear persisted session and exit.
+
+.SH REPL COMMANDS
+Commands apply to the current user's account; a leading \fB/\fR is
+optional.
+
+.SS Read
+.TP
+.B me
+Show own profile (US-05).
+.TP
+.BI dialogs " [N]"
+List up to N dialogs (default 20) (US-04).
+.TP
+.BI history " [<peer>] [N]"
+Fetch N messages of history (US-06). Without \fIpeer\fR, reads the
+Saved Messages dialog.
+.TP
+.B contacts
+List contacts (US-09).
+.TP
+.BI info " <@peer>"
+Resolve and show peer info (US-09 + US-16).
+.TP
+.BI search " <query>"
+Global message search, top 20 results (US-10).
+.TP
+.B poll
+One-shot
+.BR updates.getDifference (3MTP)
+to drain pending events (US-07).
+.TP
+.BI read " <peer>"
+Mark the peer's history as read (US-12).
+
+.SS Write
+.TP
+.BI send " <peer> <text>"
+Send a text message (US-12).
+.TP
+.BI reply " <peer> <msg_id> <text>"
+Send as a reply to an existing message id (US-12).
+.TP
+.BI edit " <peer> <msg_id> <text>"
+Edit a previously sent message (US-13).
+.TP
+.BI delete " <peer> <msg_id> [revoke]"
+Delete a message; add the \fBrevoke\fR token to remove it for all
+participants (US-13).
+.TP
+.BI forward " <from> <to> <msg_id>"
+Forward one message between peers (US-13).
+.TP
+.BI upload " <peer> <path> [caption]"
+Upload a file as a document with an optional caption (US-14).
+
+.SS Session
+.TP
+.B help
+Show the full command list.
+.TP
+.B quit, exit, :q
+Leave the TUI.
+
+.SH PEER SYNTAX
+Same as
+.BR tg-cli (1):
+\fB@username\fR, numeric id, or the \fBme\fR sentinel for Saved Messages.
+
+.SH CREDENTIALS
+Same as
+.BR tg-cli (1)
+and
+.BR tg-cli-ro (1):
+\fBTG_CLI_API_ID\fR / \fBTG_CLI_API_HASH\fR env vars, or
+\fBapi_id=\fR / \fBapi_hash=\fR in
+\fB~/.config/tg-cli/config.ini\fR.
+
+.SH FILES
+Shared with
+.BR tg-cli (1)
+and
+.BR tg-cli-ro (1):
+.TP
+.B ~/.config/tg-cli/config.ini
+Credentials + DC info.
+.TP
+.B ~/.config/tg-cli/session.bin
+Persistent MTProto auth key / DC id / salt.
+.TP
+.B ~/.cache/tg-cli/downloads/
+Default downloaded-media directory.
+.TP
+.B ~/.cache/tg-cli/logs/session.log
+Diagnostic log (rotated at 5 MB).
+
+.SH ENVIRONMENT
+.TP
+.B TG_CLI_API_ID \fR/\fP TG_CLI_API_HASH
+Override config file credentials.
+.TP
+.B TG_CLI_LOG_PLAINTEXT
+If \fB1\fR, include plaintext TL bodies at \fILOG_DEBUG\fR.
+.TP
+.B TERM \fR/\fP COLUMNS
+Affect rendering under
+.B --tui.
+A resize is handled live via SIGWINCH.
+
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 1
+Bootstrap failure, missing credentials, or login failure.
+
+.SH EXAMPLES
+.PP
+Start the REPL:
+.EX
+tg-tui
+.EE
+.PP
+Then, inside the REPL:
+.EX
+tg> dialogs 20
+tg> history @somechannel 50
+tg> send @user "hello there"
+tg> reply @user 12345 "nice"
+tg> edit  @user 12345 "fixed typo"
+tg> upload @user ~/docs/report.pdf "final version"
+tg> poll
+tg> :q
+.EE
+.PP
+Start the three-pane UI:
+.EX
+tg-tui --tui
+.EE
+.PP
+Login on a fresh machine:
+.EX
+tg-tui --phone +15551234567 --code 12345 --password hunter2
+.EE
+
+.SH SECURITY
+Identical to
+.BR tg-cli (1):
+AES-256-IGE, MITM-hardened DH, mode-0600 config/session files, no
+plaintext bodies in the log by default.
+
+.SH SEE ALSO
+.BR tg-cli (1),
+.BR tg-cli-ro (1).
+.PP
+TUI design notes:
+\fIdocs/userstory/US-11-tui-mvp.md\fR,
+\fIdocs/userstory/US-00-roadmap.md\fR ("Curses TUI" backlog subsection).
+
+.SH LIMITATIONS
+Unofficial client. Secret (E2E) chats, voice/video calls, payments,
+sticker creation are out of scope. The
+.B --tui
+mode assumes a terminal with UTF-8 locale and ANSI-compatible cursor /
+SGR handling; wide-glyph layout depends on a working
+.BR wcwidth (3).
+
+.SH BUGS
+Report issues at \fIhttps://github.com/csjpeter/tg-cli/issues\fR.
+
+.SH LICENSE
+GPL-3.0-or-later.
+
+.SH AUTHOR
+Peter Csaszar <peter@csaszar.email>.

@@ -2,19 +2,23 @@
 
 ## Overview
 
-The logger writes to a rotating file at `~/.cache/tg-cli/logs/session.log`.
-All API traffic is captured at DEBUG level via a libcurl debug callback.
+`tg-cli`, `tg-cli-ro`, and `tg-tui` share a single rotating file logger that
+writes diagnostic output to `~/.cache/tg-cli/logs/session.log`. No log data
+is sent over the network. MTProto traffic is captured by the RPC layer at
+DEBUG level when explicitly enabled (see below) — there is **no HTTP stack
+and no libcurl**, so there is no `CURLINFO_*` dump to inspect.
 
 ## Log Levels
 
 | Level | Meaning |
 |-------|---------|
-| `LOG_DEBUG` | Full API traffic dump (every byte in/out via CURL) |
-| `LOG_INFO` | Application milestones: startup, config loaded, session end |
-| `LOG_WARN` | Non-fatal issues: incomplete config, permission warnings |
-| `LOG_ERROR` | Fatal errors: connection failure, config write error (also to stderr) |
+| `LOG_DEBUG` | Envelope-level MTProto dumps: `auth_key_id`, `msg_id`, `seq_no`, TL constructor CRC, ciphertext length. Plaintext bodies are included when `TG_CLI_LOG_PLAINTEXT=1` is set — off by default to keep secrets out of log files. |
+| `LOG_INFO` | Application milestones: startup, config loaded, DC connect, handshake complete, session persisted, clean shutdown. |
+| `LOG_WARN` | Non-fatal issues: `bad_server_salt` retry, `FILE_MIGRATE_X`, missing optional config field, permission warning on `session.bin`. |
+| `LOG_ERROR` | Fatal errors: connection refused, DH verification failure, TL parse error. Also echoed to stderr. |
 
-The default runtime level is `LOG_DEBUG` — everything is logged.
+The default runtime level is `LOG_INFO`. Raise to `LOG_DEBUG` in `main.c`
+(`logger_init(path, LOG_DEBUG)`) when diagnosing a specific session.
 
 ## Log Files
 
@@ -29,34 +33,47 @@ The default runtime level is `LOG_DEBUG` — everything is logged.
 Rotation triggers when `session.log` exceeds **5 MB**. The oldest file
 (`session.log.5`) is deleted; each existing file shifts up by one.
 
-## API Traffic Capture
+## MTProto Traffic Capture
 
-libcurl's debug callback is always registered when the HTTP adapter is used.
-It forwards `CURLINFO_HEADER_IN`, `CURLINFO_HEADER_OUT`,
-`CURLINFO_DATA_IN`, and `CURLINFO_DATA_OUT` to `logger_log(LOG_DEBUG, ...)`.
-At runtime LOG_INFO level the logger filters these out silently.
+At `LOG_DEBUG` the RPC layer (`src/infrastructure/mtproto_rpc.c` +
+`src/infrastructure/api_call.c`) emits, per frame:
 
-To capture a full traffic dump, set `logger_init(path, LOG_DEBUG)` (already the
-default in `main.c`) and read `session.log` after a run.
+- direction (`→ server` / `← server`),
+- outer 4-byte abridged-transport length prefix,
+- `auth_key_id` (8 bytes), `msg_key` (16 bytes), ciphertext length,
+- decrypted inner envelope: `salt`, `session_id`, `msg_id`, `seq_no`,
+  `length`, TL constructor CRC32.
+
+The TL body itself is **not dumped by default** — it can carry message
+bodies, 2FA tokens, or access_hashes. Enable `TG_CLI_LOG_PLAINTEXT=1`
+only on a throwaway test account.
 
 ## Purging Logs
 
 ```bash
-tg-cli --clean-logs
+./manage.sh clean-logs
 ```
 
-Deletes all `session.log*` files in the cache directory.
-Implemented in `logger_clean_logs()` (`src/core/logger.c`).
+Removes every `session.log*` file under `~/.cache/tg-cli/logs/`.
+The binaries themselves do not take a `--clean-logs` flag.
 
 ## Using the Logger in Code
 
 ```c
 #include "logger.h"
 
-logger_log(LOG_INFO,  "Connected to %s", host);
-logger_log(LOG_WARN,  "Config missing optional field: %s", key);
-logger_log(LOG_ERROR, "Failed to open file: %s", path);  // also prints to stderr
+logger_log(LOG_INFO,  "Connected to DC%d (%s:%d)", dc_id, host, port);
+logger_log(LOG_WARN,  "bad_server_salt; retrying with new salt 0x%016llx", salt);
+logger_log(LOG_ERROR, "Failed to open %s: %s", path, strerror(errno));
 ```
 
-The logger is a global singleton. Call `logger_init()` once in `main.c` before
-any other module uses it. Call `logger_close()` at exit.
+The logger is a global singleton. Call `logger_init()` once in `main.c`
+before any other module uses it. Call `logger_close()` at exit. Both are
+idempotent — re-init inside a test harness is safe.
+
+## Tests
+
+`tests/unit/test_logger.c` covers the level filtering, rotation trigger,
+and idempotency guarantees. Each test uses `with_tmp_home()` (see
+`tests/common/test_helpers.h`) to redirect `$HOME` so log writes land in a
+per-test temp directory.

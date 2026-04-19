@@ -25,7 +25,7 @@ Format: one story per file, ≤30 lines.
 | US-14 | File + photo upload (small, big, auto-dispatch) | tg-tui, tg-cli | done |
 | US-15 | Cross-DC media routing (upload + download) | tg-cli-ro, tg-tui, tg-cli | done |
 | US-16 | Resolve `@username` + persistent session + `--logout` | all | done |
-| US-17 | Functional test coverage for every use case | tests | in progress (FT-01..07) |
+| US-17 | Functional test coverage for every use case | tests | done (FT-01..07) |
 
 ## Conventions
 

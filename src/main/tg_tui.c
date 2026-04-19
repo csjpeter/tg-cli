@@ -409,6 +409,8 @@ static void do_poll(const ApiConfig *cfg, MtProtoSession *s, Transport *t) {
 static void print_help(void) {
     puts(
         "Commands (accept '/' prefix too):\n"
+        "\n"
+        "Read commands:\n"
         "  me                           Show own profile\n"
         "  dialogs [N]                  List up to N dialogs (default 20)\n"
         "  history [<peer>] [N]         Saved Messages by default, or <peer>\n"
@@ -426,8 +428,18 @@ static void print_help(void) {
         "  forward <from> <to> <msg_id> Forward one message\n"
         "  upload <peer> <path> [caption] Upload a file (document)\n"
         "\n"
-        "  help                         This help\n"
-        "  quit, exit, :q               Leave the TUI\n"
+        "Session:\n"
+        "  help, ?                      Show this help\n"
+        "  quit, exit, :q               Leave the TUI (Ctrl-D also exits)\n"
+        "\n"
+        "Launch flags (pass on the command line, not inside the REPL):\n"
+        "  --tui                        Curses-style three-pane UI instead of REPL\n"
+        "  --phone <number>             Batch login phone (E.164)\n"
+        "  --code <digits>              Batch login SMS/app code\n"
+        "  --password <pass>            Batch login 2FA password\n"
+        "  --logout                     Clear persisted session and exit\n"
+        "\n"
+        "See man tg-tui(1) for the full reference.\n"
     );
 }
 

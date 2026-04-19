@@ -74,12 +74,13 @@ idempotent, config bzero, `crypto_rand_bytes` bounds,
 
 ## Quality
 - **2703 unit tests** passing (ASAN)
-- **150 functional tests** passing (real OpenSSL; SHA-512, PBKDF2,
-  BN primitives, IGE, MTProto crypto round-trips, full SRP
-  client↔server math roundtrip, kitchen-sink Message iteration)
+- **427 functional tests** passing — every US-03..US-16 use case is
+  exercised end-to-end through the in-process mock Telegram server
+  with real OpenSSL on both sides (US-17 FT-01..FT-07 landed).
 - Valgrind: 0 leaks, 0 errors
 - Zero warnings under `-Wall -Wextra -Werror -pedantic`
-- Core+infra coverage: ~89% (TUI excluded)
+- Combined line coverage ~88 % (functional-only ~52 %); see
+  `docs/dev/coverage.md`.
 
 ## Known v1 limitations (follow-ups, not blockers)
 - MessageMedia iteration is complete for every declared modern
@@ -233,22 +234,28 @@ photo upload, full Document iteration (incl. stickers / custom
 emojis / thumbs), full cached_page PageBlock tree, and a recursion
 guard on storyItem → messageMedia.
 
-### Next: functional-test expansion (US-17, FT-01..07)
-The existing 150-case functional suite is crypto-only. Broadening it
-to cover every user-visible behaviour end-to-end against a mock
-Telegram server:
-1. **FT-01** — use-case inventory + US doc refresh (done: this commit
-   marks every US-03..US-16 as done and adds the missing US-13..16).
-2. **FT-02** — scriptable mock Telegram server emulator on top of
-   `tests/mocks/socket.c`: encrypted envelope parsing, RPC dispatch
-   registry, canned response builders.
-3. **FT-03** — login flow tests (SMS, 2FA, PHONE_MIGRATE, bad_salt,
-   session persist, `--logout`).
-4. **FT-04** — read-path tests (dialogs, history, search, user-info,
-   contacts, resolve-username, watch).
-5. **FT-05** — write-path tests (send, reply, edit, delete, forward,
-   read markers).
-6. **FT-06** — upload/download tests (small/big file, photo,
-   cross-DC FILE_MIGRATE + NETWORK_MIGRATE).
-7. **FT-07** — separate lcov run for functional tests, GitHub Pages
-   hosting for the report, dedicated README coverage badge.
+### Functional-test expansion (US-17, FT-01..07) — done
+Every FT ticket is landed; the 427-case functional suite now drives
+every US-03..US-16 flow end-to-end through the in-process mock
+Telegram server with real OpenSSL on both sides.
+
+- **FT-01** ✅ — use-case inventory + US doc refresh.
+- **FT-02** ✅ — scriptable mock Telegram server
+  (`tests/mocks/mock_tel_server.{h,c}`): encrypted envelope parsing,
+  RPC dispatch registry, canned response builders, one-shot
+  `bad_server_salt` injection.
+- **FT-03** ✅ — login flow tests (SMS, 2FA, PHONE_MIGRATE,
+  `bad_server_salt`, session persist, `--logout`).
+- **FT-04** ✅ — read-path tests (dialogs, history, search,
+  user-info, contacts, resolve-username, watch).
+- **FT-05** ✅ — write-path tests (send, reply, edit, delete,
+  forward, read markers).
+- **FT-06** ✅ — upload/download tests (small/big file, photo,
+  cross-DC FILE_MIGRATE + NETWORK_MIGRATE).
+- **FT-07** ✅ — two-pass lcov (unit + functional), GitHub Pages
+  hosting with nested `/functional/` report, dedicated README
+  coverage badge (combined + functional-only).
+
+### Next focus
+All MVP user stories are closed; the backlog is now polish
+(see "Backlog (post-MVP polish)" above).

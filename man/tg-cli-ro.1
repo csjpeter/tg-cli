@@ -1,0 +1,224 @@
+.\" Manpage for tg-cli-ro.
+.\" Hand-maintained; keep in sync with src/main/tg_cli_ro.c print_usage().
+.TH TG-CLI-RO 1 "2026-04-19" "tg-cli 0.1.0" "User Commands"
+
+.SH NAME
+tg-cli-ro \- unofficial batch Telegram client, read-only by construction
+
+.SH SYNOPSIS
+.B tg-cli-ro
+[\fIGLOBAL FLAGS\fR] \fISUBCOMMAND\fR [\fIARGS\fR]
+
+.SH DESCRIPTION
+.B tg-cli-ro
+is the read-only sibling of
+.BR tg-cli (1).
+It is compile-time guaranteed never to mutate server state: the
+write-capable domain library (\fBtg-domain-write\fR) is simply not
+linked into this binary, so no mutation RPC (\fBmessages.sendMessage\fR,
+\fBmessages.readHistory\fR, edit/delete/forward, upload) is reachable
+even if an argument-parse bug were exploited. See
+.I docs/adr/0005-three-binary-architecture.md.
+.PP
+Use this binary for scripted, cron-safe, audit-friendly read access to
+your Telegram account. For interactive use, see
+.BR tg-tui (1).
+For write access, see
+.BR tg-cli (1).
+
+.SH GLOBAL FLAGS
+.TP
+.BI --phone " number"
+Phone number in E.164 form for the first-time login. Subsequent runs
+resume the persisted session.
+.TP
+.BI --code " digits"
+SMS or Telegram-app code received during login.
+.TP
+.BI --password " pass"
+Two-factor-authentication password (SRP via
+.BR account.getPassword (3MTP)
++
+.BR auth.checkPassword (3MTP)).
+.TP
+.B --logout
+Clear \fB~/.config/tg-cli/session.bin\fR and exit.
+.TP
+.B --json
+Emit machine-readable JSON on stdout where supported.
+.TP
+.B --quiet
+Suppress informational output.
+.TP
+.BR --help , " -h"
+Show help and exit.
+.TP
+.BR --version , " -v"
+Show version and exit.
+
+.SH SUBCOMMANDS
+.TP
+.B me
+Show own profile (US-05).
+.TP
+.BI dialogs " [--limit N]"
+List up to N dialogs (default 20) (US-04). Each entry reports the
+dialog kind, title, and \fB@username\fR when available.
+.TP
+.BI history " <peer> [--limit N]"
+Fetch message history from \fIpeer\fR (US-06). Extracts text, media
+kind, and \fBphoto_id\fR / \fBdocument_id\fR where present.
+.TP
+.BI search " [<peer>] <query>"
+Search messages (US-10). Without \fIpeer\fR the query is global.
+.TP
+.BI user-info " <peer>"
+Show user or channel info (US-09).
+.TP
+.BI watch " [--peers X,Y]"
+Poll-loop over
+.BR updates.getDifference (3MTP)
+for incoming messages (US-07). Optional
+.B --peers
+filters the event stream.
+.TP
+.BI download " <peer> <msg_id> [--out PATH]"
+Download a photo attachment from a specific message (US-08). Defaults
+to \fB~/.cache/tg-cli/downloads/photo-<photo_id>.jpg\fR; cross-DC
+\fBFILE_MIGRATE_X\fR is handled transparently (US-15).
+.TP
+.B help
+Alias for
+.B --help.
+.TP
+.B version
+Alias for
+.B --version.
+
+.SH PEER SYNTAX
+Peers accept any of:
+.IP \[bu] 2
+\fB@username\fR \(em resolved via
+.BR contacts.resolveUsername (3MTP)
+(US-16).
+.IP \[bu]
+numeric id (\fB123456789\fR, \fB-100...\fR for channels).
+.IP \[bu]
+the sentinel \fBme\fR for your own Saved Messages dialog.
+
+.SH CREDENTIALS
+.B tg-cli-ro
+needs an \fBapi_id\fR and \fBapi_hash\fR from
+\fIhttps://my.telegram.org\fR. Provide them via either:
+.IP \[bu] 2
+environment: \fBTG_CLI_API_ID\fR, \fBTG_CLI_API_HASH\fR.
+.IP \[bu]
+config file: \fBapi_id=\fR, \fBapi_hash=\fR lines in
+\fB~/.config/tg-cli/config.ini\fR (mode 0600).
+
+.SH FILES
+.TP
+.B ~/.config/tg-cli/config.ini
+Credentials + current DC info (mode 0600). Shared with
+.BR tg-cli (1)
+and
+.BR tg-tui (1).
+.TP
+.B ~/.config/tg-cli/session.bin
+Persistent MTProto auth key + DC id + server salt (mode 0600). Removed
+by
+.B --logout.
+.TP
+.B ~/.cache/tg-cli/downloads/
+Default destination for downloaded media (mode 0700).
+.TP
+.B ~/.cache/tg-cli/logs/session.log
+Diagnostic log; see
+.I docs/dev/logging.md.
+
+.SH ENVIRONMENT
+.TP
+.B TG_CLI_API_ID
+Overrides \fBapi_id\fR from the config file.
+.TP
+.B TG_CLI_API_HASH
+Overrides \fBapi_hash\fR from the config file.
+.TP
+.B TG_CLI_LOG_PLAINTEXT
+If \fB1\fR, include plaintext TL bodies at \fILOG_DEBUG\fR. Off by
+default.
+.TP
+.B HOME
+Controls the location of the config, cache, and session directories.
+
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 1
+Arg-parse error, bootstrap failure, missing credentials, or RPC error.
+
+.SH EXAMPLES
+.PP
+First-time login + print own profile, JSON-formatted:
+.EX
+tg-cli-ro --phone +15551234567 --code 12345 --json me
+.EE
+.PP
+List the last 20 dialogs, JSON for piping:
+.EX
+tg-cli-ro dialogs --limit 20 --json
+.EE
+.PP
+Read the last 50 messages of a channel:
+.EX
+tg-cli-ro history @somechannel --limit 50
+.EE
+.PP
+Global search:
+.EX
+tg-cli-ro search "hello world" --json
+.EE
+.PP
+Download a photo from a specific message to a custom path:
+.EX
+tg-cli-ro download @peer 12345 --out ~/pic.jpg
+.EE
+.PP
+Watch incoming updates from two peers:
+.EX
+tg-cli-ro watch --peers @peer1,@peer2
+.EE
+.PP
+Clear the persisted session:
+.EX
+tg-cli-ro --logout
+.EE
+
+.SH SECURITY
+Read-only by link-time construction. All other security guarantees
+identical to
+.BR tg-cli (1):
+MTProto 2.0 AES-256-IGE, MITM-hardened DH handshake, mode-0600 config /
+session files, no plaintext bodies in logs by default.
+
+.SH SEE ALSO
+.BR tg-cli (1),
+.BR tg-tui (1).
+.PP
+Specification: \fIdocs/SPECIFICATION.md\fR. Architecture decision:
+\fIdocs/adr/0005-three-binary-architecture.md\fR.
+
+.SH LIMITATIONS
+Unofficial client; not affiliated with Telegram. Secret (E2E) chats,
+voice/video calls, payments, and sticker creation are out of scope.
+
+.SH BUGS
+Report issues at \fIhttps://github.com/csjpeter/tg-cli/issues\fR.
+
+.SH LICENSE
+GPL-3.0-or-later.
+
+.SH AUTHOR
+Peter Csaszar <peter@csaszar.email>.
