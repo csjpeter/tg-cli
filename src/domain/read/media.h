@@ -2,10 +2,9 @@
  * @file domain/read/media.h
  * @brief P6-01 — download media (photos) via upload.getFile.
  *
- * v1 covers photos; the call site passes a PhotoLocation assembled from
- * the MediaInfo that came out of history/search. Documents and cross-DC
- * downloads (FILE_MIGRATE_X) are tracked as follow-up work — this
- * module surfaces the migrate_dc hint on -1 so callers can at least
+ * Covers photos and documents (files, video, audio). Cross-DC downloads
+ * (FILE_MIGRATE_X) are transparently handled by domain_download_media_cross_dc.
+ * The module surfaces the migrate_dc hint on -1 so callers can at least
  * display an actionable error.
  */
 

@@ -277,6 +277,51 @@ static void test_download_document_rejects_non_document(void) {
     ASSERT(rc != 0, "photo rejected for document download");
 }
 
+/* Verify that the wire payload for inputDocumentFileLocation contains the
+ * document id and access_hash bytes after the CRC.
+ * Layout: CRC(4) id:long(8) access_hash:long(8) file_reference:bytes thumb_size:string */
+static void test_download_document_wire_id_and_hash(void) {
+    mock_socket_reset(); mock_crypto_reset();
+    const char *path = "/tmp/tg-cli-media-doc-idcheck.bin";
+    unlink(path);
+
+    uint8_t body[8] = {0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08};
+    uint8_t payload[128];
+    size_t plen = make_upload_file(payload, sizeof(payload), body, sizeof(body));
+    uint8_t resp[256]; size_t rlen = 0;
+    build_fake_encrypted_response(payload, plen, resp, &rlen);
+    mock_socket_set_response(resp, rlen);
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    fix_session(&s); fix_transport(&t); fix_cfg(&cfg);
+    MediaInfo info = fake_document_info();    /* document_id=5551212, access_hash=0xFEEDFACE01234567 */
+    int rc = domain_download_document(&cfg, &s, &t, &info, path, NULL);
+    ASSERT(rc == 0, "download ok for id/hash check");
+
+    size_t sent_len = 0;
+    const uint8_t *sent = mock_socket_get_sent(&sent_len);
+
+    /* Find the inputDocumentFileLocation CRC in the sent bytes. */
+    uint32_t crc = 0xbad07584u;
+    size_t crc_pos = sent_len;
+    for (size_t i = 0; i + 4 <= sent_len; i++) {
+        if (memcmp(sent + i, &crc, 4) == 0) { crc_pos = i; break; }
+    }
+    ASSERT(crc_pos + 4 + 8 + 8 <= sent_len, "id+hash bytes present after CRC");
+
+    /* id follows immediately after the CRC (little-endian int64). */
+    int64_t wire_id = 0;
+    memcpy(&wire_id, sent + crc_pos + 4, 8);
+    ASSERT(wire_id == info.document_id, "document id serialized correctly");
+
+    /* access_hash follows id. */
+    int64_t wire_hash = 0;
+    memcpy(&wire_hash, sent + crc_pos + 12, 8);
+    ASSERT(wire_hash == (int64_t)info.access_hash, "access_hash serialized correctly");
+
+    unlink(path);
+}
+
 /* ---- Cross-DC wrapper ---- */
 
 static void test_cross_dc_null_args(void) {
@@ -371,6 +416,7 @@ void run_domain_media_tests(void) {
     RUN_TEST(test_download_document_single_chunk);
     RUN_TEST(test_download_document_wire_has_doc_location_crc);
     RUN_TEST(test_download_document_rejects_non_document);
+    RUN_TEST(test_download_document_wire_id_and_hash);
     RUN_TEST(test_cross_dc_null_args);
     RUN_TEST(test_cross_dc_happy_path_no_migration);
     RUN_TEST(test_cross_dc_non_migrate_failure_bails);

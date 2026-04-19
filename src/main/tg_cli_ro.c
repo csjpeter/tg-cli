@@ -682,7 +682,7 @@ static void print_usage(void) {
         "  user-info <peer>                 User/channel info (US-09)\n"
         "  watch    [--peers X,Y] [--interval SEC]  Watch updates (US-07)\n"
         "           With --json: emits one NDJSON line per new message.\n"
-        "  download <peer> <msg_id> [--out PATH]  Download photo (US-08)\n"
+        "  download <peer> <msg_id> [--out PATH]  Download photo or document (US-08)\n"
         "\n"
         "Global flags:\n"
         "  --batch             Non-interactive batch mode\n"

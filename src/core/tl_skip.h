@@ -135,8 +135,8 @@ typedef enum {
  * gets enough information to build an InputFileLocation for
  * `upload.getFile`: id + access_hash + file_reference + dc_id. For
  * photos, `thumb_type` carries the largest PhotoSize.type label so the
- * caller can request the full-size rendition. For documents this phase
- * covers only documentEmpty (id only); non-empty Document stays TODO.
+ * caller can request the full-size rendition. For documents, the full
+ * file is fetched using inputDocumentFileLocation (thumb_size = "").
  */
 typedef struct {
     MediaKind kind;
