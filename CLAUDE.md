@@ -40,7 +40,7 @@ Observed patterns and their guardrails for every future session:
 ./manage.sh deps       # Install system dependencies (Ubuntu 24.04 / Rocky 9)
 ```
 
-There is no Makefile — `manage.sh` calls CMake directly. There is no mechanism to run a single test in isolation; all unit tests run together via `build/tests/unit/test-runner`.
+There is no Makefile — `manage.sh` calls CMake directly. Pass an optional substring filter to run matching suites only: `./manage.sh test <filter>` (e.g. `./manage.sh test test_ige`). Without a filter all tests run.
 
 ## Architecture
 

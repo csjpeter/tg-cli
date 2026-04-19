@@ -19,7 +19,7 @@ show_help() {
     echo "  build          Build the project in Release mode"
     echo "  debug          Build the project in Debug mode (with ASAN)"
     echo "  run            Build and run the application"
-    echo "  test           Build and run unit tests (with ASAN)"
+    echo "  test [filter]  Build and run unit tests (with ASAN); optional substring filter"
     echo "  valgrind       Build and run unit tests with Valgrind"
     echo "  coverage       Run tests and generate coverage report"
     echo "  clean-logs     Purge all application log files"
@@ -120,13 +120,13 @@ case "$1" in
         echo "Running unit tests with ASAN..."
         build_debug
         build_test_runner
-        "$BUILD_DIR/tests/unit/test-runner"
+        "$BUILD_DIR/tests/unit/test-runner" ${2:+"$2"}
         ;;
     valgrind)
         echo "Running unit tests with Valgrind..."
         build_release
         build_test_runner
-        valgrind --leak-check=full --error-exitcode=1 "$BUILD_DIR/tests/unit/test-runner"
+        valgrind --leak-check=full --error-exitcode=1 "$BUILD_DIR/tests/unit/test-runner" ${2:+"$2"}
         ;;
     coverage)
         cmake_configure Debug "-DENABLE_COVERAGE=ON"

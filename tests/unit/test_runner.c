@@ -6,6 +6,7 @@
 // Globals defined in test_helpers.h
 int g_tests_run = 0;
 int g_tests_failed = 0;
+const char *g_test_filter = NULL;
 
 // Forward declarations of test suites
 void test_fs_util(void);
@@ -55,8 +56,13 @@ void test_tui_history_pane_run(void);
 void test_tui_status_row_run(void);
 void test_tui_app_run(void);
 
-int main() {
-    printf("--- tg-cli Unit Test Suite ---\n\n");
+int main(int argc, char *argv[]) {
+    if (argc > 1) {
+        g_test_filter = argv[1];
+        printf("--- tg-cli Unit Test Suite (filter: \"%s\") ---\n\n", g_test_filter);
+    } else {
+        printf("--- tg-cli Unit Test Suite ---\n\n");
+    }
 
     // Suppress mirror of ERROR logs to stderr during testing
     logger_set_stderr(0);
