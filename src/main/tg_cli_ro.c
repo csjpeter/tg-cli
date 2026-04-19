@@ -21,6 +21,7 @@
 #include "domain/read/search.h"
 #include "domain/read/contacts.h"
 #include "domain/read/media.h"
+#include "infrastructure/updates_state_store.h"
 #include "fs_util.h"
 
 #include <signal.h>
@@ -153,6 +154,11 @@ static const char *peer_kind_name(DialogPeerKind k) {
 static volatile sig_atomic_t g_stop = 0;
 static void on_sigint(int sig) { (void)sig; g_stop = 1; }
 
+/** Maximum sleep between poll retries on error (5 minutes). */
+#define WATCH_BACKOFF_CAP_S  300
+/** Initial sleep on first error. */
+#define WATCH_BACKOFF_INIT_S   5
+
 static int cmd_watch(const ArgResult *args) {
     ApiConfig cfg; MtProtoSession s; Transport t;
     int brc = session_bringup(args, &cfg, &s, &t);
@@ -161,54 +167,83 @@ static int cmd_watch(const ArgResult *args) {
     signal(SIGINT, on_sigint);
 
     UpdatesState state = {0};
-    if (domain_updates_state(&cfg, &s, &t, &state) != 0) {
-        fprintf(stderr, "tg-cli-ro watch: getState failed\n");
-        transport_close(&t);
-        return 1;
+
+    /* Load persisted state; fall back to updates.getState if missing. */
+    int loaded = updates_state_load(&state);
+    if (loaded != 0) {
+        if (!args->quiet)
+            fprintf(stderr, "watch: no persisted state, fetching from server\n");
+        if (domain_updates_state(&cfg, &s, &t, &state) != 0) {
+            fprintf(stderr, "tg-cli-ro watch: getState failed\n");
+            transport_close(&t);
+            return 1;
+        }
+        /* Persist immediately so the next invocation can skip getState. */
+        updates_state_save(&state);
     }
+
     int interval = args->watch_interval > 0 ? args->watch_interval : 30;
     if (!args->quiet)
         fprintf(stderr, "watch: seeded pts=%d qts=%d date=%d, "
                         "polling every %ds (SIGINT to quit)\n",
                         state.pts, state.qts, state.date, interval);
 
+    int backoff = 0; /* seconds of extra sleep on error; 0 means no error */
+
     while (!g_stop) {
         UpdatesDifference diff = {0};
         if (domain_updates_difference(&cfg, &s, &t, &state, &diff) != 0) {
-            fprintf(stderr, "watch: getDifference failed, retrying in %ds\n", interval);
-        } else {
-            state = diff.next_state;
-            if (args->json) {
-                printf("{\"new_messages\":%d,\"empty\":%s,\"too_long\":%s,"
-                       "\"pts\":%d,\"date\":%d,\"items\":[",
-                       diff.new_messages_count,
-                       diff.is_empty ? "true" : "false",
-                       diff.is_too_long ? "true" : "false",
-                       state.pts, state.date);
-                for (int i = 0; i < diff.new_messages_count; i++) {
-                    if (i) printf(",");
-                    printf("{\"id\":%d,\"date\":%d,\"text\":\"%s\"}",
-                           diff.new_messages[i].id,
-                           diff.new_messages[i].date,
-                           diff.new_messages[i].text);
-                }
-                printf("]}\n");
-            } else {
-                for (int i = 0; i < diff.new_messages_count; i++) {
-                    printf("[%d] %d %s\n",
-                           diff.new_messages[i].id,
-                           diff.new_messages[i].date,
-                           diff.new_messages[i].complex
-                               ? "(complex — text not parsed)"
-                               : diff.new_messages[i].text);
-                }
-                if (diff.new_messages_count == 0 && !args->quiet) {
-                    printf("(no new messages; pts=%d date=%d)\n",
-                           state.pts, state.date);
-                }
-            }
-            fflush(stdout);
+            /* Exponential backoff: 5s → 10s → 20s … capped at 5 min. */
+            if (backoff == 0)
+                backoff = WATCH_BACKOFF_INIT_S;
+            else if (backoff < WATCH_BACKOFF_CAP_S)
+                backoff = (backoff * 2 < WATCH_BACKOFF_CAP_S)
+                          ? backoff * 2 : WATCH_BACKOFF_CAP_S;
+            fprintf(stderr,
+                    "watch: getDifference failed, retrying in %ds (backoff)\n",
+                    backoff);
+            for (int i = 0; i < backoff && !g_stop; i++) sleep(1);
+            continue;
         }
+
+        /* Success — reset backoff. */
+        backoff = 0;
+        state = diff.next_state;
+
+        /* Persist updated state after every successful poll. */
+        updates_state_save(&state);
+
+        if (args->json) {
+            printf("{\"new_messages\":%d,\"empty\":%s,\"too_long\":%s,"
+                   "\"pts\":%d,\"date\":%d,\"items\":[",
+                   diff.new_messages_count,
+                   diff.is_empty ? "true" : "false",
+                   diff.is_too_long ? "true" : "false",
+                   state.pts, state.date);
+            for (int i = 0; i < diff.new_messages_count; i++) {
+                if (i) printf(",");
+                printf("{\"id\":%d,\"date\":%d,\"text\":\"%s\"}",
+                       diff.new_messages[i].id,
+                       diff.new_messages[i].date,
+                       diff.new_messages[i].text);
+            }
+            printf("]}\n");
+        } else {
+            for (int i = 0; i < diff.new_messages_count; i++) {
+                printf("[%d] %d %s\n",
+                       diff.new_messages[i].id,
+                       diff.new_messages[i].date,
+                       diff.new_messages[i].complex
+                           ? "(complex \xe2\x80\x94 text not parsed)"
+                           : diff.new_messages[i].text);
+            }
+            if (diff.new_messages_count == 0 && !args->quiet) {
+                printf("(no new messages; pts=%d date=%d)\n",
+                       state.pts, state.date);
+            }
+        }
+        fflush(stdout);
+
         /* Sleep in 1-second chunks so SIGINT is responsive. */
         for (int i = 0; i < interval && !g_stop; i++) sleep(1);
     }
