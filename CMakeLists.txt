@@ -66,6 +66,7 @@ add_library(tg-proto STATIC
     src/infrastructure/auth_2fa.c
     src/infrastructure/auth_transfer.c
     src/infrastructure/updates_state_store.c
+    src/infrastructure/media_index.c
     ${PLATFORM_SOURCES}
     ${VENDOR_TINF_SOURCES}
 )

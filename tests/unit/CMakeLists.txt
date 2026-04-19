@@ -42,6 +42,7 @@ set(TEST_SOURCES
     test_dc_session.c
     test_auth_transfer.c
     test_updates_state_store.c
+    test_media_index.c
     test_tui_screen.c
     test_tui_pane.c
     test_tui_list_view.c

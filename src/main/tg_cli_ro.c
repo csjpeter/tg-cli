@@ -23,6 +23,7 @@
 #include "domain/read/contacts.h"
 #include "domain/read/media.h"
 #include "infrastructure/updates_state_store.h"
+#include "infrastructure/media_index.h"
 #include "fs_util.h"
 
 #include <signal.h>
@@ -455,7 +456,7 @@ static int cmd_history(const ArgResult *args) {
 
     static const char *media_label[] = {
         [MEDIA_NONE] = "", [MEDIA_EMPTY] = "", [MEDIA_UNSUPPORTED] = "unsup",
-        [MEDIA_PHOTO] = "photo", [MEDIA_DOCUMENT] = "doc", [MEDIA_GEO] = "geo",
+        [MEDIA_PHOTO] = "photo", [MEDIA_DOCUMENT] = "document", [MEDIA_GEO] = "geo",
         [MEDIA_CONTACT] = "contact", [MEDIA_VENUE] = "venue",
         [MEDIA_GEO_LIVE] = "geo_live", [MEDIA_DICE] = "dice",
         [MEDIA_WEBPAGE] = "webpage", [MEDIA_POLL] = "poll",
@@ -478,19 +479,41 @@ static int cmd_history(const ArgResult *args) {
             /* When --no-media is set, suppress the media label in JSON too. */
             const char *ml = (args->no_media) ? "" : media_label[entries[i].media];
             long long mid = (args->no_media) ? 0LL : (long long)entries[i].media_id;
+            /* Look up cached path for photo/document. */
+            char cached_path[2048] = {0};
+            int has_cache = 0;
+            if (!args->no_media && entries[i].media_id != 0
+                && (entries[i].media == MEDIA_PHOTO
+                    || entries[i].media == MEDIA_DOCUMENT)) {
+                has_cache = (media_index_get(entries[i].media_id,
+                                             cached_path,
+                                             sizeof(cached_path)) == 1);
+            }
             printf("{\"id\":%d,\"out\":%s,\"date\":%d,\"text\":\"%s\","
-                   "\"complex\":%s,\"media\":\"%s\",\"media_id\":%lld}",
+                   "\"complex\":%s,\"media\":\"%s\",\"media_id\":%lld"
+                   ",\"media_path\":\"%s\"}",
                    entries[i].id,
                    entries[i].out ? "true" : "false",
                    entries[i].date, entries[i].text,
                    entries[i].complex ? "true" : "false",
-                   ml, mid);
+                   ml, mid,
+                   has_cache ? cached_path : "");
         }
         printf("]\n");
     } else {
         int printed = 0;
         for (int i = 0; i < count; i++) {
             const char *ml = media_label[entries[i].media];
+            /* Look up cached local path for photo/document. */
+            char cached_path[2048] = {0};
+            int has_cache = 0;
+            if (entries[i].media_id != 0
+                && (entries[i].media == MEDIA_PHOTO
+                    || entries[i].media == MEDIA_DOCUMENT)) {
+                has_cache = (media_index_get(entries[i].media_id,
+                                             cached_path,
+                                             sizeof(cached_path)) == 1);
+            }
             if (entries[i].complex) {
                 printf("[%d] %s %d (complex — text not parsed)\n",
                        entries[i].id, entries[i].out ? ">" : "<",
@@ -505,10 +528,17 @@ static int cmd_history(const ArgResult *args) {
                        entries[i].date, entries[i].text);
                 printed++;
             } else if (ml[0]) {
-                printf("[%d] %s %d [%s:%lld] %s\n",
-                       entries[i].id, entries[i].out ? ">" : "<",
-                       entries[i].date, ml,
-                       (long long)entries[i].media_id, entries[i].text);
+                /* Display inline cached path if available, else just label. */
+                if (has_cache) {
+                    printf("[%d] %s %d [%s: %s] %s\n",
+                           entries[i].id, entries[i].out ? ">" : "<",
+                           entries[i].date, ml,
+                           cached_path, entries[i].text);
+                } else {
+                    printf("[%d] %s %d [%s] %s\n",
+                           entries[i].id, entries[i].out ? ">" : "<",
+                           entries[i].date, ml, entries[i].text);
+                }
                 printed++;
             } else {
                 printf("[%d] %s %d %s\n",
@@ -597,14 +627,20 @@ static int cmd_download(const ArgResult *args, const AppContext *ctx) {
         fprintf(stderr, "tg-cli-ro download: failed (see logs)\n");
         return 1;
     }
+
+    /* Record in media index so `history` can show inline paths. */
+    int64_t media_id = (entry.media == MEDIA_DOCUMENT)
+                     ? entry.media_info.document_id
+                     : entry.media_info.photo_id;
+    if (media_index_put(media_id, out_path) != 0) {
+        fprintf(stderr, "tg-cli-ro download: warning: failed to update media index\n");
+    }
+
     if (args->json) {
-        int64_t id = (entry.media == MEDIA_DOCUMENT)
-                   ? entry.media_info.document_id
-                   : entry.media_info.photo_id;
         printf("{\"saved\":\"%s\",\"kind\":\"%s\",\"id\":%lld}\n",
                out_path,
                (entry.media == MEDIA_DOCUMENT) ? "document" : "photo",
-               (long long)id);
+               (long long)media_id);
     } else if (!args->quiet) {
         printf("saved: %s\n", out_path);
     }
