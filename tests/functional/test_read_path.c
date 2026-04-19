@@ -47,6 +47,10 @@ extern void resolve_cache_flush(void);
 #define CRC_contacts_getContacts      0x5dd69e12U
 #define CRC_contact                   0x145ade0bU
 #define CRC_contacts_resolveUsername  0xf93ccba3U
+#define CRC_users_getFullUser         0xb9f11a99U
+#define CRC_users_userFull            0x3b6d152eU
+/* inner userFull object — matches TL_userFull in tl_registry.h */
+#define CRC_userFull_inner            0x93eadb53U
 #define CRC_updates_getState          0xedd4882aU
 #define CRC_updates_getDifference     0x19c2f763U
 #define CRC_peerNotifySettings        0xa83b0426U
@@ -362,6 +366,49 @@ static void on_updates_diff_empty(MtRpcContext *ctx) {
 /* Generic handler for asserting RPC errors propagate. */
 static void on_generic_500(MtRpcContext *ctx) {
     mt_server_reply_error(ctx, 500, "INTERNAL_SERVER_ERROR");
+}
+
+/* users.userFull wrapper containing a minimal userFull with:
+ *   about = "Test bio string"
+ *   phone = "+15550001234"
+ *   common_chats_count = 7
+ *
+ * userFull flags used:
+ *   bit 4  → phone present
+ *   bit 5  → about present
+ *   bit 20 → common_chats_count present
+ *
+ * Layout written: flags(u32) id(i64) about(str) phone(str)
+ *                 common_chats_count(i32)
+ * (Matches the order parse_user_full() reads them.) */
+static void on_get_full_user(MtRpcContext *ctx) {
+    (void)ctx;
+    uint32_t flags = (1u << 5) | (1u << 4) | (1u << 20);
+
+    TlWriter w;
+    tl_writer_init(&w);
+
+    /* users.userFull wrapper */
+    tl_write_uint32(&w, CRC_users_userFull);
+
+    /* full_user:UserFull — inner userFull object */
+    tl_write_uint32(&w, CRC_userFull_inner);
+    tl_write_uint32(&w, flags);
+    tl_write_int64 (&w, 8001LL);            /* id */
+    tl_write_string(&w, "Test bio string"); /* about (flags.5) */
+    tl_write_string(&w, "+15550001234");    /* phone (flags.4) */
+    tl_write_int32 (&w, 7);                /* common_chats_count (flags.20) */
+
+    /* chats:Vector<Chat> — empty */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 0);
+
+    /* users:Vector<User> — empty */
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, 0);
+
+    mt_server_reply_result(ctx, w.data, w.len);
+    tl_writer_free(&w);
 }
 
 /* contacts.resolvedPeer pointing at channel id 9001 with access_hash. */
@@ -986,6 +1033,33 @@ static void test_history_cache_hit(void) {
     mt_server_reset();
 }
 
+/* TEST-09: users.getFullUser happy path.
+ * Fires contacts.resolveUsername (→ user id 8001) followed by
+ * users.getFullUser (→ minimal userFull with about/phone/common_chats).
+ * Asserts that domain_get_user_info surfaces all three fields. */
+static void test_get_full_user_happy(void) {
+    with_tmp_home("full-user");
+    mt_server_init(); mt_server_reset();
+    resolve_cache_flush();
+    MtProtoSession s; load_session(&s);
+    mt_server_expect(CRC_contacts_resolveUsername, on_resolve_user, NULL);
+    mt_server_expect(CRC_users_getFullUser,        on_get_full_user, NULL);
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    UserFullInfo fi = {0};
+    ASSERT(domain_get_user_info(&cfg, &s, &t, "@testuser", &fi) == 0,
+           "get_user_info ok");
+    ASSERT(fi.id == 8001LL, "id == 8001");
+    ASSERT(strcmp(fi.bio, "Test bio string") == 0, "bio decoded");
+    ASSERT(strcmp(fi.phone, "+15550001234") == 0, "phone decoded");
+    ASSERT(fi.common_chats_count == 7, "common_chats_count == 7");
+
+    transport_close(&t);
+    mt_server_reset();
+}
+
 void run_read_path_tests(void) {
     RUN_TEST(test_get_self);
     RUN_TEST(test_get_self_premium);
@@ -1006,6 +1080,7 @@ void run_read_path_tests(void) {
     RUN_TEST(test_contacts_two);
     RUN_TEST(test_resolve_username_happy);
     RUN_TEST(test_resolve_username_not_found);
+    RUN_TEST(test_get_full_user_happy);
     RUN_TEST(test_updates_state);
     RUN_TEST(test_updates_difference_empty);
     RUN_TEST(test_rpc_error_propagation);

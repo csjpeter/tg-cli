@@ -57,4 +57,29 @@ int domain_resolve_username(const ApiConfig *cfg,
  */
 void resolve_cache_flush(void);
 
+/** Fields extracted from a users.getFullUser response. */
+typedef struct {
+    int64_t id;              /**< User id (echoed from resolved peer). */
+    char    bio[256];        /**< about/bio string; empty if not set. */
+    char    phone[32];       /**< Phone number; empty if not set. */
+    int32_t common_chats_count; /**< Number of common chats; 0 if not set. */
+} UserFullInfo;
+
+/**
+ * @brief Resolve @p peer (username, numeric id, or "self") and call
+ *        users.getFullUser to retrieve the full profile.
+ *
+ * Performs two RPCs in sequence:
+ *   1. contacts.resolveUsername (or skips resolve for numeric id / self).
+ *   2. users.getFullUser with the resolved InputUser.
+ *
+ * Decoded fields: bio (about), phone (if in flags), common_chats_count.
+ *
+ * @return 0 on success, -1 on RPC or parse error.
+ */
+int domain_get_user_info(const ApiConfig *cfg,
+                          MtProtoSession *s, Transport *t,
+                          const char *peer,
+                          UserFullInfo *out);
+
 #endif /* DOMAIN_READ_USER_INFO_H */

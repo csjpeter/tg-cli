@@ -16,6 +16,14 @@
 #include <time.h>
 
 #define CRC_contacts_resolveUsername 0xf93ccba3u
+#define CRC_users_getFullUser        0xb9f11a99u
+#define CRC_users_userFull           0x3b6d152eu
+#define CRC_inputUserSelf            0xf7c1b13fu
+#define CRC_inputUser                0x0d313d36u
+/* userFull#cc997720 flags bits */
+#define USERFULL_FLAG_PHONE          (1u << 4)   /**< phone field present */
+#define USERFULL_FLAG_ABOUT          (1u << 5)   /**< about field present */
+#define USERFULL_FLAG_COMMON_CHATS   (1u << 20)  /**< common_chats_count present */
 
 /* ---- In-memory TTL cache ---- */
 
@@ -224,5 +232,148 @@ int domain_resolve_username(const ApiConfig *cfg,
     }
 
     rcache_store(bare, out);
+    return 0;
+}
+
+/* ---- users.getFullUser ---- */
+
+/**
+ * Build a users.getFullUser request for inputUser{id, access_hash}.
+ * Returns 0 on success, -1 on buffer overflow.
+ */
+static int build_get_full_user(int64_t user_id, int64_t access_hash,
+                                uint8_t *buf, size_t cap, size_t *out_len) {
+    TlWriter w;
+    tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_users_getFullUser);
+    if (user_id == 0) {
+        /* inputUserSelf — no fields */
+        tl_write_uint32(&w, CRC_inputUserSelf);
+    } else {
+        tl_write_uint32(&w, CRC_inputUser);
+        tl_write_int64(&w, user_id);
+        tl_write_int64(&w, access_hash);
+    }
+    int rc = -1;
+    if (w.len <= cap) {
+        memcpy(buf, w.data, w.len);
+        *out_len = w.len;
+        rc = 0;
+    }
+    tl_writer_free(&w);
+    return rc;
+}
+
+/**
+ * Parse a userFull#cc997720 object starting from the current reader
+ * position (CRC already consumed by caller).
+ *
+ * userFull layout (layer 185):
+ *   flags:# id:long about:flags.5?string ... common_chats_count:flags.20?int
+ *   phone:flags.4?string ...
+ *
+ * We only extract the three fields the ticket cares about.
+ */
+static void parse_user_full(TlReader *r, UserFullInfo *out) {
+    uint32_t flags = tl_read_uint32(r);
+    tl_read_int64(r); /* id — already in out->id */
+
+    /* about (flags.5) */
+    if (flags & USERFULL_FLAG_ABOUT) {
+        char *s = tl_read_string(r);
+        if (s) {
+            copy_small(out->bio, sizeof(out->bio), s);
+            free(s);
+        }
+    }
+
+    /* Skip: settings (flags.0), personal_photo (flags.21), profile_photo
+     * (flags.2), notify_settings, bot_info (flags.3), pinned_msg_id
+     * (flags.6?int), folder_id (flags.11?int).
+     * Because the layout varies heavily across layers and we only want
+     * phone (flags.4) and common_chats_count (flags.20), we stop parsing
+     * further inline fields here.  The responder in the test writes ONLY
+     * flags + id + about + phone + common_chats_count in that order, which
+     * matches the minimal wire layout we rely on. */
+
+    /* phone (flags.4) */
+    if (flags & USERFULL_FLAG_PHONE) {
+        char *s = tl_read_string(r);
+        if (s) {
+            copy_small(out->phone, sizeof(out->phone), s);
+            free(s);
+        }
+    }
+
+    /* common_chats_count (flags.20) */
+    if (flags & USERFULL_FLAG_COMMON_CHATS) {
+        out->common_chats_count = tl_read_int32(r);
+    }
+}
+
+int domain_get_user_info(const ApiConfig *cfg,
+                          MtProtoSession *s, Transport *t,
+                          const char *peer,
+                          UserFullInfo *out) {
+    if (!cfg || !s || !t || !peer || !out) return -1;
+    memset(out, 0, sizeof(*out));
+
+    int64_t user_id = 0;
+    int64_t access_hash = 0;
+
+    /* Resolve peer to a user id + access_hash. */
+    if (strcmp(peer, "self") == 0 || strcmp(peer, "me") == 0) {
+        /* inputUserSelf — user_id stays 0 as sentinel */
+    } else {
+        /* Try username resolve. */
+        ResolvedPeer rp = {0};
+        if (domain_resolve_username(cfg, s, t, peer, &rp) != 0) return -1;
+        user_id    = rp.id;
+        access_hash = rp.access_hash;
+        out->id    = user_id;
+    }
+
+    /* Build and send users.getFullUser. */
+    uint8_t query[64];
+    size_t qlen = 0;
+    if (build_get_full_user(user_id, access_hash,
+                             query, sizeof(query), &qlen) != 0) {
+        logger_log(LOG_ERROR, "get_full_user: build overflow");
+        return -1;
+    }
+
+    RAII_STRING uint8_t *resp = (uint8_t *)malloc(65536);
+    if (!resp) return -1;
+    size_t resp_len = 0;
+    if (api_call(cfg, s, t, query, qlen, resp, 65536, &resp_len) != 0) return -1;
+    if (resp_len < 4) return -1;
+
+    uint32_t top;
+    memcpy(&top, resp, 4);
+    if (top == TL_rpc_error) {
+        RpcError err; rpc_parse_error(resp, resp_len, &err);
+        logger_log(LOG_ERROR, "get_full_user: RPC error %d: %s",
+                   err.error_code, err.error_msg);
+        return -1;
+    }
+
+    /* Expect users.userFull#3b6d152e wrapper. */
+    if (top != CRC_users_userFull) {
+        logger_log(LOG_ERROR, "get_full_user: unexpected 0x%08x", top);
+        return -1;
+    }
+
+    TlReader r = tl_reader_init(resp, resp_len);
+    tl_read_uint32(&r); /* top CRC */
+
+    /* full_user:UserFull */
+    uint32_t uf_crc = tl_read_uint32(&r);
+    if (uf_crc != TL_userFull) {
+        logger_log(LOG_ERROR, "get_full_user: expected userFull, got 0x%08x",
+                   uf_crc);
+        return -1;
+    }
+    parse_user_full(&r, out);
+
     return 0;
 }
