@@ -19,7 +19,7 @@ show_help() {
     echo "  build          Build the project in Release mode"
     echo "  debug          Build the project in Debug mode (with ASAN)"
     echo "  run            Build and run the application"
-    echo "  test [filter]  Build and run unit tests (with ASAN); optional substring filter"
+    echo "  test [filter]  Build and run unit + functional tests (with ASAN); optional substring filter"
     echo "  valgrind       Build and run unit tests with Valgrind"
     echo "  coverage       Run tests and generate coverage report"
     echo "  clean-logs     Purge all application log files"
@@ -121,6 +121,9 @@ case "$1" in
         build_debug
         build_test_runner
         "$BUILD_DIR/tests/unit/test-runner" ${2:+"$2"}
+        echo "Running functional tests with ASAN..."
+        build_functional_runner
+        "$BUILD_DIR/tests/functional/functional-test-runner"
         ;;
     valgrind)
         echo "Running unit tests with Valgrind..."
