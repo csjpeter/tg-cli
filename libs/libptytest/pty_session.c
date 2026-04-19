@@ -170,3 +170,27 @@ void pty_get_size(PtySession *s, int *cols, int *rows) {
     if (cols) *cols = s ? s->cols : 0;
     if (rows) *rows = s ? s->rows : 0;
 }
+
+int pty_resize(PtySession *s, int cols, int rows) {
+    if (!s || s->master_fd < 0 || s->child_pid <= 0) return -1;
+
+    struct winsize ws = {
+        .ws_row = (unsigned short)rows,
+        .ws_col = (unsigned short)cols
+    };
+
+    if (ioctl(s->master_fd, TIOCSWINSZ, &ws) < 0) return -1;
+
+    /* Deliver SIGWINCH so the child TUI repaints. */
+    if (kill(s->child_pid, SIGWINCH) < 0) return -1;
+
+    /* Resize the virtual screen buffer to match new dimensions. */
+    pty_screen_free(s->screen);
+    s->screen = pty_screen_new(cols, rows);
+    if (!s->screen) return -1;
+
+    s->cols = cols;
+    s->rows = rows;
+
+    return 0;
+}

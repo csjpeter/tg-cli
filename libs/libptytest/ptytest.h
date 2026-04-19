@@ -161,4 +161,18 @@ void pty_trace_enable(int on);
  */
 void pty_get_size(PtySession *s, int *cols, int *rows);
 
+/**
+ * @brief Resizes the PTY and sends SIGWINCH to the child process.
+ *
+ * Issues TIOCSWINSZ on the master fd to change the kernel PTY dimensions,
+ * then delivers SIGWINCH to the child so it can repaint.  Also updates the
+ * session's cols/rows fields and resizes the virtual screen buffer.
+ *
+ * @param s     Session handle.
+ * @param cols  New terminal width in columns.
+ * @param rows  New terminal height in rows.
+ * @return 0 on success, -1 on failure.
+ */
+int pty_resize(PtySession *s, int cols, int rows);
+
 #endif /* PTYTEST_H */

@@ -43,6 +43,35 @@ target_link_libraries(pty-tui-test-runner PRIVATE
 
 add_test(NAME PtyTuiTests COMMAND pty-tui-test-runner)
 
+# ── PTY-04: TUI SIGWINCH resize tests ────────────────────────────────
+add_executable(pty-tui-resize-test-runner
+    test_tui_resize.c
+    pty_tel_stub.c
+    ../../../src/core/crypto.c
+)
+
+target_include_directories(pty-tui-resize-test-runner PRIVATE
+    ${CMAKE_SOURCE_DIR}/tests/functional/pty
+    ${CMAKE_SOURCE_DIR}/tests/common
+    ${CMAKE_SOURCE_DIR}/tests/mocks
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/core
+    ${CMAKE_SOURCE_DIR}/src/app
+    ${CMAKE_SOURCE_DIR}/libs/libptytest
+)
+
+target_compile_definitions(pty-tui-resize-test-runner PRIVATE
+    TG_TUI_BINARY="${CMAKE_BINARY_DIR}/tg-tui"
+)
+
+target_link_libraries(pty-tui-resize-test-runner PRIVATE
+    ptytest tg-app tg-proto
+    OpenSSL::SSL OpenSSL::Crypto
+    Threads::Threads
+)
+
+add_test(NAME PtyTuiResizeTests COMMAND pty-tui-resize-test-runner)
+
 # ── PTY-03: readline navigation tests ────────────────────────────────
 # rl_harness: tiny binary that calls rl_readline in a loop and prints
 # "ACCEPTED:<line>" for each accepted line.  No mock server needed.
