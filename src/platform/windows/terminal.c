@@ -26,3 +26,4 @@ int terminal_read_password(const char *p, char *b, size_t n) {
 }
 void terminal_enable_resize_notifications(void) { /* no-op on Windows */ }
 int  terminal_consume_resize(void)              { return 0; }
+void terminal_install_cleanup_handlers(TermRawState *state) { (void)state; }

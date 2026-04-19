@@ -739,6 +739,9 @@ static int run_tui_loop(const ApiConfig *cfg,
         tui_app_free(&app);
         return 1;
     }
+    /* Ensure SIGTERM / SIGHUP / SIGINT restore the terminal before exiting,
+     * even if the default handler bypasses our RAII cleanup. */
+    terminal_install_cleanup_handlers(raw);
     screen_cursor_visible(&app.screen, 0);
 
     terminal_enable_resize_notifications();

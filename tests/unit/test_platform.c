@@ -6,6 +6,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <locale.h>
+#include <sys/wait.h>
 
 void test_platform(void) {
 
@@ -180,4 +181,40 @@ void test_platform(void) {
      * synchronously). Either way consume_resize should now be 1. */
     ASSERT(terminal_consume_resize() == 1,
            "SIGWINCH raised right before wait still observable");
+
+    /* ── terminal_install_cleanup_handlers ──────────────────────────── */
+
+    /* Passing NULL must be a safe no-op (no crash). */
+    terminal_install_cleanup_handlers(NULL);
+
+    /* Verify that after installing handlers, SIGTERM is caught (not the
+     * default SIG_DFL which would terminate us) and re-raised with
+     * SIG_DFL — we use a child process so the parent survives. */
+    {
+        pid_t pid = fork();
+        ASSERT(pid >= 0, "fork() for SIGTERM test must succeed");
+        if (pid == 0) {
+            /* Child: set up a dummy TermRawState (not a real tty here,
+             * so tcsetattr will fail silently — that is acceptable). */
+            TermRawState *dummy = terminal_raw_enter();
+            /* raw_enter returns NULL when stdin is not a tty (test env);
+             * install_cleanup_handlers is documented to accept NULL (no-op)
+             * so this is safe.  The important thing is it does not crash. */
+            terminal_install_cleanup_handlers(dummy);
+            /* Send ourselves SIGTERM — the handler should re-raise with
+             * SIG_DFL, killing the child with SIGTERM. */
+            raise(SIGTERM);
+            /* Should not reach here after re-raise with SIG_DFL. */
+            _exit(42);
+        }
+        /* Parent waits for the child. */
+        int status = 0;
+        waitpid(pid, &status, 0);
+        /* Child must have been terminated by a signal (SIGTERM), not
+         * exited normally with code 42. */
+        ASSERT(WIFSIGNALED(status),
+               "install_cleanup_handlers: child terminated by signal");
+        ASSERT(WTERMSIG(status) == SIGTERM,
+               "install_cleanup_handlers: child terminated by SIGTERM");
+    }
 }

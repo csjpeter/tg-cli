@@ -114,4 +114,24 @@ void terminal_enable_resize_notifications(void);
  */
 int  terminal_consume_resize(void);
 
+/**
+ * Install signal handlers for SIGTERM, SIGHUP, and SIGINT that restore
+ * the terminal from raw mode before allowing the default handler to run.
+ *
+ * The handlers:
+ *   1. Call tcsetattr(STDIN_FILENO, TCSANOW, &saved) using the termios
+ *      state captured by the most recent terminal_raw_enter() call.
+ *   2. Write "\033[?25h" (show cursor) to STDOUT_FILENO via write(2).
+ *   3. Reset the signal to SIG_DFL and re-raise it so the shell sees
+ *      the correct exit status (e.g. 128+SIGTERM).
+ *
+ * Must be called after terminal_raw_enter() succeeds.  All three
+ * operations used (tcsetattr, write, signal, raise) are
+ * async-signal-safe per POSIX.
+ *
+ * Safe to call multiple times; subsequent calls update the saved state
+ * pointer to the most recent TermRawState.
+ */
+void terminal_install_cleanup_handlers(TermRawState *state);
+
 #endif /* PLATFORM_TERMINAL_H */

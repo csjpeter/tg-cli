@@ -195,6 +195,64 @@ int terminal_wait_key(int timeout_ms) {
     return (pfd.revents & POLLIN) ? 1 : 0;
 }
 
+/* ---- SIGTERM / SIGHUP / SIGINT cleanup handlers ---- */
+
+/**
+ * Pointer to the saved termios inside the active TermRawState.
+ * Written once from terminal_install_cleanup_handlers() before
+ * any signal can arrive; read only from signal handlers thereafter.
+ * volatile to prevent the compiler from caching the load.
+ */
+static volatile struct termios *g_saved_termios = NULL;
+
+/**
+ * Async-signal-safe terminal cleanup and re-raise.
+ *
+ * Uses only async-signal-safe functions:
+ *   tcsetattr(3)  — POSIX async-signal-safe
+ *   write(2)      — POSIX async-signal-safe
+ *   signal(2)     — POSIX async-signal-safe
+ *   raise(3)      — POSIX async-signal-safe
+ */
+static void cleanup_signal_handler(int sig) {
+    /* Restore cooked mode if we have a saved state. */
+    if (g_saved_termios) {
+        /* Cast away volatile: tcsetattr requires a non-volatile pointer.
+         * The cast is safe because we only write this pointer once and
+         * the pointed-to struct outlives the signal handler. */
+        struct termios saved;
+        saved = *(struct termios *)g_saved_termios;
+        tcsetattr(STDIN_FILENO, TCSANOW, &saved);
+    }
+    /* Show the cursor (ESC[?25h) — write(2) is async-signal-safe.
+     * Ignore the return value: if the write fails there is nothing
+     * sensible to do inside a signal handler. */
+    static const char show_cursor[] = "\033[?25h";
+    ssize_t _wr_unused = write(STDOUT_FILENO, show_cursor,
+                               sizeof(show_cursor) - 1);
+    (void)_wr_unused;
+    /* Reset to default handler and re-raise so the shell sees the
+     * correct exit status (e.g. 128 + SIGTERM). */
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+
+void terminal_install_cleanup_handlers(TermRawState *state) {
+    if (!state) return;
+    /* Expose the saved termios to the signal handler. */
+    g_saved_termios = &state->saved;
+
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = cleanup_signal_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;   /* no SA_RESTART — we re-raise immediately */
+
+    sigaction(SIGTERM, &sa, NULL);
+    sigaction(SIGHUP,  &sa, NULL);
+    sigaction(SIGINT,  &sa, NULL);
+}
+
 /* ---- SIGWINCH / resize notifications ---- */
 
 static volatile sig_atomic_t g_resize_pending = 0;
