@@ -509,6 +509,96 @@ static void test_path_is_image(void) {
     ASSERT(!domain_path_is_image(NULL),      "NULL → not image");
 }
 
+/* ================================================================ */
+/* Cache-reuse tests (TEST-08)                                      */
+/* ================================================================ */
+
+/**
+ * Download a photo twice with the same media_id and output path.
+ * The second call must not issue any upload.getFile RPC — it returns
+ * the cached file instead.
+ */
+static void test_download_photo_cache_reuse(void) {
+    with_tmp_home("dl-cache-photo");
+    mt_server_init(); mt_server_reset();
+    reset_counters();
+    MtProtoSession s; load_session(&s);
+    mt_server_expect(CRC_upload_getFile, on_get_file_short, NULL);
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    MediaInfo mi; make_media_info(&mi);
+    const char *out = "/tmp/tg-cli-ft-media-dl-cache-photo.bin";
+    unlink(out);
+
+    /* First download — must hit the server. */
+    int wrong = -1;
+    ASSERT(domain_download_photo(&cfg, &s, &t, &mi, out, &wrong) == 0,
+           "first download ok");
+    ASSERT(wrong == 0, "no wrong_dc on first call");
+    ASSERT(g_get_file_calls == 1, "first call fires one upload.getFile RPC");
+
+    /* Second download with identical media_id and out_path — cache hit. */
+    int calls_before = g_get_file_calls;
+    wrong = -1;
+    ASSERT(domain_download_photo(&cfg, &s, &t, &mi, out, &wrong) == 0,
+           "second download ok (from cache)");
+    ASSERT(g_get_file_calls == calls_before,
+           "second call does NOT issue upload.getFile (cache hit)");
+
+    /* File content must be identical to what the first download wrote. */
+    struct stat st;
+    ASSERT(stat(out, &st) == 0, "output file still exists");
+    ASSERT(st.st_size == 128, "cached file size unchanged (128 bytes)");
+
+    unlink(out);
+    transport_close(&t);
+    mt_server_reset();
+}
+
+/**
+ * Download a document twice with the same document_id.
+ * The second call must return the cached file without any RPC.
+ */
+static void test_download_document_cache_reuse(void) {
+    with_tmp_home("dl-cache-doc");
+    mt_server_init(); mt_server_reset();
+    reset_counters();
+    MtProtoSession s; load_session(&s);
+    mt_server_expect(CRC_upload_getFile, on_get_file_short, NULL);
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    MediaInfo mi; make_doc_media_info(&mi);
+    const char *out = "/tmp/tg-cli-ft-media-dl-cache-doc.bin";
+    unlink(out);
+
+    /* First download — server must be called. */
+    int wrong = -1;
+    ASSERT(domain_download_document(&cfg, &s, &t, &mi, out, &wrong) == 0,
+           "first document download ok");
+    ASSERT(wrong == 0, "no wrong_dc on first call");
+    ASSERT(g_get_file_calls == 1, "first call fires one upload.getFile RPC");
+
+    /* Second download — cache hit, no new RPC. */
+    int calls_before = g_get_file_calls;
+    wrong = -1;
+    ASSERT(domain_download_document(&cfg, &s, &t, &mi, out, &wrong) == 0,
+           "second document download ok (from cache)");
+    ASSERT(g_get_file_calls == calls_before,
+           "second document call does NOT issue upload.getFile (cache hit)");
+
+    struct stat st;
+    ASSERT(stat(out, &st) == 0, "cached document file still exists");
+    ASSERT(st.st_size == 128, "cached document size unchanged (128 bytes)");
+
+    unlink(out);
+    transport_close(&t);
+    mt_server_reset();
+}
+
 void run_upload_download_tests(void) {
     RUN_TEST(test_upload_small_document);
     RUN_TEST(test_upload_multi_chunk_document);
@@ -521,4 +611,6 @@ void run_upload_download_tests(void) {
     RUN_TEST(test_download_document_two_chunks);
     RUN_TEST(test_download_document_file_migrate);
     RUN_TEST(test_path_is_image);
+    RUN_TEST(test_download_photo_cache_reuse);
+    RUN_TEST(test_download_document_cache_reuse);
 }

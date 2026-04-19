@@ -9,6 +9,7 @@
 #include "tl_serial.h"
 #include "tl_registry.h"
 #include "mtproto_rpc.h"
+#include "media_index.h"
 #include "logger.h"
 #include "raii.h"
 
@@ -160,7 +161,37 @@ int domain_download_photo(const ApiConfig *cfg,
         logger_log(LOG_ERROR, "media: missing id / access_hash / file_reference");
         return -1;
     }
-    return download_loop(cfg, s, t, info, out_path, wrong_dc);
+
+    /* Cache hit: if the file is already indexed and still exists on disk,
+     * copy/use the cached path rather than issuing upload.getFile again. */
+    char cached[4096];
+    if (media_index_get(info->photo_id, cached, sizeof(cached)) == 1) {
+        FILE *fp = fopen(cached, "rb");
+        if (fp) {
+            fclose(fp);
+            /* If the caller wants the same path that is already cached,
+             * we're done.  Otherwise copy to out_path so the caller can
+             * rely on it being at the requested location. */
+            if (strcmp(cached, out_path) != 0) {
+                RAII_FILE FILE *src = fopen(cached, "rb");
+                RAII_FILE FILE *dst = fopen(out_path, "wb");
+                if (src && dst) {
+                    uint8_t buf[4096];
+                    size_t n;
+                    while ((n = fread(buf, 1, sizeof(buf), src)) > 0)
+                        fwrite(buf, 1, n, dst);
+                }
+            }
+            logger_log(LOG_INFO, "media: cache hit for photo_id %lld → %s",
+                       (long long)info->photo_id, cached);
+            return 0;
+        }
+    }
+
+    int rc = download_loop(cfg, s, t, info, out_path, wrong_dc);
+    if (rc == 0)
+        media_index_put(info->photo_id, out_path);
+    return rc;
 }
 
 int domain_download_document(const ApiConfig *cfg,
@@ -180,7 +211,33 @@ int domain_download_document(const ApiConfig *cfg,
                    "media: document missing id / access_hash / file_reference");
         return -1;
     }
-    return download_loop(cfg, s, t, info, out_path, wrong_dc);
+
+    /* Cache hit: avoid re-downloading an already cached document. */
+    char cached[4096];
+    if (media_index_get(info->document_id, cached, sizeof(cached)) == 1) {
+        FILE *fp = fopen(cached, "rb");
+        if (fp) {
+            fclose(fp);
+            if (strcmp(cached, out_path) != 0) {
+                RAII_FILE FILE *src = fopen(cached, "rb");
+                RAII_FILE FILE *dst = fopen(out_path, "wb");
+                if (src && dst) {
+                    uint8_t buf[4096];
+                    size_t n;
+                    while ((n = fread(buf, 1, sizeof(buf), src)) > 0)
+                        fwrite(buf, 1, n, dst);
+                }
+            }
+            logger_log(LOG_INFO, "media: cache hit for document_id %lld → %s",
+                       (long long)info->document_id, cached);
+            return 0;
+        }
+    }
+
+    int rc = download_loop(cfg, s, t, info, out_path, wrong_dc);
+    if (rc == 0)
+        media_index_put(info->document_id, out_path);
+    return rc;
 }
 
 /* Dispatch on MediaKind and call the right per-type entry point so the
