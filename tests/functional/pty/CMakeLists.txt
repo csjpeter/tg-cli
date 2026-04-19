@@ -104,3 +104,32 @@ target_compile_definitions(pty-readline-test-runner PRIVATE
 target_link_libraries(pty-readline-test-runner PRIVATE ptytest)
 
 add_test(NAME PtyReadlineTests COMMAND pty-readline-test-runner)
+
+# ── PTY-05: Ctrl-C exit + terminal-restore tests ─────────────────────
+add_executable(pty-ctrl-c-test-runner
+    test_ctrl_c_exit.c
+    pty_tel_stub.c
+    ../../../src/core/crypto.c
+)
+
+target_include_directories(pty-ctrl-c-test-runner PRIVATE
+    ${CMAKE_SOURCE_DIR}/tests/functional/pty
+    ${CMAKE_SOURCE_DIR}/tests/common
+    ${CMAKE_SOURCE_DIR}/tests/mocks
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/core
+    ${CMAKE_SOURCE_DIR}/src/app
+    ${CMAKE_SOURCE_DIR}/libs/libptytest
+)
+
+target_compile_definitions(pty-ctrl-c-test-runner PRIVATE
+    TG_TUI_BINARY="${CMAKE_BINARY_DIR}/tg-tui"
+)
+
+target_link_libraries(pty-ctrl-c-test-runner PRIVATE
+    ptytest tg-app tg-proto
+    OpenSSL::SSL OpenSSL::Crypto
+    Threads::Threads
+)
+
+add_test(NAME PtyCtrlCTests COMMAND pty-ctrl-c-test-runner)
