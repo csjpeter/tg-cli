@@ -31,6 +31,16 @@ void test_logger(void) {
     ASSERT(stat(test_log_file, &st) == 0, "Log file should exist");
     ASSERT(st.st_size > 0, "Log file should not be empty");
 
+    // 4a. FEAT-21: log file must be mode 0600 (never world-readable)
+    ASSERT((st.st_mode & 0777) == 0600,
+           "Log file must have permissions 0600");
+
+    // 4b. FEAT-21: logs directory must be mode 0700
+    struct stat dir_st;
+    ASSERT(stat(test_log_dir, &dir_st) == 0, "Log directory should exist");
+    ASSERT((dir_st.st_mode & 0777) == 0700,
+           "Log directory must have permissions 0700");
+
     // 5. Test level filtering: reinit with LOG_ERROR, lower-level messages suppressed
     logger_close();
     res = logger_init(test_log_file, LOG_ERROR);
@@ -69,6 +79,23 @@ void test_logger(void) {
     ASSERT(res == 0, "logger_init first call ok");
     res = logger_init(test_log_file, LOG_INFO);
     ASSERT(res == 0, "logger_init second call ok — no leak");
+    logger_close();
+
+    // 4c. FEAT-21: opening a pre-existing file with wrong permissions fixes them
+    unlink(test_log_file);
+    {
+        RAII_FILE FILE *f = fopen(test_log_file, "w");
+        if (f) fprintf(f, "existing\n");
+    }
+    chmod(test_log_file, 0644);   /* set overly-permissive mode */
+    res = logger_init(test_log_file, LOG_INFO);
+    ASSERT(res == 0, "logger_init should succeed on pre-existing file");
+    {
+        struct stat fix_st;
+        ASSERT(stat(test_log_file, &fix_st) == 0, "Pre-existing log should exist");
+        ASSERT((fix_st.st_mode & 0777) == 0600,
+               "Pre-existing log must be fixed to 0600 by logger_init");
+    }
     logger_close();
 
     // 10. Test log rotation: create a file > 5MB, then init should rotate it

@@ -8,6 +8,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <dirent.h>
 
@@ -81,8 +82,23 @@ int logger_init(const char *log_file_path, LogLevel level) {
         rotate_logs();
     }
 
-    g_log_fp = fopen(g_log_path, "a");
+    /* Open with explicit 0600 so the file is never world-readable,
+     * regardless of the process umask.  O_CREAT|O_WRONLY|O_APPEND gives
+     * the same semantics as fopen(...,"a") but lets us set the mode. */
+    int fd = open(g_log_path,
+                  O_CREAT | O_WRONLY | O_APPEND,
+                  (mode_t)0600);
+    if (fd == -1) {
+        free(g_log_path);
+        g_log_path = NULL;
+        return -1;
+    }
+    /* Enforce 0600 on a pre-existing file that may have wrong permissions. */
+    fchmod(fd, (mode_t)0600);
+
+    g_log_fp = fdopen(fd, "a");
     if (!g_log_fp) {
+        close(fd);
         free(g_log_path);
         g_log_path = NULL;
         return -1;
