@@ -1,3 +1,5 @@
+> **Status: historical.** Retained for provenance. Phase 1 shipped in commits 4837b85..3fbdffd; see `docs/userstory/US-00-roadmap.md` for current status.
+
 # MTProto Phase 1 — Implementation Plan
 
 ## Context

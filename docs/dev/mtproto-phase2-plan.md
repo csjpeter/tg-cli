@@ -1,3 +1,5 @@
+> **Status: historical.** Retained for provenance. Phase 2 shipped in commits 4837b85..3fbdffd; see `docs/userstory/US-00-roadmap.md` for current status.
+
 # MTProto Phase 2 — Transport + Auth Key + Session + RPC
 
 ## Context
