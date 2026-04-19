@@ -135,6 +135,21 @@ the `with_tmp_home()` helper.
 
 ---
 
+## PTY-Backed Tests (`tests/functional/pty/`)
+
+`libs/libptytest/` is a vendored copy of the PTY test library originally
+developed in the sibling `email-cli` project. It opens a pseudo-terminal via
+`forkpty(3)`, executes the program under test as a child process, feeds
+keystrokes through the master file descriptor, and maintains a virtual
+VT100 screen buffer. Test code inspects the buffer with `pty_screen_contains()`,
+`pty_row_contains()`, and `pty_wait_for()`. The `tests/functional/pty/`
+subdirectory holds PTY-backed smoke tests that verify the harness itself (no
+tg-cli binary required) and will host future TUI acceptance tests (US-11,
+US-02). The PTY target is only built on POSIX (`UNIX` CMake guard) and is
+skipped gracefully on Windows cross-compile targets.
+
+---
+
 ## Coverage Requirements
 
 | Scope | Target | Current |

@@ -39,3 +39,8 @@ target_link_libraries(functional-test-runner PRIVATE
     OpenSSL::SSL OpenSSL::Crypto)
 
 add_test(NAME FunctionalTests COMMAND functional-test-runner)
+
+# PTY-backed functional tests (POSIX only)
+if(UNIX)
+    add_subdirectory(pty)
+endif()

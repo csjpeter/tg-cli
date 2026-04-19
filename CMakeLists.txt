@@ -191,6 +191,11 @@ target_link_libraries(tg-tui PRIVATE tg-domain-read tg-domain-write tg-tui-lib)
 add_executable(tg-cli src/main/tg_cli.c)
 target_link_libraries(tg-cli PRIVATE tg-domain-read tg-domain-write)
 
+# PTY test library (POSIX only)
+if(UNIX)
+    add_subdirectory(libs/libptytest)
+endif()
+
 # Unit tests
 enable_testing()
 add_subdirectory(tests/unit)
