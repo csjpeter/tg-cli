@@ -60,6 +60,7 @@ typedef struct {
     const char *message;     /**< Message text (send).                   */
     const char *query;       /**< Search query (search).                 */
     int         limit;       /**< --limit N (dialogs, history).          */
+    int         archived;    /**< --archived : show archived folder (dialogs). */
     int         offset;      /**< --offset N (history).                  */
     int         msg_id;      /**< Message id for download.               */
     const char *out_path;    /**< --out <path> for download.             */

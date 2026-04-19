@@ -61,9 +61,14 @@ Show version and exit.
 .B me
 Show own profile (US-05).
 .TP
-.BI dialogs " [--limit N]"
+.BI dialogs " [--limit N] [--archived]"
 List up to N dialogs (default 20) (US-04). Each entry reports the
 dialog kind, title, and \fB@username\fR when available.
+Pass
+.B --archived
+to list the Telegram Archive folder instead of the default inbox
+(\fBfolder_id\fR=1 vs. \fBfolder_id\fR=0 in
+.BR messages.getDialogs (3MTP)).
 .TP
 .BI history " <peer> [--limit N]"
 Fetch message history from \fIpeer\fR (US-06). Extracts text, media
@@ -169,6 +174,11 @@ tg-cli-ro --phone +15551234567 --code 12345 --json me
 List the last 20 dialogs, JSON for piping:
 .EX
 tg-cli-ro dialogs --limit 20 --json
+.EE
+.PP
+List archived dialogs:
+.EX
+tg-cli-ro dialogs --archived --json
 .EE
 .PP
 Read the last 50 messages of a channel:

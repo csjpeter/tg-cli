@@ -83,6 +83,9 @@ static int parse_dialogs(int argc, char **argv, int i, ArgResult *out) {
                 return ARG_ERROR;
             }
             i += 2;
+        } else if (str_eq(argv[i], "--archived")) {
+            out->archived = 1;
+            i++;
         } else {
             fprintf(stderr, "tg-cli dialogs: unknown option: %s\n", argv[i]);
             return ARG_ERROR;

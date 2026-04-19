@@ -298,7 +298,7 @@ static void test_dialogs_empty(void) {
 
     DialogEntry rows[8];
     int n = -1;
-    ASSERT(domain_get_dialogs(&cfg, &s, &t, 8, rows, &n) == 0,
+    ASSERT(domain_get_dialogs(&cfg, &s, &t, 8, 0, rows, &n) == 0,
            "get_dialogs succeeds on empty");
     ASSERT(n == 0, "zero dialogs returned");
 
@@ -317,7 +317,7 @@ static void test_dialogs_one_user(void) {
 
     DialogEntry rows[8];
     int n = 0;
-    ASSERT(domain_get_dialogs(&cfg, &s, &t, 8, rows, &n) == 0,
+    ASSERT(domain_get_dialogs(&cfg, &s, &t, 8, 0, rows, &n) == 0,
            "get_dialogs succeeds");
     ASSERT(n == 1, "one dialog parsed");
     ASSERT(rows[0].kind == DIALOG_PEER_USER, "user peer kind");

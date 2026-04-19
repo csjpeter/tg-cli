@@ -564,7 +564,7 @@ static int cmd_dialogs(const ArgResult *args) {
     if (!entries) { transport_close(&t); return 1; }
 
     int count = 0;
-    int rc = domain_get_dialogs(&cfg, &s, &t, limit, entries, &count);
+    int rc = domain_get_dialogs(&cfg, &s, &t, limit, args->archived, entries, &count);
     transport_close(&t);
     if (rc != 0) {
         fprintf(stderr, "tg-cli-ro dialogs: failed (see logs)\n");
@@ -616,7 +616,7 @@ static void print_usage(void) {
         "\n"
         "Subcommands:\n"
         "  me (or self)                     Show own profile (US-05)\n"
-        "  dialogs  [--limit N]             List dialogs (US-04)\n"
+        "  dialogs  [--limit N] [--archived] List dialogs (US-04)\n"
         "  history  <peer> [--limit N] [--offset N]  Fetch history (US-06)\n"
         "  search   [<peer>] <query>        Search messages (US-10)\n"
         "  contacts                         List contacts (US-09)\n"

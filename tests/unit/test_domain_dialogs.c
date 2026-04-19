@@ -172,7 +172,7 @@ static void test_dialogs_title_join_user(void) {
 
     DialogEntry entries[5] = {0};
     int count = 0;
-    int rc = domain_get_dialogs(&cfg, &s, &t, 5, entries, &count);
+    int rc = domain_get_dialogs(&cfg, &s, &t, 5, 0, entries, &count);
     ASSERT(rc == 0, "title join ok");
     ASSERT(count == 1, "one dialog");
     ASSERT(entries[0].peer_id == 7777LL, "peer_id");
@@ -223,7 +223,7 @@ static void test_dialogs_user_access_hash_threaded(void) {
 
     DialogEntry entries[5] = {0};
     int count = 0;
-    int rc = domain_get_dialogs(&cfg, &s, &t, 5, entries, &count);
+    int rc = domain_get_dialogs(&cfg, &s, &t, 5, 0, entries, &count);
     ASSERT(rc == 0, "dialog with access_hash ok");
     ASSERT(count == 1, "one dialog");
     ASSERT(entries[0].have_access_hash == 1, "access_hash threaded");
@@ -275,7 +275,7 @@ static void test_dialogs_channel_access_hash_threaded(void) {
 
     DialogEntry entries[5] = {0};
     int count = 0;
-    int rc = domain_get_dialogs(&cfg, &s, &t, 5, entries, &count);
+    int rc = domain_get_dialogs(&cfg, &s, &t, 5, 0, entries, &count);
     ASSERT(rc == 0, "channel dialog ok");
     ASSERT(count == 1, "one dialog");
     ASSERT(entries[0].kind == DIALOG_PEER_CHANNEL, "channel kind");
@@ -298,7 +298,7 @@ static void test_dialogs_multi_entries(void) {
 
     DialogEntry entries[10] = {0};
     int count = 0;
-    int rc = domain_get_dialogs(&cfg, &s, &t, 10, entries, &count);
+    int rc = domain_get_dialogs(&cfg, &s, &t, 10, 0, entries, &count);
     ASSERT(rc == 0, "multi-entry dialogs parsed");
     ASSERT(count == 5, "all 5 dialogs iterated");
     ASSERT(entries[0].peer_id == 1000, "first peer id");
@@ -323,7 +323,7 @@ static void test_dialogs_single_user(void) {
 
     DialogEntry entries[10] = {0};
     int count = 0;
-    int rc = domain_get_dialogs(&cfg, &s, &t, 10, entries, &count);
+    int rc = domain_get_dialogs(&cfg, &s, &t, 10, 0, entries, &count);
     ASSERT(rc == 0, "dialogs: must succeed");
     ASSERT(count == 1, "one dialog parsed");
     ASSERT(entries[0].kind == DIALOG_PEER_USER, "peer kind=user");
@@ -350,7 +350,7 @@ static void test_dialogs_single_channel(void) {
 
     DialogEntry entries[10] = {0};
     int count = 0;
-    int rc = domain_get_dialogs(&cfg, &s, &t, 10, entries, &count);
+    int rc = domain_get_dialogs(&cfg, &s, &t, 10, 0, entries, &count);
     ASSERT(rc == 0, "dialogs: must succeed");
     ASSERT(count == 1, "one dialog parsed");
     ASSERT(entries[0].kind == DIALOG_PEER_CHANNEL, "peer kind=channel");
@@ -380,7 +380,7 @@ static void test_dialogs_rpc_error(void) {
 
     DialogEntry entries[5] = {0};
     int count = 0;
-    int rc = domain_get_dialogs(&cfg, &s, &t, 5, entries, &count);
+    int rc = domain_get_dialogs(&cfg, &s, &t, 5, 0, entries, &count);
     ASSERT(rc != 0, "RPC error must propagate");
 }
 
@@ -406,20 +406,120 @@ static void test_dialogs_unexpected_top(void) {
 
     DialogEntry entries[5] = {0};
     int count = 0;
-    int rc = domain_get_dialogs(&cfg, &s, &t, 5, entries, &count);
+    int rc = domain_get_dialogs(&cfg, &s, &t, 5, 0, entries, &count);
     ASSERT(rc != 0, "unexpected constructor must fail");
 }
 
 static void test_dialogs_null_args(void) {
     DialogEntry e[1];
     int c = 0;
-    ASSERT(domain_get_dialogs(NULL, NULL, NULL, 5, e, &c) == -1, "null cfg");
-    ASSERT(domain_get_dialogs((ApiConfig *)1, NULL, NULL, 5, e, &c) == -1, "null s");
+    ASSERT(domain_get_dialogs(NULL, NULL, NULL, 5, 0, e, &c) == -1, "null cfg");
+    ASSERT(domain_get_dialogs((ApiConfig *)1, NULL, NULL, 5, 0, e, &c) == -1, "null s");
     /* max_entries <= 0 rejected */
     ApiConfig cfg; fix_cfg(&cfg);
     MtProtoSession s; fix_session(&s);
     Transport t; fix_transport(&t);
-    ASSERT(domain_get_dialogs(&cfg, &s, &t, 0, e, &c) == -1, "zero limit");
+    ASSERT(domain_get_dialogs(&cfg, &s, &t, 0, 0, e, &c) == -1, "zero limit");
+}
+
+/* Wire-inspection: when archived=1, folder_id=1 (flags bit 1 set) must appear
+ * in the outbound buffer before the response is processed.
+ *
+ * messages.getDialogs with archived:
+ *   CRC     0xa0f4cb4f  (LE: 4f cb f4 a0)
+ *   flags   0x00000002  (bit 1 = folder_id present)
+ *   folder_id 0x00000001
+ *   ...
+ *
+ * We scan the raw sent buffer for the 4-byte little-endian sequence
+ * {0x02, 0x00, 0x00, 0x00} immediately following the CRC, and then
+ * {0x01, 0x00, 0x00, 0x00} as folder_id. Because the mock AES is the
+ * identity cipher the TL bytes appear verbatim in the sent buffer.
+ */
+static void test_dialogs_archived_folder_id_on_wire(void) {
+    mock_socket_reset(); mock_crypto_reset();
+
+    /* Minimal valid response: empty messages.dialogs */
+    TlWriter pw; tl_writer_init(&pw);
+    tl_write_uint32(&pw, TL_messages_dialogs);
+    tl_write_uint32(&pw, TL_vector); tl_write_uint32(&pw, 0); /* dialogs */
+    tl_write_uint32(&pw, TL_vector); tl_write_uint32(&pw, 0); /* messages */
+    tl_write_uint32(&pw, TL_vector); tl_write_uint32(&pw, 0); /* chats */
+    tl_write_uint32(&pw, TL_vector); tl_write_uint32(&pw, 0); /* users */
+    uint8_t resp[512]; size_t rlen = 0;
+    build_fake_encrypted_response(pw.data, pw.len, resp, &rlen);
+    tl_writer_free(&pw);
+    mock_socket_set_response(resp, rlen);
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    fix_session(&s); fix_transport(&t); fix_cfg(&cfg);
+
+    DialogEntry entries[5] = {0};
+    int count = 0;
+    int rc = domain_get_dialogs(&cfg, &s, &t, 5, 1 /* archived */, entries, &count);
+    ASSERT(rc == 0, "archived dialogs: call succeeds");
+
+    /* Inspect the wire bytes for: CRC(4) + flags=2(4) + folder_id=1(4) */
+    static const uint8_t crc_le[4]       = {0x4f, 0xcb, 0xf4, 0xa0};
+    static const uint8_t flags_le[4]     = {0x02, 0x00, 0x00, 0x00};
+    static const uint8_t folder_id_le[4] = {0x01, 0x00, 0x00, 0x00};
+
+    size_t sent_len = 0;
+    const uint8_t *sent = mock_socket_get_sent(&sent_len);
+    ASSERT(sent != NULL && sent_len > 0, "client transmitted bytes");
+
+    int found = 0;
+    for (size_t i = 0; i + 12 <= sent_len; i++) {
+        if (memcmp(sent + i,      crc_le,       4) == 0 &&
+            memcmp(sent + i + 4,  flags_le,     4) == 0 &&
+            memcmp(sent + i + 8,  folder_id_le, 4) == 0) {
+            found = 1;
+            break;
+        }
+    }
+    ASSERT(found, "folder_id=1 appears on wire when archived=1");
+}
+
+/* Inverse: when archived=0, flags=0 and no folder_id in the outbound buffer. */
+static void test_dialogs_default_no_folder_id_on_wire(void) {
+    mock_socket_reset(); mock_crypto_reset();
+
+    TlWriter pw; tl_writer_init(&pw);
+    tl_write_uint32(&pw, TL_messages_dialogs);
+    tl_write_uint32(&pw, TL_vector); tl_write_uint32(&pw, 0);
+    tl_write_uint32(&pw, TL_vector); tl_write_uint32(&pw, 0);
+    tl_write_uint32(&pw, TL_vector); tl_write_uint32(&pw, 0);
+    tl_write_uint32(&pw, TL_vector); tl_write_uint32(&pw, 0);
+    uint8_t resp[512]; size_t rlen = 0;
+    build_fake_encrypted_response(pw.data, pw.len, resp, &rlen);
+    tl_writer_free(&pw);
+    mock_socket_set_response(resp, rlen);
+
+    MtProtoSession s; Transport t; ApiConfig cfg;
+    fix_session(&s); fix_transport(&t); fix_cfg(&cfg);
+
+    DialogEntry entries[5] = {0};
+    int count = 0;
+    int rc = domain_get_dialogs(&cfg, &s, &t, 5, 0 /* not archived */, entries, &count);
+    ASSERT(rc == 0, "default dialogs: call succeeds");
+
+    /* flags must be 0 (not 2) right after the CRC */
+    static const uint8_t crc_le[4]        = {0x4f, 0xcb, 0xf4, 0xa0};
+    static const uint8_t flags_zero_le[4] = {0x00, 0x00, 0x00, 0x00};
+
+    size_t sent_len = 0;
+    const uint8_t *sent = mock_socket_get_sent(&sent_len);
+    ASSERT(sent != NULL && sent_len > 0, "client transmitted bytes");
+
+    int found = 0;
+    for (size_t i = 0; i + 8 <= sent_len; i++) {
+        if (memcmp(sent + i,     crc_le,        4) == 0 &&
+            memcmp(sent + i + 4, flags_zero_le, 4) == 0) {
+            found = 1;
+            break;
+        }
+    }
+    ASSERT(found, "flags=0 (no folder_id) on wire when archived=0");
 }
 
 void run_domain_dialogs_tests(void) {
@@ -432,4 +532,6 @@ void run_domain_dialogs_tests(void) {
     RUN_TEST(test_dialogs_rpc_error);
     RUN_TEST(test_dialogs_unexpected_top);
     RUN_TEST(test_dialogs_null_args);
+    RUN_TEST(test_dialogs_archived_folder_id_on_wire);
+    RUN_TEST(test_dialogs_default_no_folder_id_on_wire);
 }

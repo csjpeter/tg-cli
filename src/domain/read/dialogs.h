@@ -47,13 +47,15 @@ typedef struct {
  * @param s           Session (with auth_key).
  * @param t           Connected transport.
  * @param max_entries Maximum entries to request and to write to @p out.
+ * @param archived    Non-zero to request the archive folder (folder_id=1);
+ *                    zero for the default inbox (folder_id=0).
  * @param out         Output array of length >= @p max_entries.
  * @param out_count   Receives the number of entries actually written.
  * @return 0 on success, -1 on RPC/parse error.
  */
 int domain_get_dialogs(const ApiConfig *cfg,
                        MtProtoSession *s, Transport *t,
-                       int max_entries,
+                       int max_entries, int archived,
                        DialogEntry *out, int *out_count);
 
 #endif /* DOMAIN_READ_DIALOGS_H */

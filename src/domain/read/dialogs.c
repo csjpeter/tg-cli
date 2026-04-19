@@ -22,11 +22,18 @@
 
 /* ---- Request builder ---- */
 
-static int build_request(int limit, uint8_t *buf, size_t cap, size_t *out_len) {
+/* flags bit for the optional folder_id field in messages.getDialogs */
+#define GETDIALOGS_FLAG_FOLDER_ID (1u << 1)
+
+static int build_request(int limit, int archived,
+                         uint8_t *buf, size_t cap, size_t *out_len) {
     TlWriter w;
     tl_writer_init(&w);
     tl_write_uint32(&w, CRC_messages_getDialogs);
-    tl_write_uint32(&w, 0);                       /* flags = 0 */
+    uint32_t flags = archived ? GETDIALOGS_FLAG_FOLDER_ID : 0u;
+    tl_write_uint32(&w, flags);                   /* flags */
+    if (archived)
+        tl_write_int32(&w, 1);                    /* folder_id = 1 (Archive) */
     tl_write_int32 (&w, 0);                       /* offset_date */
     tl_write_int32 (&w, 0);                       /* offset_id */
     tl_write_uint32(&w, CRC_inputPeerEmpty);      /* offset_peer */
@@ -86,14 +93,14 @@ static int parse_peer(TlReader *r, DialogEntry *out) {
 
 int domain_get_dialogs(const ApiConfig *cfg,
                        MtProtoSession *s, Transport *t,
-                       int max_entries,
+                       int max_entries, int archived,
                        DialogEntry *out, int *out_count) {
     if (!cfg || !s || !t || !out || !out_count || max_entries <= 0) return -1;
     *out_count = 0;
 
-    uint8_t query[128];
+    uint8_t query[132];
     size_t qlen = 0;
-    if (build_request(max_entries, query, sizeof(query), &qlen) != 0) {
+    if (build_request(max_entries, archived, query, sizeof(query), &qlen) != 0) {
         logger_log(LOG_ERROR, "dialogs: build_request overflow");
         return -1;
     }

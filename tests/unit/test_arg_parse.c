@@ -345,6 +345,34 @@ static void test_json_before_subcommand(void) {
     ASSERT(r.command == CMD_DIALOGS, "--json before dialogs: command must be CMD_DIALOGS");
 }
 
+/* ---- Test: dialogs --archived ---- */
+static void test_dialogs_archived(void) {
+    char *argv[] = {"tg-cli", "dialogs", "--archived", NULL};
+    ArgResult r;
+    int rc = arg_parse(3, argv, &r);
+    ASSERT(rc == ARG_OK,             "dialogs --archived: must return ARG_OK");
+    ASSERT(r.command == CMD_DIALOGS, "dialogs --archived: CMD_DIALOGS");
+    ASSERT(r.archived == 1,          "dialogs --archived: archived flag set");
+}
+
+/* ---- Test: dialogs --archived --limit N (combined) ---- */
+static void test_dialogs_archived_with_limit(void) {
+    char *argv[] = {"tg-cli", "dialogs", "--archived", "--limit", "50", NULL};
+    ArgResult r;
+    int rc = arg_parse(5, argv, &r);
+    ASSERT(rc == ARG_OK,             "dialogs --archived --limit: ARG_OK");
+    ASSERT(r.archived == 1,          "archived flag set");
+    ASSERT(r.limit == 50,            "limit=50");
+}
+
+/* ---- Test: dialogs (no --archived) → archived is 0 ---- */
+static void test_dialogs_not_archived_by_default(void) {
+    char *argv[] = {"tg-cli", "dialogs", NULL};
+    ArgResult r;
+    arg_parse(2, argv, &r);
+    ASSERT(r.archived == 0, "dialogs: archived must default to 0");
+}
+
 void run_arg_parse_tests(void) {
     RUN_TEST(test_no_args);
     RUN_TEST(test_help_flag);
@@ -381,4 +409,7 @@ void run_arg_parse_tests(void) {
     RUN_TEST(test_send_dash_peer);
     RUN_TEST(test_search_all_dash);
     RUN_TEST(test_batch_no_subcommand);
+    RUN_TEST(test_dialogs_archived);
+    RUN_TEST(test_dialogs_archived_with_limit);
+    RUN_TEST(test_dialogs_not_archived_by_default);
 }
