@@ -132,6 +132,19 @@ void mt_server_set_bad_salt_once(uint64_t new_salt);
 int mt_server_rpc_call_count(void);
 
 /**
+ * @brief Number of raw frames received whose leading CRC matches @p crc.
+ *
+ * Counts both unencrypted frames (auth_key_id == 0, e.g. DH handshake
+ * messages req_pq, req_DH_params, set_client_DH_params) and encrypted
+ * inner-RPC frames.  Useful for asserting that the handshake was (or was
+ * not) performed.
+ *
+ * @param crc  TL constructor CRC to search for.
+ * @return     Number of frames whose innermost CRC equals @p crc.
+ */
+int mt_server_request_crc_count(uint32_t crc);
+
+/**
  * @brief Arm a one-shot parse-state reset.
  *
  * When set, the next time the mock's on_client_sent callback encounters the

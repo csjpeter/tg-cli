@@ -26,6 +26,7 @@
 #define MT_MAX_HANDLERS      64
 #define MT_MAX_UPDATES       32
 #define MT_FRAME_MAX         (256 * 1024)
+#define MT_CRC_RING_SIZE     256
 
 typedef struct {
     uint32_t    crc;
@@ -74,6 +75,12 @@ static struct {
      * parse cursor is treated as a fresh connection marker rather than a
      * frame length prefix. Cleared automatically after use. */
     int         reconnect_pending;
+
+    /* Ring buffer of leading CRCs from every frame received (both
+     * unencrypted handshake frames and encrypted inner-RPC frames).
+     * Used by mt_server_request_crc_count(). */
+    uint32_t    crc_ring[MT_CRC_RING_SIZE];
+    size_t      crc_ring_count;   /* total recorded; wraps at MT_CRC_RING_SIZE */
 } g_srv;
 
 /* ---- forward decls ---- */
@@ -206,6 +213,16 @@ void mt_server_push_update(const uint8_t *tl, size_t tl_len) {
 
 int mt_server_rpc_call_count(void) { return g_srv.rpc_call_count; }
 
+int mt_server_request_crc_count(uint32_t crc) {
+    int count = 0;
+    size_t n = g_srv.crc_ring_count;
+    if (n > MT_CRC_RING_SIZE) n = MT_CRC_RING_SIZE;
+    for (size_t i = 0; i < n; ++i) {
+        if (g_srv.crc_ring[i] == crc) count++;
+    }
+    return count;
+}
+
 void mt_server_arm_reconnect(void) {
     g_srv.reconnect_pending = 1;
 }
@@ -316,10 +333,23 @@ static void on_client_sent(const uint8_t *buf, size_t len) {
         uint64_t key_id = 0;
         for (int i = 0; i < 8; ++i) key_id |= ((uint64_t)frame[i]) << (i * 8);
         if (key_id != g_srv.auth_key_id) {
-            fprintf(stderr, "mt_server: auth_key_id mismatch "
-                    "(got %016llx, want %016llx)\n",
-                    (unsigned long long)key_id,
-                    (unsigned long long)g_srv.auth_key_id);
+            /* Unencrypted handshake frame: auth_key_id == 0.
+             * Record the leading CRC for mt_server_request_crc_count().
+             * Unencrypted layout: key_id(8) + msg_id(8) + msg_len(4) + crc(4) */
+            if (key_id == 0 && payload_len >= 24) {
+                uint32_t raw_crc = (uint32_t)frame[20]
+                                 | ((uint32_t)frame[21] << 8)
+                                 | ((uint32_t)frame[22] << 16)
+                                 | ((uint32_t)frame[23] << 24);
+                size_t slot = g_srv.crc_ring_count % MT_CRC_RING_SIZE;
+                g_srv.crc_ring[slot] = raw_crc;
+                g_srv.crc_ring_count++;
+            } else {
+                fprintf(stderr, "mt_server: auth_key_id mismatch "
+                        "(got %016llx, want %016llx)\n",
+                        (unsigned long long)key_id,
+                        (unsigned long long)g_srv.auth_key_id);
+            }
             continue;
         }
 
@@ -447,6 +477,13 @@ static void unwrap_and_dispatch(uint64_t req_msg_id,
          * cosmetic (a real server would). */
         g_srv.server_salt = g_srv.bad_salt_new_salt;
         return;
+    }
+
+    /* Record the inner CRC in the ring buffer. */
+    {
+        size_t slot = g_srv.crc_ring_count % MT_CRC_RING_SIZE;
+        g_srv.crc_ring[slot] = inner_crc;
+        g_srv.crc_ring_count++;
     }
 
     /* Record + invoke handler. */
