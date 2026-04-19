@@ -14,6 +14,7 @@
 
 #include "readline.h"
 #include "platform/terminal.h"
+#include "arg_parse.h"
 
 #include "domain/read/self.h"
 #include "domain/read/dialogs.h"
@@ -577,6 +578,8 @@ static void print_help(void) {
         "  quit, exit, :q               Leave the TUI (Ctrl-D also exits)\n"
         "\n"
         "Launch flags (pass on the command line, not inside the REPL):\n"
+        "  --help, -h                   Show this help and exit\n"
+        "  --version, -v                Show version and exit\n"
         "  --tui                        Curses-style three-pane UI instead of REPL\n"
         "  --phone <number>             Batch login phone (E.164)\n"
         "  --code <digits>              Batch login SMS/app code\n"
@@ -836,9 +839,18 @@ static int run_tui_loop(const ApiConfig *cfg,
     return rc;
 }
 
-/* Parse argv for the `--tui` flag. Returns 1 if present. */
+/* Parse argv for the `--tui` flag and global flags (--help, --version).
+ * Returns 1 if --tui is present. */
 static int has_tui_flag(int argc, char **argv) {
     for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
+            print_help();
+            exit(0);
+        }
+        if (strcmp(argv[i], "--version") == 0 || strcmp(argv[i], "-v") == 0) {
+            arg_print_version();
+            exit(0);
+        }
         if (strcmp(argv[i], "--tui") == 0) return 1;
     }
     return 0;
