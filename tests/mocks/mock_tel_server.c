@@ -76,6 +76,11 @@ static struct {
      * frame length prefix. Cleared automatically after use. */
     int         reconnect_pending;
 
+    /* One-shot wrong session_id injection. When set, the next reply frame
+     * uses a deliberately wrong session_id in the plaintext header so that
+     * rpc_recv_encrypted() rejects it. Cleared automatically after use. */
+    int         wrong_session_id_once_pending;
+
     /* Ring buffer of leading CRCs from every frame received (both
      * unencrypted handshake frames and encrypted inner-RPC frames).
      * Used by mt_server_request_crc_count(). */
@@ -240,6 +245,10 @@ int mt_server_seed_extra_dc(int dc_id) {
 void mt_server_set_bad_salt_once(uint64_t new_salt) {
     g_srv.bad_salt_once_pending = 1;
     g_srv.bad_salt_new_salt = new_salt;
+}
+
+void mt_server_set_wrong_session_id_once(void) {
+    g_srv.wrong_session_id_once_pending = 1;
 }
 
 /* ================================================================ */
@@ -523,7 +532,12 @@ static void queue_frame(const uint8_t *body, size_t body_len) {
     TlWriter plain;
     tl_writer_init(&plain);
     tl_write_uint64(&plain, g_srv.server_salt);
-    tl_write_uint64(&plain, g_srv.session_id);
+    uint64_t effective_session_id = g_srv.session_id;
+    if (g_srv.wrong_session_id_once_pending) {
+        g_srv.wrong_session_id_once_pending = 0;
+        effective_session_id ^= 0xFFFFFFFFFFFFFFFFULL;  /* flip all bits */
+    }
+    tl_write_uint64(&plain, effective_session_id);
     tl_write_uint64(&plain, make_server_msg_id());
     /* seq_no: bump by 2 for content-related, start at 1 so first is 1, 3, 5… */
     g_srv.seq_no += 2;

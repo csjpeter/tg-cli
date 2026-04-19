@@ -32,6 +32,7 @@ void run_tui_e2e_tests(void);
 void run_send_stdin_tests(void);
 void run_dc_session_cache_skip_tests(void);
 void run_logout_rpc_tests(void);
+void run_wrong_session_id_tests(void);
 
 /** Run suite_fn only when no filter is set or the filter is a substring of
  *  the stringified function name. */
@@ -64,6 +65,7 @@ int main(int argc, char *argv[]) {
     RUN_SUITE(run_send_stdin_tests);
     RUN_SUITE(run_dc_session_cache_skip_tests);
     RUN_SUITE(run_logout_rpc_tests);
+    RUN_SUITE(run_wrong_session_id_tests);
 
     printf("\n--- Functional Test Results ---\n");
     printf("Tests Run:    %d\n", g_tests_run);

@@ -126,6 +126,16 @@ void mt_server_push_update(const uint8_t *tl, size_t tl_len);
 void mt_server_set_bad_salt_once(uint64_t new_salt);
 
 /**
+ * @brief Arm a one-shot wrong session_id injection.
+ *
+ * The next reply frame sent by the mock server will contain a session_id
+ * that differs from the client's expected session_id (all bits flipped).
+ * rpc_recv_encrypted() must reject the frame and return -1. The flag is
+ * cleared automatically after the first reply is emitted.
+ */
+void mt_server_set_wrong_session_id_once(void);
+
+/**
  * @brief Number of successfully dispatched RPC frames since last reset.
  *        Handy for asserting "the client made exactly N calls".
  */
