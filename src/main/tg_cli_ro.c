@@ -18,6 +18,7 @@
 #include "infrastructure/auth_logout.h"
 #include "logger.h"
 #include "arg_parse.h"
+#include "platform/path.h"
 #include "json_util.h"
 
 #include "domain/read/self.h"
@@ -878,6 +879,7 @@ static void print_usage(void) {
 }
 
 int main(int argc, char **argv) {
+    platform_normalize_argv(&argc, &argv);
     AppContext ctx;
     if (app_bootstrap(&ctx, "tg-cli-ro") != 0) {
         fprintf(stderr, "tg-cli-ro: bootstrap failed\n");

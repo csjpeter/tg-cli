@@ -864,6 +864,7 @@ static int has_tui_flag(int argc, char **argv) {
 }
 
 int main(int argc, char **argv) {
+    platform_normalize_argv(&argc, &argv);
     AppContext ctx;
     if (app_bootstrap(&ctx, "tg-tui") != 0) {
         fprintf(stderr, "tg-tui: bootstrap failed\n");

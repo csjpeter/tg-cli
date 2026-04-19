@@ -53,12 +53,14 @@ if(WIN32)
         src/platform/windows/terminal.c
         src/platform/windows/path.c
         src/platform/windows/socket.c
+        src/platform/windows/argv_utf8.c
     )
 else()
     set(PLATFORM_SOURCES
         src/platform/posix/terminal.c
         src/platform/posix/path.c
         src/platform/posix/socket.c
+        src/platform/posix/argv_utf8.c
     )
 endif()
 

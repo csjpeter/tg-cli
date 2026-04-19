@@ -34,4 +34,23 @@ const char *platform_cache_dir(void);
  */
 const char *platform_config_dir(void);
 
+/**
+ * Normalises command-line arguments to UTF-8.
+ *
+ * On POSIX the function is a no-op (argv is already UTF-8 by convention).
+ * On Windows (MinGW) main() receives arguments in the system ANSI codepage
+ * (e.g. CP1252).  This function re-reads the command line via
+ * GetCommandLineW() + CommandLineToArgvW(), converts every wide-char argument
+ * to UTF-8 with WideCharToMultiByte(CP_UTF8), and replaces *argc / *argv with
+ * freshly allocated UTF-8 strings.
+ *
+ * The replacement strings are allocated with malloc() and are never freed
+ * (they live for the entire process lifetime).  *argc is also updated in case
+ * CommandLineToArgvW() disagrees with the CRT count.
+ *
+ * Call this as the very first statement inside main(), before any argument
+ * parsing.
+ */
+void platform_normalize_argv(int *argc, char ***argv);
+
 #endif /* PLATFORM_PATH_H */
