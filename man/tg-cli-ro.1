@@ -77,6 +77,8 @@ to list the Telegram Archive folder instead of the default inbox
 .BI history " <peer> [--limit N] [--offset N] [--no-media]"
 Fetch message history from \fIpeer\fR (US-06). Extracts text, media
 kind, and \fBphoto_id\fR / \fBdocument_id\fR where present.
+Output includes a \fBdate\fR field (Unix epoch, seconds since 1970-01-01 UTC);
+format with \fBdate -d @$ts\fR or similar.
 .RS
 .TP
 .BI --limit " N"
@@ -91,6 +93,8 @@ Suppress pure-media entries; show only caption for mixed entries.
 .TP
 .BI search " [<peer>] <query>"
 Search messages (US-10). Without \fIpeer\fR the query is global.
+Output includes a \fBdate\fR field (Unix epoch, seconds since 1970-01-01 UTC);
+format with \fBdate -d @$ts\fR or similar.
 .TP
 .BI user-info " <peer>"
 Show user or channel info (US-09).
@@ -104,6 +108,8 @@ filters the event stream.
 Optional
 .B --interval
 sets the polling period in seconds (range 2\(en3600, default 30).
+Output includes a \fBdate\fR field (Unix epoch, seconds since 1970-01-01 UTC);
+format with \fBdate -d @$ts\fR or similar.
 .TP
 .BI download " <peer> <msg_id> [--out PATH]"
 Download a photo attachment from a specific message (US-08). Defaults
@@ -117,6 +123,22 @@ Alias for
 .B version
 Alias for
 .B --version.
+
+.SH OUTPUT FORMAT
+Plain-text and JSON output from subcommands like \fBhistory\fR, \fBsearch\fR,
+and \fBwatch\fR include a \fBdate\fR field. This is a 32-bit Unix epoch
+integer (seconds since 1970-01-01 00:00:00 UTC), not a human-readable string.
+For example, \fB1713456000\fR represents 2024-04-18T12:00:00 UTC.
+.PP
+To format a timestamp for display:
+.EX
+date -d @$ts "+%Y-%m-%d %H:%M:%S UTC"    # POSIX date(1)
+TZ=UTC date -f - <<< "$ts"               # GNU date with stdin
+.EE
+.PP
+Note: The storage type is \fBint32_t\fR (signed 32-bit), which overflows
+on January 19, 2038 (the year-2038 problem). Upcoming protocol upgrades
+or schema changes may switch to \fBint64_t\fR for future-proofing.
 
 .SH PEER SYNTAX
 Peers accept any of:

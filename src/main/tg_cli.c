@@ -354,6 +354,10 @@ static void print_usage(void) {
         "  TG_CLI_API_ID / TG_CLI_API_HASH env vars, or\n"
         "  api_id= / api_hash= in ~/.config/tg-cli/config.ini\n"
         "\n"
+        "For read subcommands (history, search, watch, etc.):\n"
+        "  Use tg-cli-ro(1) for read-only access or tg-tui(1) for interactive mode.\n"
+        "  Note: date fields in output are Unix epoch seconds; use 'date -d @$ts' to format.\n"
+        "\n"
         "See man tg-cli(1) for the full reference.\n"
     );
 }
