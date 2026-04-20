@@ -11,6 +11,7 @@ set(FUNCTIONAL_SOURCES
     test_srp_math_functional.c
     test_srp_roundtrip_functional.c
     test_tl_skip_message_functional.c
+    test_tl_forward_compat.c
     test_mt_server_smoke.c
     test_login_flow.c
     test_read_path.c

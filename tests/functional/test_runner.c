@@ -22,6 +22,7 @@ void run_crypto_kdf_functional_tests(void);
 void run_srp_math_functional_tests(void);
 void run_srp_roundtrip_functional_tests(void);
 void run_tl_skip_message_functional_tests(void);
+void run_tl_forward_compat_tests(void);
 void run_mt_server_smoke_tests(void);
 void run_login_flow_tests(void);
 void run_read_path_tests(void);
@@ -58,6 +59,7 @@ int main(int argc, char *argv[]) {
     RUN_SUITE(run_srp_math_functional_tests);
     RUN_SUITE(run_srp_roundtrip_functional_tests);
     RUN_SUITE(run_tl_skip_message_functional_tests);
+    RUN_SUITE(run_tl_forward_compat_tests);
     RUN_SUITE(run_mt_server_smoke_tests);
     RUN_SUITE(run_login_flow_tests);
     RUN_SUITE(run_read_path_tests);
