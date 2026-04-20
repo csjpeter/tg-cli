@@ -307,4 +307,43 @@ void mt_server_arm_reconnect(void);
  */
 int mt_server_seed_extra_dc(int dc_id);
 
+/**
+ * @brief Install a responder on auth.sendCode that replies with
+ *        `400 PHONE_MIGRATE_<dc_id>` on the next call.
+ *
+ * Exercises rpc_parse_error's PHONE_MIGRATE_ branch and the login
+ * flow's auth.sendCode migration retry. The responder fires for every
+ * auth.sendCode until replaced or until mt_server_reset() clears handlers;
+ * re-arm the helper (or register a happy-path responder) to change the
+ * behaviour on the next dispatch.
+ *
+ * @param dc_id  DC number to embed in the PHONE_MIGRATE_X suffix.
+ */
+void mt_server_reply_phone_migrate(int dc_id);
+
+/**
+ * @brief Install a responder on auth.signIn that replies with
+ *        `303 USER_MIGRATE_<dc_id>` on the next call.
+ *
+ * Exercises rpc_parse_error's USER_MIGRATE_ branch and the login
+ * flow's post-signIn migration handling. Same lifecycle as
+ * mt_server_reply_phone_migrate.
+ *
+ * @param dc_id  DC number to embed in the USER_MIGRATE_X suffix.
+ */
+void mt_server_reply_user_migrate(int dc_id);
+
+/**
+ * @brief Install a responder on auth.sendCode that replies with
+ *        `303 NETWORK_MIGRATE_<dc_id>` on the next call.
+ *
+ * Exercises rpc_parse_error's NETWORK_MIGRATE_ branch. Unlike
+ * PHONE_MIGRATE/USER_MIGRATE, NETWORK_MIGRATE is a per-RPC transient
+ * signal: the caller retries the same RPC on the named DC without
+ * flipping its home DC. Same lifecycle as the sibling helpers.
+ *
+ * @param dc_id  DC number to embed in the NETWORK_MIGRATE_X suffix.
+ */
+void mt_server_reply_network_migrate(int dc_id);
+
 #endif /* MOCK_TEL_SERVER_H */

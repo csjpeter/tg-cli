@@ -26,6 +26,12 @@
 #define CRC_gzip_packed      0x3072cfa1U
 #define CRC_msg_container    0x73f1f8dcU
 
+/* TL CRCs for auth.sendCode / auth.signIn — local copies so the mock
+ * server does not have to link against src/infrastructure/auth_session.h.
+ * Kept aligned with CRC_auth_sendCode / CRC_auth_signIn in that header. */
+#define CRC_auth_sendCode_local  0xa677244fU
+#define CRC_auth_signIn_local    0x8d52a951U
+
 #define MT_MAX_HANDLERS      64
 #define MT_MAX_UPDATES       32
 #define MT_FRAME_MAX         (256 * 1024)
@@ -513,6 +519,52 @@ void mt_server_stack_service_frames(size_t count) {
         uint64_t id = 0xAC000000DEAD0000ULL + i;
         mt_server_reply_msgs_ack(&id, 1);
     }
+}
+
+/* ---- TEST-86 PHONE/USER/NETWORK_MIGRATE helpers ----------------------
+ *
+ * Three internal int slots carry the target DC across handler dispatch.
+ * Tests can reassign a new DC between calls by re-invoking the helper.
+ * Using static slots (rather than malloc'd ctx) keeps the helpers
+ * alloc-free and matches the rest of the mock-server setup style. */
+static int g_phone_migrate_dc   = 0;
+static int g_user_migrate_dc    = 0;
+static int g_network_migrate_dc = 0;
+
+static void on_phone_migrate(MtRpcContext *ctx) {
+    int dc = g_phone_migrate_dc;
+    char buf[64];
+    snprintf(buf, sizeof(buf), "PHONE_MIGRATE_%d", dc);
+    mt_server_reply_error(ctx, 303, buf);
+}
+
+static void on_user_migrate(MtRpcContext *ctx) {
+    int dc = g_user_migrate_dc;
+    char buf[64];
+    snprintf(buf, sizeof(buf), "USER_MIGRATE_%d", dc);
+    mt_server_reply_error(ctx, 303, buf);
+}
+
+static void on_network_migrate(MtRpcContext *ctx) {
+    int dc = g_network_migrate_dc;
+    char buf[64];
+    snprintf(buf, sizeof(buf), "NETWORK_MIGRATE_%d", dc);
+    mt_server_reply_error(ctx, 303, buf);
+}
+
+void mt_server_reply_phone_migrate(int dc_id) {
+    g_phone_migrate_dc = dc_id;
+    mt_server_expect(CRC_auth_sendCode_local, on_phone_migrate, NULL);
+}
+
+void mt_server_reply_user_migrate(int dc_id) {
+    g_user_migrate_dc = dc_id;
+    mt_server_expect(CRC_auth_signIn_local, on_user_migrate, NULL);
+}
+
+void mt_server_reply_network_migrate(int dc_id) {
+    g_network_migrate_dc = dc_id;
+    mt_server_expect(CRC_auth_sendCode_local, on_network_migrate, NULL);
 }
 
 /* ================================================================ */
