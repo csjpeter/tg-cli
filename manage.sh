@@ -189,10 +189,41 @@ case "$1" in
         lcov --capture --directory . \
              --output-file "$BUILD_DIR/coverage-functional.info"
 
-        # Combined = unit ∪ functional (covered if either suite hit it).
-        lcov --add-tracefile "$BUILD_DIR/coverage-unit.info" \
-             --add-tracefile "$BUILD_DIR/coverage-functional.info" \
-             --output-file "$BUILD_DIR/coverage.info"
+        # Pass 3 — PTY suite (terminal.c, readline, password prompt).
+        # Runs after the functional .gcda have been captured so the PTY
+        # binaries accumulate their own .gcda on top.  lcov merges below.
+        if [ "$(uname)" != "Windows_NT" ]; then
+            echo "Running PTY test suites for coverage..."
+            PTY_RUNNERS=(
+                "$BUILD_DIR/tests/functional/pty/pty-terminal-coverage-test-runner"
+                "$BUILD_DIR/tests/functional/pty/pty-password-test-runner"
+                "$BUILD_DIR/tests/functional/pty/pty-readline-test-runner"
+                "$BUILD_DIR/tests/functional/pty/pty-tui-test-runner"
+                "$BUILD_DIR/tests/functional/pty/pty-tui-resize-test-runner"
+                "$BUILD_DIR/tests/functional/pty/pty-ctrl-c-test-runner"
+                "$BUILD_DIR/tests/functional/pty/pty-wizard-test-runner"
+            )
+            for runner in "${PTY_RUNNERS[@]}"; do
+                if [ -x "$runner" ]; then
+                    "$runner" || true   # non-zero is a test failure, not a build error
+                fi
+            done
+            echo "Capturing PTY coverage..."
+            lcov --capture --directory . \
+                 --output-file "$BUILD_DIR/coverage-pty.info"
+        fi
+
+        # Combined = unit ∪ functional ∪ PTY (covered if any suite hit it).
+        if [ -f "$BUILD_DIR/coverage-pty.info" ]; then
+            lcov --add-tracefile "$BUILD_DIR/coverage-unit.info" \
+                 --add-tracefile "$BUILD_DIR/coverage-functional.info" \
+                 --add-tracefile "$BUILD_DIR/coverage-pty.info" \
+                 --output-file "$BUILD_DIR/coverage.info"
+        else
+            lcov --add-tracefile "$BUILD_DIR/coverage-unit.info" \
+                 --add-tracefile "$BUILD_DIR/coverage-functional.info" \
+                 --output-file "$BUILD_DIR/coverage.info"
+        fi
 
         genhtml "$BUILD_DIR/coverage.info" \
                 --output-directory "$BUILD_DIR/coverage_report"
