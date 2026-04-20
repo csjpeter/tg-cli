@@ -170,6 +170,89 @@ void mt_server_push_update(const uint8_t *tl, size_t tl_len);
 void mt_server_set_bad_salt_once(uint64_t new_salt);
 
 /**
+ * @brief Arm a one-shot bad_server_salt rejection (TEST-88 alias).
+ *
+ * Identical to mt_server_set_bad_salt_once but named to match the
+ * `mt_server_reply_*` family so the US-37 test suite reads consistently.
+ * The next RPC frame the client sends gets a bad_server_salt#edab447b
+ * reply; the registered handler is not called; on the client's one-shot
+ * retry the flag has cleared and the RPC dispatches normally — exercising
+ * classify_service_frame's SVC_BAD_SALT branch end-to-end.
+ *
+ * @param new_salt  The salt the server wants the client to adopt.
+ */
+void mt_server_reply_bad_server_salt(uint64_t new_salt);
+
+/**
+ * @brief Queue a new_session_created#9ec20908 frame to be sent AHEAD of the
+ *        next RPC result.
+ *
+ * The next RPC the mock server dispatches emits a new_session_created
+ * service frame first, then runs the registered handler, which emits the
+ * real rpc_result. The client's api_call drains the service frame in its
+ * classify_service_frame loop (SVC_SKIP, updates s->server_salt) and then
+ * surfaces the real result. Exercises the salt-refresh branch without
+ * disconnecting.
+ *
+ * Uses a fixed, recognisable server_salt so tests can assert that
+ * s->server_salt was updated from the frame.
+ */
+void mt_server_reply_new_session_created(void);
+
+/**
+ * @brief Queue a msgs_ack#62d6b459 frame ahead of the next RPC result.
+ *
+ * msgs_ack is classified SVC_SKIP; the client drains it transparently
+ * and proceeds to read the real result queued by the handler.
+ *
+ * @param ids  Array of msg_ids to ack (opaque to the client — only the
+ *             CRC matters for classification).
+ * @param n    Number of ids.
+ */
+void mt_server_reply_msgs_ack(const uint64_t *ids, size_t n);
+
+/**
+ * @brief Queue a pong#347773c5 frame ahead of the next RPC result.
+ *
+ * pong is classified SVC_SKIP (same as msgs_ack). Exercises the second
+ * branch of the SKIP `||` chain in classify_service_frame.
+ *
+ * @param msg_id   Echoed msg_id (ping target).
+ * @param ping_id  Echoed ping identifier.
+ */
+void mt_server_reply_pong(uint64_t msg_id, uint64_t ping_id);
+
+/**
+ * @brief Queue a bad_msg_notification#a7eff811 frame ahead of the next RPC
+ *        result.
+ *
+ * The client's classifier returns SVC_ERROR on this frame, so api_call
+ * fails (-1) BEFORE reaching the queued real result. The caller can
+ * assert that the session struct retains its auth_key and salt — i.e.
+ * the error is surfaced without the client dropping the session.
+ *
+ * @param bad_id  The msg_id the server is complaining about.
+ * @param code    Error code (e.g. 16 = msg_id too low, 32 = seqno too low).
+ */
+void mt_server_reply_bad_msg_notification(uint64_t bad_id, int code);
+
+/**
+ * @brief Stack @p count msgs_ack service frames ahead of the next RPC
+ *        result.
+ *
+ * Stress-tests the SERVICE_FRAME_LIMIT drain loop in api_call_once. With
+ * count < 8 the client drains them all and still surfaces the real
+ * result. With count >= 8 the client hits the loop limit and returns -1.
+ *
+ * Each queued ack carries a distinct synthetic msg_id; bodies are
+ * otherwise identical. Internally just calls mt_server_reply_msgs_ack()
+ * @p count times, so the limit on `count` is the queue capacity.
+ *
+ * @param count  Number of msgs_ack frames to prepend.
+ */
+void mt_server_stack_service_frames(size_t count);
+
+/**
  * @brief Arm a one-shot wrong session_id injection.
  *
  * The next reply frame sent by the mock server will contain a session_id

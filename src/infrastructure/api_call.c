@@ -161,7 +161,13 @@ static int api_call_once(const ApiConfig *cfg,
     if (!raw_resp) return -1;
     size_t raw_len = 0;
 
-    /* Drain service frames until we see a real result. */
+    /* Drain service frames until we see a real result. If we never see one
+     * within SERVICE_FRAME_LIMIT iterations, treat it as a protocol failure —
+     * without this guard the loop would fall through with `raw_resp` still
+     * holding a service frame (e.g. msgs_ack) and `rpc_unwrap_gzip` — which
+     * is permissive about non-gzip payloads — would succeed, surfacing the
+     * service frame bytes to the caller as if they were a real result. */
+    int saw_result = 0;
     for (int attempt = 0; attempt < SERVICE_FRAME_LIMIT; attempt++) {
         if (rpc_recv_encrypted(s, t, raw_resp, API_BUF_SIZE, &raw_len) != 0) {
             logger_log(LOG_ERROR, "api_call: failed to receive");
@@ -171,7 +177,14 @@ static int api_call_once(const ApiConfig *cfg,
         if (klass == SVC_ERROR) return -1;
         if (klass == SVC_BAD_SALT) { *bad_salt = 1; return 0; }
         if (klass == SVC_SKIP)     continue;
+        saw_result = 1;
         break; /* SVC_RESULT */
+    }
+    if (!saw_result) {
+        logger_log(LOG_ERROR,
+                   "api_call: drained %d service frames without a real result",
+                   SERVICE_FRAME_LIMIT);
+        return -1;
     }
 
     uint64_t req_msg_id;

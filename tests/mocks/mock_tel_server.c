@@ -30,6 +30,16 @@
 #define MT_MAX_UPDATES       32
 #define MT_FRAME_MAX         (256 * 1024)
 #define MT_CRC_RING_SIZE     256
+#define MT_MAX_PENDING_SVC   16   /* stacked service frames ahead of next reply */
+
+/* TL CRCs for the service frames TEST-88 exercises. Keep these local so
+ * the mock server does not have to link against src/core/tl_registry.h. */
+#define CRC_bad_server_salt      0xedab447bU
+#define CRC_bad_msg_notification 0xa7eff811U
+#define CRC_new_session_created  0x9ec20908U
+#define CRC_msgs_ack             0x62d6b459U
+#define CRC_pong                 0x347773c5U
+#define CRC_vector               0x1cb5c415U
 
 typedef struct {
     uint32_t    crc;
@@ -89,6 +99,12 @@ static struct {
      * Used by mt_server_request_crc_count(). */
     uint32_t    crc_ring[MT_CRC_RING_SIZE];
     size_t      crc_ring_count;   /* total recorded; wraps at MT_CRC_RING_SIZE */
+
+    /* Stack of service frames to send ahead of the next real reply.
+     * Each entry holds a raw TL body (with leading CRC). Drained in
+     * unwrap_and_dispatch before the registered handler runs. */
+    MtBlob      pending_service_frames[MT_MAX_PENDING_SVC];
+    size_t      pending_service_count;
 } g_srv;
 
 /* ---- forward decls ---- */
@@ -116,6 +132,9 @@ void mt_server_reset(void) {
     mock_socket_set_on_sent(NULL);
     for (size_t i = 0; i < g_srv.pending_update_count; ++i) {
         free(g_srv.pending_updates[i].bytes);
+    }
+    for (size_t i = 0; i < g_srv.pending_service_count; ++i) {
+        free(g_srv.pending_service_frames[i].bytes);
     }
     memset(&g_srv, 0, sizeof(g_srv));
     g_srv.initialized = 1;
@@ -404,6 +423,98 @@ void mt_server_set_wrong_session_id_once(void) {
     g_srv.wrong_session_id_once_pending = 1;
 }
 
+/* ---- TEST-88 service-frame helpers ---------------------------------- */
+
+/** Append a service-frame body (raw TL, CRC-prefixed) to the queue drained
+ *  ahead of the next handler dispatch. Silently drops if the queue is full
+ *  (tests that need more than MT_MAX_PENDING_SVC would need to raise the
+ *  cap). Returns 1 on success, 0 on drop. */
+static int svc_queue_push(const uint8_t *body, size_t body_len) {
+    if (g_srv.pending_service_count >= MT_MAX_PENDING_SVC) return 0;
+    uint8_t *copy = (uint8_t *)malloc(body_len);
+    if (!copy) return 0;
+    memcpy(copy, body, body_len);
+    g_srv.pending_service_frames[g_srv.pending_service_count].bytes = copy;
+    g_srv.pending_service_frames[g_srv.pending_service_count].len   = body_len;
+    g_srv.pending_service_count++;
+    return 1;
+}
+
+void mt_server_reply_bad_server_salt(uint64_t new_salt) {
+    /* Reuse the existing one-shot path — the SVC_BAD_SALT branch is
+     * sensitive to ordering (the client retries BEFORE reading any other
+     * queued frame) so piping through set_bad_salt_once keeps the flow
+     * identical to what rpc_send_encrypted observes on real hardware. */
+    mt_server_set_bad_salt_once(new_salt);
+}
+
+void mt_server_reply_new_session_created(void) {
+    /* new_session_created#9ec20908 first_msg_id:long unique_id:long
+     *                              server_salt:long = NewSession */
+    uint8_t body[4 + 8 + 8 + 8];
+    uint32_t crc = CRC_new_session_created;
+    for (int i = 0; i < 4; ++i) body[i] = (uint8_t)(crc >> (i * 8));
+    /* first_msg_id — arbitrary recognisable pattern. */
+    uint64_t first = 0xF111F111F111F111ULL;
+    for (int i = 0; i < 8; ++i) body[4 + i]  = (uint8_t)(first >> (i * 8));
+    /* unique_id. */
+    uint64_t uniq = 0xABC0ABC0ABC0ABC0ULL;
+    for (int i = 0; i < 8; ++i) body[12 + i] = (uint8_t)(uniq >> (i * 8));
+    /* server_salt — the value the client must adopt. Keep this stable so
+     * tests can assert against a constant. */
+    uint64_t fresh = 0xCAFEF00DBAADC0DEULL;
+    for (int i = 0; i < 8; ++i) body[20 + i] = (uint8_t)(fresh >> (i * 8));
+    svc_queue_push(body, sizeof(body));
+}
+
+void mt_server_reply_msgs_ack(const uint64_t *ids, size_t n) {
+    /* msgs_ack#62d6b459 msg_ids:Vector<long> */
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_msgs_ack);
+    tl_write_uint32(&w, CRC_vector);
+    tl_write_uint32(&w, (uint32_t)n);
+    for (size_t i = 0; i < n; ++i) {
+        tl_write_uint64(&w, ids ? ids[i] : (uint64_t)(0xAC000000DEAD0000ULL + i));
+    }
+    svc_queue_push(w.data, w.len);
+    tl_writer_free(&w);
+}
+
+void mt_server_reply_pong(uint64_t msg_id, uint64_t ping_id) {
+    /* pong#347773c5 msg_id:long ping_id:long = Pong */
+    uint8_t body[4 + 8 + 8];
+    uint32_t crc = CRC_pong;
+    for (int i = 0; i < 4; ++i) body[i] = (uint8_t)(crc >> (i * 8));
+    for (int i = 0; i < 8; ++i) body[4 + i]  = (uint8_t)(msg_id  >> (i * 8));
+    for (int i = 0; i < 8; ++i) body[12 + i] = (uint8_t)(ping_id >> (i * 8));
+    svc_queue_push(body, sizeof(body));
+}
+
+void mt_server_reply_bad_msg_notification(uint64_t bad_id, int code) {
+    /* bad_msg_notification#a7eff811 bad_msg_id:long bad_msg_seqno:int
+     *                               error_code:int = BadMsgNotification */
+    uint8_t body[4 + 8 + 4 + 4];
+    uint32_t crc = CRC_bad_msg_notification;
+    for (int i = 0; i < 4; ++i) body[i] = (uint8_t)(crc >> (i * 8));
+    for (int i = 0; i < 8; ++i) body[4 + i]  = (uint8_t)(bad_id >> (i * 8));
+    int32_t seqno = 0;
+    for (int i = 0; i < 4; ++i) body[12 + i] = (uint8_t)(seqno >> (i * 8));
+    int32_t ec = code;
+    for (int i = 0; i < 4; ++i) body[16 + i] = (uint8_t)(ec >> (i * 8));
+    svc_queue_push(body, sizeof(body));
+}
+
+void mt_server_stack_service_frames(size_t count) {
+    /* Stack N msgs_ack frames. Each carries a distinct synthetic msg_id
+     * so the client can log them individually (not that classify_service_frame
+     * inspects the body — but giving them unique ids keeps the wire traffic
+     * realistic). */
+    for (size_t i = 0; i < count; ++i) {
+        uint64_t id = 0xAC000000DEAD0000ULL + i;
+        mt_server_reply_msgs_ack(&id, 1);
+    }
+}
+
 /* ================================================================ */
 /* Internals                                                         */
 /* ================================================================ */
@@ -647,6 +758,20 @@ static void unwrap_and_dispatch(uint64_t req_msg_id,
         g_srv.crc_ring[slot] = inner_crc;
         g_srv.crc_ring_count++;
     }
+
+    /* Drain any service frames queued by mt_server_reply_* helpers
+     * (TEST-88). They land on the wire ahead of the real result so the
+     * client's classify_service_frame loop observes them exactly once per
+     * iteration. queue_frame wraps each body in its own encrypted envelope,
+     * which the client treats as an independent frame. */
+    for (size_t i = 0; i < g_srv.pending_service_count; ++i) {
+        queue_frame(g_srv.pending_service_frames[i].bytes,
+                    g_srv.pending_service_frames[i].len);
+        free(g_srv.pending_service_frames[i].bytes);
+        g_srv.pending_service_frames[i].bytes = NULL;
+        g_srv.pending_service_frames[i].len   = 0;
+    }
+    g_srv.pending_service_count = 0;
 
     /* Record + invoke handler. */
     g_srv.rpc_call_count++;

@@ -46,6 +46,7 @@ void run_history_rich_metadata_tests(void);
 void run_service_messages_tests(void);
 void run_rpc_envelope_tests(void);
 void run_transport_resilience_tests(void);
+void run_service_frames_tests(void);
 
 /** Run suite_fn only when no filter is set or the filter is a substring of
  *  the stringified function name. */
@@ -92,6 +93,7 @@ int main(int argc, char *argv[]) {
     RUN_SUITE(run_service_messages_tests);
     RUN_SUITE(run_rpc_envelope_tests);
     RUN_SUITE(run_transport_resilience_tests);
+    RUN_SUITE(run_service_frames_tests);
 
     printf("\n--- Functional Test Results ---\n");
     printf("Tests Run:    %d\n", g_tests_run);
