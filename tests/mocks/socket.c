@@ -35,6 +35,7 @@ static struct {
     /* Failure injection */
     int fail_create;
     int fail_connect;
+    int refuse_connect;  /* persistent ECONNREFUSED */
     int fail_send_at;    /* 0 = never */
     int fail_recv_at;
     int short_send_at;
@@ -42,6 +43,15 @@ static struct {
     int eintr_recv_at;   /* Nth recv() returns -1/EINTR, then succeeds */
     int send_call_n;     /* call counters */
     int recv_call_n;
+
+    /* TEST-82: fragmentation + one-shot EINTR/EAGAIN/EOF */
+    size_t send_fragment;         /* cap each send() at N bytes; 0 = off */
+    size_t recv_fragment;         /* cap each recv() at N bytes; 0 = off */
+    int    inject_eintr_send;     /* next send() returns -1/EINTR */
+    int    inject_eintr_recv;     /* next recv() returns -1/EINTR */
+    int    inject_eagain_send;    /* next send() returns -1/EAGAIN */
+    int    inject_eagain_recv;    /* next recv() returns -1/EAGAIN */
+    int    kill_next_recv;        /* next recv() returns 0 (EOF) */
 
     /* Emulator hook: runs after every successful send, lets the fake
      * server parse + reply before the next recv. */
@@ -93,6 +103,15 @@ void mock_socket_short_send_at(int n)   { g_mock_socket.short_send_at = n; }
 void mock_socket_eintr_send_at(int n)   { g_mock_socket.eintr_send_at = n; }
 void mock_socket_eintr_recv_at(int n)   { g_mock_socket.eintr_recv_at = n; }
 
+void mock_socket_set_send_fragment(size_t step) { g_mock_socket.send_fragment = step; }
+void mock_socket_set_recv_fragment(size_t step) { g_mock_socket.recv_fragment = step; }
+void mock_socket_inject_eintr_next_send(void)   { g_mock_socket.inject_eintr_send  = 1; }
+void mock_socket_inject_eintr_next_recv(void)   { g_mock_socket.inject_eintr_recv  = 1; }
+void mock_socket_inject_eagain_next_send(void)  { g_mock_socket.inject_eagain_send = 1; }
+void mock_socket_inject_eagain_next_recv(void)  { g_mock_socket.inject_eagain_recv = 1; }
+void mock_socket_kill_on_next_recv(void)        { g_mock_socket.kill_next_recv     = 1; }
+void mock_socket_refuse_connect(void)           { g_mock_socket.refuse_connect     = 1; }
+
 void mock_socket_set_on_sent(void (*fn)(const uint8_t *, size_t)) {
     g_mock_socket.on_sent = fn;
 }
@@ -110,6 +129,12 @@ int sys_socket_create(void) {
 
 int sys_socket_connect(int fd, const char *host, int port) {
     (void)fd; (void)host; (void)port;
+    if (g_mock_socket.refuse_connect) {
+        /* Persistent refusal — every reconnect attempt fails with
+         * ECONNREFUSED until mock_socket_reset() clears it. */
+        errno = ECONNREFUSED;
+        return -1;
+    }
     if (g_mock_socket.fail_connect) {
         g_mock_socket.fail_connect = 0;
         return -1;
@@ -124,6 +149,19 @@ ssize_t sys_socket_send(int fd, const void *buf, size_t len) {
 
     g_mock_socket.send_call_n++;
 
+    /* Next-call EINTR / EAGAIN injection beats the Nth-call variant —
+     * tests that do not want to count calls can use these one-shots. */
+    if (g_mock_socket.inject_eintr_send) {
+        g_mock_socket.inject_eintr_send = 0;
+        errno = EINTR;
+        return -1;
+    }
+    if (g_mock_socket.inject_eagain_send) {
+        g_mock_socket.inject_eagain_send = 0;
+        errno = EAGAIN;
+        return -1;
+    }
+
     if (g_mock_socket.eintr_send_at &&
         g_mock_socket.send_call_n == g_mock_socket.eintr_send_at) {
         g_mock_socket.eintr_send_at = 0;
@@ -137,31 +175,39 @@ ssize_t sys_socket_send(int fd, const void *buf, size_t len) {
         return -1;
     }
 
+    /* send_fragment: emit at most `step` bytes per call.  Distinct from
+     * short_send_at which is one-shot — send_fragment persists so the
+     * transport layer loops until the caller's payload is drained. */
+    size_t emit = len;
+    if (g_mock_socket.send_fragment && emit > g_mock_socket.send_fragment) {
+        emit = g_mock_socket.send_fragment;
+    }
+
     /* Append to sent buffer */
-    if (g_mock_socket.sent_len + len > g_mock_socket.sent_cap) {
+    if (g_mock_socket.sent_len + emit > g_mock_socket.sent_cap) {
         size_t new_cap = g_mock_socket.sent_cap ? g_mock_socket.sent_cap : 4096;
-        while (new_cap < g_mock_socket.sent_len + len) new_cap *= 2;
+        while (new_cap < g_mock_socket.sent_len + emit) new_cap *= 2;
         g_mock_socket.sent = (uint8_t *)realloc(g_mock_socket.sent, new_cap);
         g_mock_socket.sent_cap = new_cap;
     }
-    memcpy(g_mock_socket.sent + g_mock_socket.sent_len, buf, len);
-    g_mock_socket.sent_len += len;
+    memcpy(g_mock_socket.sent + g_mock_socket.sent_len, buf, emit);
+    g_mock_socket.sent_len += emit;
 
     if (g_mock_socket.short_send_at &&
-        g_mock_socket.send_call_n == g_mock_socket.short_send_at && len > 1) {
+        g_mock_socket.send_call_n == g_mock_socket.short_send_at && emit > 1) {
         g_mock_socket.short_send_at = 0;
         /* Hook fires after short send too so the server can react to
          * the partial frame exactly as the real DC would. */
         if (g_mock_socket.on_sent) {
             g_mock_socket.on_sent(g_mock_socket.sent, g_mock_socket.sent_len);
         }
-        return (ssize_t)(len - 1);
+        return (ssize_t)(emit - 1);
     }
 
     if (g_mock_socket.on_sent) {
         g_mock_socket.on_sent(g_mock_socket.sent, g_mock_socket.sent_len);
     }
-    return (ssize_t)len;
+    return (ssize_t)emit;
 }
 
 ssize_t sys_socket_recv(int fd, void *buf, size_t len) {
@@ -169,6 +215,29 @@ ssize_t sys_socket_recv(int fd, void *buf, size_t len) {
     if (!buf || len == 0) return 0;
 
     g_mock_socket.recv_call_n++;
+
+    /* Kill-on-next wins unconditionally so mid-RPC disconnect tests can
+     * interleave it with queued responses.  We also flush any pending
+     * response bytes: a real peer that closed the socket before the
+     * reply was written never delivers those bytes, so the client must
+     * reconnect and re-issue the RPC rather than finding the old reply
+     * on the next recv. */
+    if (g_mock_socket.kill_next_recv) {
+        g_mock_socket.kill_next_recv = 0;
+        g_mock_socket.response_pos = g_mock_socket.response_len;
+        return 0;
+    }
+
+    if (g_mock_socket.inject_eintr_recv) {
+        g_mock_socket.inject_eintr_recv = 0;
+        errno = EINTR;
+        return -1;
+    }
+    if (g_mock_socket.inject_eagain_recv) {
+        g_mock_socket.inject_eagain_recv = 0;
+        errno = EAGAIN;
+        return -1;
+    }
 
     if (g_mock_socket.eintr_recv_at &&
         g_mock_socket.recv_call_n == g_mock_socket.eintr_recv_at) {
@@ -187,6 +256,9 @@ ssize_t sys_socket_recv(int fd, void *buf, size_t len) {
     if (avail == 0) return 0; /* EOF */
 
     size_t to_read = len < avail ? len : avail;
+    if (g_mock_socket.recv_fragment && to_read > g_mock_socket.recv_fragment) {
+        to_read = g_mock_socket.recv_fragment;
+    }
     memcpy(buf, g_mock_socket.response + g_mock_socket.response_pos, to_read);
     g_mock_socket.response_pos += to_read;
 
