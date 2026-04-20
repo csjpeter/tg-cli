@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: MIT */
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright 2026 Peter Csaszar */
 /*
  * Derived from Markus Kuhn's mk_wcwidth (public domain, 2007-05-26):
