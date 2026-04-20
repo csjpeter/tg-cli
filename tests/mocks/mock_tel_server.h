@@ -109,6 +109,50 @@ void mt_server_reply_error(const MtRpcContext *ctx,
                            int32_t error_code, const char *error_msg);
 
 /**
+ * @brief Emit `rpc_result { gzip_packed { body } }` from within a responder.
+ *
+ * The payload @p body is gzipped (deflate stored blocks, no Huffman compression
+ * — sufficient for test fixtures without pulling in zlib) and wrapped as a
+ * gzip_packed#3072cfa1 TL object, then placed inside an rpc_result. Exercises
+ * the production `rpc_unwrap_gzip` path end-to-end.
+ *
+ * @param ctx       The context passed to the responder.
+ * @param body      TL-encoded inner result to compress.
+ * @param body_len  Length in bytes.
+ */
+void mt_server_reply_gzip_wrapped_result(const MtRpcContext *ctx,
+                                          const uint8_t *body, size_t body_len);
+
+/**
+ * @brief Emit `rpc_result { gzip_packed { GARBAGE } }` from within a responder.
+ *
+ * Replaces the gzip body with bytes that fail tinf's header / CRC checks, so
+ * `rpc_unwrap_gzip` returns -1 and the domain call bubbles the error up.
+ */
+void mt_server_reply_gzip_corrupt(const MtRpcContext *ctx);
+
+/**
+ * @brief Emit an `msg_container` enclosing @p n_children pre-serialised bodies.
+ *
+ * Each child is wrapped with a (msg_id, seqno, body_len) triple per the
+ * MTProto msg_container wire layout. Children are placed in the order given.
+ * The outer frame is the container itself — no rpc_result wrapper — so the
+ * caller drives `rpc_parse_container` against the received plaintext rather
+ * than through `api_call()`.
+ *
+ * @param ctx         The context passed to the responder (used only for
+ *                    envelope msg_id/salt, not the children).
+ * @param children    Array of TL bodies (each includes its own CRC prefix).
+ * @param child_lens  Array of body lengths, one per child. Each MUST be a
+ *                    multiple of 4 — TL bodies are always 4-byte aligned.
+ * @param n_children  Number of children.
+ */
+void mt_server_reply_msg_container(const MtRpcContext *ctx,
+                                    const uint8_t *const *children,
+                                    const size_t *child_lens,
+                                    size_t n_children);
+
+/**
  * @brief Queue a server-initiated TL update (e.g. updates_difference) so it
  *        lands on the next recv call. Useful for watch-loop tests.
  */

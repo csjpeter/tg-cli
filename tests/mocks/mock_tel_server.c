@@ -12,6 +12,7 @@
 #include "tl_serial.h"
 #include "tl_skip.h"
 #include "session_store.h"
+#include "tinf.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,6 +23,8 @@
 #define CRC_initConnection   0xc1cd5ea9U
 #define CRC_rpc_result       0xf35c6d01U
 #define CRC_rpc_error        0x2144ca19U
+#define CRC_gzip_packed      0x3072cfa1U
+#define CRC_msg_container    0x73f1f8dcU
 
 #define MT_MAX_HANDLERS      64
 #define MT_MAX_UPDATES       32
@@ -203,6 +206,156 @@ void mt_server_reply_error(const MtRpcContext *ctx,
     tl_write_int32(&w, error_code);
     tl_write_string(&w, error_msg ? error_msg : "");
     mt_server_reply_result(ctx, w.data, w.len);
+    tl_writer_free(&w);
+}
+
+/* ---- Minimal gzip encoder (deflate stored blocks) ----
+ *
+ * Writes @p payload as a sequence of uncompressed deflate blocks ("stored"
+ * blocks) wrapped in the gzip member format. This avoids pulling in a real
+ * compressor (zlib) for test fixtures — the stored-block path is a
+ * well-defined subset of deflate that tinf's inflater handles. Each stored
+ * block carries at most 65535 bytes; larger payloads span multiple blocks.
+ *
+ * Format per RFC 1951 §3.2.4 + RFC 1952:
+ *   gzip header (10)  1f 8b 08 00 00 00 00 00 00 ff
+ *   deflate stream    [block_header(1) LEN(2 LE) NLEN(2 LE) data(LEN)]+
+ *                     (block_header bit0 = BFINAL, bits1-2 = BTYPE=00)
+ *   CRC32(payload)    4 bytes LE
+ *   ISIZE             4 bytes LE (original length mod 2^32)
+ *
+ * Returns a heap-allocated buffer the caller must free; NULL on OOM.
+ */
+static uint8_t *gzip_stored(const uint8_t *payload, size_t payload_len,
+                            size_t *out_len) {
+    if (!out_len) return NULL;
+
+    /* Upper bound on output size: 10 header + per 65535-byte block
+     * overhead (1 + 2 + 2 = 5) + payload + 8 trailer. */
+    size_t blocks = (payload_len + 65534) / 65535;
+    if (payload_len == 0) blocks = 1;
+    size_t cap = 10 + blocks * 5 + payload_len + 8;
+
+    uint8_t *buf = (uint8_t *)malloc(cap);
+    if (!buf) return NULL;
+    size_t off = 0;
+
+    /* gzip header */
+    buf[off++] = 0x1F;  /* ID1 */
+    buf[off++] = 0x8B;  /* ID2 */
+    buf[off++] = 0x08;  /* CM = deflate */
+    buf[off++] = 0x00;  /* FLG = 0 (no name, comment, extra, crc16) */
+    buf[off++] = 0x00;  /* MTIME[0] */
+    buf[off++] = 0x00;  /* MTIME[1] */
+    buf[off++] = 0x00;  /* MTIME[2] */
+    buf[off++] = 0x00;  /* MTIME[3] */
+    buf[off++] = 0x00;  /* XFL */
+    buf[off++] = 0xFF;  /* OS = unknown */
+
+    /* Deflate stored blocks. */
+    size_t pos = 0;
+    if (payload_len == 0) {
+        /* Emit one empty final stored block: header=0x01, LEN=0, NLEN=0xFFFF. */
+        buf[off++] = 0x01;
+        buf[off++] = 0x00; buf[off++] = 0x00;
+        buf[off++] = 0xFF; buf[off++] = 0xFF;
+    } else {
+        while (pos < payload_len) {
+            size_t chunk = payload_len - pos;
+            if (chunk > 65535) chunk = 65535;
+            int is_final = (pos + chunk == payload_len) ? 1 : 0;
+            buf[off++] = (uint8_t)(is_final ? 0x01 : 0x00);
+            buf[off++] = (uint8_t)(chunk & 0xFFu);
+            buf[off++] = (uint8_t)((chunk >> 8) & 0xFFu);
+            uint16_t nlen = (uint16_t)~chunk;
+            buf[off++] = (uint8_t)(nlen & 0xFFu);
+            buf[off++] = (uint8_t)((nlen >> 8) & 0xFFu);
+            memcpy(buf + off, payload + pos, chunk);
+            off += chunk;
+            pos += chunk;
+        }
+    }
+
+    /* Trailer: CRC32 of raw payload, then ISIZE mod 2^32. tinf_crc32 matches
+     * the standard gzip polynomial. Guard the empty-payload case because
+     * tinf_crc32 returns 0 for empty input (which happens to be correct). */
+    uint32_t crc = tinf_crc32(payload, (unsigned int)payload_len);
+    buf[off++] = (uint8_t)(crc & 0xFFu);
+    buf[off++] = (uint8_t)((crc >> 8) & 0xFFu);
+    buf[off++] = (uint8_t)((crc >> 16) & 0xFFu);
+    buf[off++] = (uint8_t)((crc >> 24) & 0xFFu);
+    uint32_t isize = (uint32_t)(payload_len & 0xFFFFFFFFu);
+    buf[off++] = (uint8_t)(isize & 0xFFu);
+    buf[off++] = (uint8_t)((isize >> 8) & 0xFFu);
+    buf[off++] = (uint8_t)((isize >> 16) & 0xFFu);
+    buf[off++] = (uint8_t)((isize >> 24) & 0xFFu);
+
+    *out_len = off;
+    return buf;
+}
+
+void mt_server_reply_gzip_wrapped_result(const MtRpcContext *ctx,
+                                          const uint8_t *body,
+                                          size_t body_len) {
+    if (!ctx || (!body && body_len > 0)) return;
+    size_t gz_len = 0;
+    uint8_t *gz = gzip_stored(body, body_len, &gz_len);
+    if (!gz) return;
+
+    /* gzip_packed#3072cfa1 = packed_data:bytes = Object */
+    TlWriter w;
+    tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_gzip_packed);
+    tl_write_bytes(&w, gz, gz_len);
+    mt_server_reply_result(ctx, w.data, w.len);
+    tl_writer_free(&w);
+    free(gz);
+}
+
+void mt_server_reply_gzip_corrupt(const MtRpcContext *ctx) {
+    if (!ctx) return;
+    /* Bytes that fail gzip header validation: wrong magic + too short for
+     * the 18-byte minimum tinf requires. rpc_unwrap_gzip propagates the
+     * TINF_DATA_ERROR as -1. */
+    static const uint8_t garbage[] = {
+        0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22,
+        0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0x00,
+        0xDE, 0xAD, 0xBE, 0xEF
+    };
+    TlWriter w;
+    tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_gzip_packed);
+    tl_write_bytes(&w, garbage, sizeof(garbage));
+    mt_server_reply_result(ctx, w.data, w.len);
+    tl_writer_free(&w);
+}
+
+void mt_server_reply_msg_container(const MtRpcContext *ctx,
+                                    const uint8_t *const *children,
+                                    const size_t *child_lens,
+                                    size_t n_children) {
+    if (!ctx || !children || !child_lens || n_children == 0) return;
+
+    /* msg_container#73f1f8dc messages:vector<message>
+     * message { msg_id:long seqno:int bytes:int body:bytes_untyped }
+     * Each body is concatenated raw (no length prefix on the body itself —
+     * the bytes:int field already specifies its length, and the body is
+     * 4-byte-aligned TL data). */
+    TlWriter w;
+    tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_msg_container);
+    tl_write_uint32(&w, (uint32_t)n_children);
+    /* Use a monotonic msg_id/seqno pair per child. The parser's alignment
+     * guard only cares that each body_len is a multiple of 4. */
+    uint64_t base_msg_id = (uint64_t)time(NULL) << 32;
+    for (size_t i = 0; i < n_children; ++i) {
+        tl_write_uint64(&w, base_msg_id + ((uint64_t)i << 2));
+        tl_write_uint32(&w, (uint32_t)(i * 2 + 1));
+        tl_write_uint32(&w, (uint32_t)child_lens[i]);
+        tl_write_raw(&w, children[i], child_lens[i]);
+    }
+    /* Send the container as the outer body — NOT wrapped in rpc_result. */
+    queue_frame(w.data, w.len);
     tl_writer_free(&w);
 }
 
