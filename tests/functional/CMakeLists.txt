@@ -31,6 +31,7 @@ set(FUNCTIONAL_SOURCES
     test_resolver_cache.c
     test_text_rendering_safety.c
     test_history_rich_metadata.c
+    test_service_messages.c
     # Real crypto implementation (not the mock used by unit tests).
     ../../src/core/crypto.c
     # Mock socket + in-process Telegram server emulator. Real crypto on

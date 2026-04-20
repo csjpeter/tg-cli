@@ -60,11 +60,14 @@ static int parse_message(TlReader *r, HistoryEntry *out) {
     }
     if (crc != TL_message && crc != TL_messageService) return -1;
 
-    uint32_t flags  = tl_read_uint32(r);
-    uint32_t flags2 = tl_read_uint32(r);
+    uint32_t flags = tl_read_uint32(r);
+    uint32_t flags2 = 0;
+    if (crc == TL_message) flags2 = tl_read_uint32(r);
     out->out = (flags & (1u << 1)) ? 1 : 0;
     out->id  = tl_read_int32(r);
-    if (crc == TL_messageService) { out->complex = 1; return -1; }
+    if (crc == TL_messageService) {
+        return domain_history_parse_service(r, out, flags);
+    }
 
     if (flags & (1u << 8))   if (tl_skip_peer(r) != 0) { out->complex=1; return -1; }
     if (tl_skip_peer(r) != 0) { out->complex = 1; return -1; }
