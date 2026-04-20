@@ -37,6 +37,7 @@ set(FUNCTIONAL_SOURCES
     test_transport_resilience.c
     test_service_frames.c
     test_login_migrate.c
+    test_auth_flow_errors.c
     test_cross_dc_auth_transfer.c
     test_handshake_cold_boot.c
     test_rich_media_types.c
