@@ -122,6 +122,16 @@ static struct {
      * unwrap_and_dispatch before the registered handler runs. */
     MtBlob      pending_service_frames[MT_MAX_PENDING_SVC];
     size_t      pending_service_count;
+
+    /* TEST-71 / US-20 cold-boot handshake state.
+     * When handshake_mode != 0 the mock processes unencrypted frames
+     * (auth_key_id == 0) alongside encrypted ones, emitting synthetic
+     * resPQ / server_DH_params_ok envelopes so functional tests can
+     * exercise src/infrastructure/mtproto_auth.c against real OpenSSL. */
+    int         handshake_mode;          /* 0 = off, 1 = resPQ-only, 2 = through step 3 */
+    int         handshake_cold_boot_variant; /* MtColdBootMode value */
+    int         handshake_req_pq_count;
+    int         handshake_req_dh_count;
 } g_srv;
 
 /* ---- forward decls ---- */
@@ -133,6 +143,9 @@ static void encrypt_and_queue(const uint8_t *plain, size_t plain_len);
 static void queue_frame(const uint8_t *body, size_t body_len);
 static uint64_t derive_auth_key_id(const uint8_t *auth_key);
 static uint64_t make_server_msg_id(void);
+static void handshake_on_req_pq_multi(const uint8_t *body, size_t body_len);
+static void handshake_on_req_dh_params(const uint8_t *body, size_t body_len);
+static void handshake_queue_unenc(const uint8_t *tl, size_t tl_len);
 
 /* ================================================================ */
 /* Public API                                                       */
@@ -659,6 +672,61 @@ void mt_server_reply_import_authorization_auth_key_invalid_once(void) {
                      on_import_authorization, NULL);
 }
 
+/* ---- TEST-71 / US-20 cold-boot DH handshake helpers ----
+ *
+ * The mock cannot decrypt the client's RSA_PAD(inner_data) because the
+ * canonical Telegram RSA private key is not available. These helpers
+ * therefore cover exhaustively only the paths reachable without that
+ * private key: resPQ generation (step 1), plus a synthetic
+ * server_DH_params_ok whose AES-IGE-wrapped payload decrypts to random
+ * bytes and is rejected by the client's inner CRC check (step 3 error
+ * path). Tests assert handshake start, negative variants, and
+ * no-persistence-on-failure. */
+
+/* Canonical Telegram RSA fingerprint — the hardcoded constant the
+ * production client compares against in auth_step_req_pq. Duplicated
+ * here so the mock does not have to link against telegram_server_key.h. */
+#define COLD_BOOT_FP_OK          0xc3b42b026ce86b21ULL
+#define COLD_BOOT_FP_BAD         0xDEADBEEFCAFEBABEULL
+#define CRC_resPQ                0x05162463U
+#define CRC_req_pq_multi         0xbe7e8ef1U
+#define CRC_req_DH_params        0xd712e4beU
+#define CRC_server_DH_params_ok  0xd0e8075cU
+
+void mt_server_simulate_cold_boot(MtColdBootMode mode) {
+    /* A cold-boot session has no persisted auth_key_id. Clear the seeded
+     * flag so on_client_sent's guard lets unencrypted frames through, but
+     * keep initialised state + mock_socket hook registered via reset(). */
+    g_srv.handshake_mode = 1;
+    g_srv.handshake_cold_boot_variant = (int)mode;
+    g_srv.handshake_req_pq_count = 0;
+    g_srv.handshake_req_dh_count = 0;
+    /* Ensure auth_key_id is 0 so the parser takes the unencrypted branch. */
+    g_srv.auth_key_id = 0;
+    memset(g_srv.auth_key, 0, MT_SERVER_AUTH_KEY_SIZE);
+    /* Allow on_client_sent to parse — the "seeded" label in this mock
+     * means "ready to parse wire traffic", not "holds a post-handshake
+     * auth key". Treat handshake_mode as an alternate seed state. */
+    g_srv.seeded = 1;
+}
+
+void mt_server_simulate_cold_boot_through_step3(void) {
+    /* Same as cold_boot(OK) but the mock also replies to req_DH_params
+     * with a synthetic server_DH_params_ok. */
+    if (g_srv.handshake_mode == 0) {
+        mt_server_simulate_cold_boot(MT_COLD_BOOT_OK);
+    }
+    g_srv.handshake_mode = 2;
+}
+
+int mt_server_handshake_req_pq_count(void) {
+    return g_srv.handshake_req_pq_count;
+}
+
+int mt_server_handshake_req_dh_count(void) {
+    return g_srv.handshake_req_dh_count;
+}
+
 /* ================================================================ */
 /* Internals                                                         */
 /* ================================================================ */
@@ -749,10 +817,42 @@ static void on_client_sent(const uint8_t *buf, size_t len) {
         if (payload_len < 24) continue;
         uint64_t key_id = 0;
         for (int i = 0; i < 8; ++i) key_id |= ((uint64_t)frame[i]) << (i * 8);
+
+        /* TEST-71: in cold-boot handshake mode the server's auth_key_id is
+         * 0 (no session yet) and the client's frame also carries
+         * auth_key_id = 0, so the equality check below would incorrectly
+         * route the frame into the encrypted branch. Short-circuit here
+         * and dispatch to the synthetic handshake responders instead. */
+        if (g_srv.handshake_mode && key_id == 0 && payload_len >= 24) {
+            uint32_t raw_crc = (uint32_t)frame[20]
+                             | ((uint32_t)frame[21] << 8)
+                             | ((uint32_t)frame[22] << 16)
+                             | ((uint32_t)frame[23] << 24);
+            size_t slot = g_srv.crc_ring_count % MT_CRC_RING_SIZE;
+            g_srv.crc_ring[slot] = raw_crc;
+            g_srv.crc_ring_count++;
+
+            const uint8_t *tl_body = frame + 20;
+            size_t tl_body_len = payload_len - 20;
+            if (raw_crc == CRC_req_pq_multi) {
+                g_srv.handshake_req_pq_count++;
+                handshake_on_req_pq_multi(tl_body, tl_body_len);
+            } else if (raw_crc == CRC_req_DH_params
+                       && g_srv.handshake_mode >= 2) {
+                g_srv.handshake_req_dh_count++;
+                handshake_on_req_dh_params(tl_body, tl_body_len);
+            } else if (raw_crc == CRC_req_DH_params) {
+                /* Count it but do not reply — tests can observe the
+                 * counter to prove the client reached step 2. */
+                g_srv.handshake_req_dh_count++;
+            }
+            continue;
+        }
+
         if (key_id != g_srv.auth_key_id) {
             /* Unencrypted handshake frame: auth_key_id == 0.
              * Record the leading CRC for mt_server_request_crc_count().
-             * Unencrypted layout: key_id(8) + msg_id(8) + msg_len(4) + crc(4) */
+             * Unencrypted layout: key_id(8) + msg_id(8) + msg_len(4) + body */
             if (key_id == 0 && payload_len >= 24) {
                 uint32_t raw_crc = (uint32_t)frame[20]
                                  | ((uint32_t)frame[21] << 8)
@@ -969,6 +1069,124 @@ static void queue_frame(const uint8_t *body, size_t body_len) {
 
     encrypt_and_queue(plain.data, plain.len);
     tl_writer_free(&plain);
+}
+
+/* ---- TEST-71 / US-20 handshake unencrypted-frame handlers ---- */
+
+/** Queue an unencrypted (auth_key_id = 0) server → client frame with the
+ *  handshake response TL. Mirrors rpc_send_unencrypted on the client side
+ *  so the client's rpc_recv_unencrypted parser picks it up. */
+static void handshake_queue_unenc(const uint8_t *tl, size_t tl_len) {
+    /* Wire: auth_key_id(8) + msg_id(8) + len(4) + body */
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint64(&w, 0);                       /* auth_key_id */
+    tl_write_uint64(&w, make_server_msg_id());    /* server msg_id */
+    tl_write_uint32(&w, (uint32_t)tl_len);
+    tl_write_raw(&w, tl, tl_len);
+
+    size_t units = w.len / 4;
+    if (units < 0x7F) {
+        uint8_t p = (uint8_t)units;
+        mock_socket_append_response(&p, 1);
+    } else {
+        uint8_t p[4];
+        p[0] = 0x7F;
+        p[1] = (uint8_t)(units & 0xFFu);
+        p[2] = (uint8_t)((units >> 8) & 0xFFu);
+        p[3] = (uint8_t)((units >> 16) & 0xFFu);
+        mock_socket_append_response(p, 4);
+    }
+    mock_socket_append_response(w.data, w.len);
+    tl_writer_free(&w);
+}
+
+/** Handle an incoming req_pq_multi frame, emit a resPQ per the current
+ *  cold-boot variant. Assumes @p body points at the CRC-prefixed TL body
+ *  (CRC already consumed by the caller would break layout — we take the
+ *  whole 4+16 body here). */
+static void handshake_on_req_pq_multi(const uint8_t *body, size_t body_len) {
+    if (body_len < 4 + 16) return;
+    /* body = CRC(4) nonce(16) */
+    uint8_t client_nonce[16];
+    memcpy(client_nonce, body + 4, 16);
+
+    /* Echo (possibly tampered) nonce back. */
+    uint8_t echo_nonce[16];
+    memcpy(echo_nonce, client_nonce, 16);
+    if (g_srv.handshake_cold_boot_variant == MT_COLD_BOOT_NONCE_TAMPER) {
+        for (int i = 0; i < 16; ++i) echo_nonce[i] ^= 0xFF;
+    }
+
+    /* Deterministic server_nonce for reproducibility. */
+    uint8_t server_nonce[16];
+    memset(server_nonce, 0xBB, 16);
+
+    /* PQ: default 21 (= 3 * 7 — tiny so Pollard's rho finishes instantly).
+     * MT_COLD_BOOT_BAD_PQ uses a 64-bit prime so pq_factorize fails. */
+    uint64_t pq_val = 21ULL;
+    if (g_srv.handshake_cold_boot_variant == MT_COLD_BOOT_BAD_PQ) {
+        /* 2^64 - 59 is a prime. Small enough to survive Pollard's rho
+         * 20-c sweep without factoring. */
+        pq_val = 0xFFFFFFFFFFFFFFC5ULL;
+    }
+    /* Encode pq as big-endian minimum-length bytes. */
+    uint8_t pq_be[8];
+    size_t pq_be_len = 0;
+    for (int i = 7; i >= 0; --i) {
+        uint8_t byte = (uint8_t)((pq_val >> (i * 8)) & 0xFFu);
+        if (pq_be_len > 0 || byte != 0 || i == 0) {
+            pq_be[pq_be_len++] = byte;
+        }
+    }
+
+    uint64_t fingerprint = COLD_BOOT_FP_OK;
+    if (g_srv.handshake_cold_boot_variant == MT_COLD_BOOT_BAD_FINGERPRINT) {
+        fingerprint = COLD_BOOT_FP_BAD;
+    }
+
+    uint32_t constructor = CRC_resPQ;
+    if (g_srv.handshake_cold_boot_variant == MT_COLD_BOOT_WRONG_CONSTRUCTOR) {
+        constructor = 0xDEADBEEFU;
+    }
+
+    TlWriter tl; tl_writer_init(&tl);
+    tl_write_uint32(&tl, constructor);
+    tl_write_int128(&tl, echo_nonce);
+    tl_write_int128(&tl, server_nonce);
+    tl_write_bytes(&tl, pq_be, pq_be_len);
+    tl_write_uint32(&tl, CRC_vector);
+    tl_write_uint32(&tl, 1);                    /* one fingerprint entry */
+    tl_write_uint64(&tl, fingerprint);
+    handshake_queue_unenc(tl.data, tl.len);
+    tl_writer_free(&tl);
+}
+
+/** Handle an incoming req_DH_params frame. The mock cannot decrypt the
+ *  RSA_PAD-encrypted inner_data, so it emits a server_DH_params_ok whose
+ *  encrypted_answer is random bytes. The client's AES-IGE decrypt will
+ *  yield garbage, the inner CRC check will fail, and auth_step_parse_dh
+ *  will return -1 — exactly the negative path we want to cover. */
+static void handshake_on_req_dh_params(const uint8_t *body, size_t body_len) {
+    if (body_len < 4 + 16 + 16) return;
+    /* body = CRC(4) nonce(16) server_nonce(16) p:bytes q:bytes fp:long encrypted_data:bytes */
+    uint8_t nonce[16], server_nonce[16];
+    memcpy(nonce,        body + 4,       16);
+    memcpy(server_nonce, body + 4 + 16,  16);
+
+    /* Random encrypted_answer: 32 bytes, which is a valid AES-IGE size
+     * (multiple of 16). Client derives a temp key, decrypts, expects
+     * inner_crc = CRC_server_DH_inner_data (0xb5890dba) — random bytes
+     * will almost certainly mismatch. */
+    uint8_t enc_answer[32];
+    crypto_rand_bytes(enc_answer, sizeof(enc_answer));
+
+    TlWriter tl; tl_writer_init(&tl);
+    tl_write_uint32(&tl, CRC_server_DH_params_ok);
+    tl_write_int128(&tl, nonce);
+    tl_write_int128(&tl, server_nonce);
+    tl_write_bytes(&tl, enc_answer, sizeof(enc_answer));
+    handshake_queue_unenc(tl.data, tl.len);
+    tl_writer_free(&tl);
 }
 
 static void encrypt_and_queue(const uint8_t *plain, size_t plain_len) {

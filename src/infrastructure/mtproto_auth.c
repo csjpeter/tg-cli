@@ -101,44 +101,61 @@ static int rsa_pad_encrypt(CryptoRsaKey *rsa_key,
         reversed[i] = padded[191 - i];
     }
 
-    /* Step 3: Random temp_key (32 bytes) */
-    uint8_t temp_key[32];
-    crypto_rand_bytes(temp_key, 32);
+    /* The resulting `rsa_input` must be numerically < RSA modulus to be
+     * a valid NO_PADDING input. Since temp_key (and hence the MSB of the
+     * 256-byte buffer) is random, ~half of calls would hit >= modulus
+     * and EVP_PKEY_encrypt would reject them. TDLib retries with fresh
+     * temp_key until the result is valid — mirror that here. Bounded to
+     * 32 attempts to guarantee forward progress in pathological cases
+     * (e.g. a mock key with a very low-high-bit modulus). */
+    for (int attempt = 0; attempt < 32; ++attempt) {
+        /* Step 3: Random temp_key (32 bytes) */
+        uint8_t temp_key[32];
+        crypto_rand_bytes(temp_key, 32);
 
-    /* Step 4: data_with_hash = reversed + SHA256(temp_key + reversed) */
-    uint8_t temp_key_and_reversed[32 + 192];
-    memcpy(temp_key_and_reversed, temp_key, 32);
-    memcpy(temp_key_and_reversed + 32, reversed, 192);
+        /* Step 4: data_with_hash = reversed + SHA256(temp_key + reversed) */
+        uint8_t temp_key_and_reversed[32 + 192];
+        memcpy(temp_key_and_reversed, temp_key, 32);
+        memcpy(temp_key_and_reversed + 32, reversed, 192);
 
-    uint8_t hash[32];
-    crypto_sha256(temp_key_and_reversed, sizeof(temp_key_and_reversed), hash);
+        uint8_t hash[32];
+        crypto_sha256(temp_key_and_reversed, sizeof(temp_key_and_reversed), hash);
 
-    uint8_t data_with_hash[224]; /* 192 + 32 */
-    memcpy(data_with_hash, reversed, 192);
-    memcpy(data_with_hash + 192, hash, 32);
+        uint8_t data_with_hash[224]; /* 192 + 32 */
+        memcpy(data_with_hash, reversed, 192);
+        memcpy(data_with_hash + 192, hash, 32);
 
-    /* Step 5: AES-256-IGE encrypt data_with_hash with temp_key, zero IV */
-    uint8_t zero_iv[32];
-    memset(zero_iv, 0, 32);
+        /* Step 5: AES-256-IGE encrypt data_with_hash with temp_key, zero IV */
+        uint8_t zero_iv[32];
+        memset(zero_iv, 0, 32);
 
-    uint8_t aes_encrypted[224];
-    aes_ige_encrypt(data_with_hash, 224, temp_key, zero_iv, aes_encrypted);
+        uint8_t aes_encrypted[224];
+        aes_ige_encrypt(data_with_hash, 224, temp_key, zero_iv, aes_encrypted);
 
-    /* Step 6: temp_key_xor = temp_key XOR SHA256(aes_encrypted) */
-    uint8_t aes_hash[32];
-    crypto_sha256(aes_encrypted, 224, aes_hash);
+        /* Step 6: temp_key_xor = temp_key XOR SHA256(aes_encrypted) */
+        uint8_t aes_hash[32];
+        crypto_sha256(aes_encrypted, 224, aes_hash);
 
-    uint8_t temp_key_xor[32];
-    for (int i = 0; i < 32; i++) {
-        temp_key_xor[i] = temp_key[i] ^ aes_hash[i];
+        uint8_t temp_key_xor[32];
+        for (int i = 0; i < 32; i++) {
+            temp_key_xor[i] = temp_key[i] ^ aes_hash[i];
+        }
+
+        /* Step 7: RSA(temp_key_xor + aes_encrypted) = 32 + 224 = 256 bytes */
+        uint8_t rsa_input[256];
+        memcpy(rsa_input, temp_key_xor, 32);
+        memcpy(rsa_input + 32, aes_encrypted, 224);
+
+        if (crypto_rsa_public_encrypt(rsa_key, rsa_input, 256,
+                                      out, out_len) == 0) {
+            return 0;
+        }
+        /* Retry: RSA_NO_PADDING rejects inputs >= modulus, which
+         * happens for roughly half of random 256-byte buffers. */
     }
-
-    /* Step 7: RSA(temp_key_xor + aes_encrypted) = 32 + 224 = 256 bytes */
-    uint8_t rsa_input[256];
-    memcpy(rsa_input, temp_key_xor, 32);
-    memcpy(rsa_input + 32, aes_encrypted, 224);
-
-    return crypto_rsa_public_encrypt(rsa_key, rsa_input, 256, out, out_len);
+    logger_log(LOG_ERROR,
+               "auth: rsa_pad_encrypt exhausted 32 retries — RSA key anomaly");
+    return -1;
 }
 
 /* ---- DH temp key derivation ---- */

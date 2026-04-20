@@ -395,4 +395,76 @@ void mt_server_reply_import_authorization(int sign_up);
  */
 void mt_server_reply_import_authorization_auth_key_invalid_once(void);
 
+/* ---- TEST-71 / US-20 cold-boot MTProto handshake helpers ----
+ *
+ * These helpers install responders on the mock's *unencrypted* frame path
+ * (auth_key_id == 0) so functional tests can drive the DH key exchange
+ * against the production mtproto_auth.c code path with real OpenSSL.
+ *
+ * Scope note: the full set_client_DH → dh_gen_ok round trip requires the
+ * mock to decrypt the client's RSA_PAD-encrypted inner_data, which needs
+ * Telegram's RSA private key (not shipped — see telegram_server_key.h).
+ * The helpers therefore cover step 1 (req_pq_multi → resPQ) exhaustively
+ * plus the enumerated negative-path variants tests/functional/
+ * test_handshake_cold_boot.c exercises. Steps 3/4 (server_DH_params_ok,
+ * dh_gen_ok) are unreachable without modifying production to accept a
+ * test RSA key; functional tests assert the expected mid-handshake
+ * failure modes instead.
+ */
+
+/** resPQ response modes for mt_server_simulate_cold_boot. */
+typedef enum {
+    MT_COLD_BOOT_OK,                 /**< Valid resPQ with Telegram fingerprint. */
+    MT_COLD_BOOT_BAD_FINGERPRINT,    /**< resPQ lists a fingerprint the client doesn't know. */
+    MT_COLD_BOOT_WRONG_CONSTRUCTOR,  /**< resPQ crc replaced with garbage. */
+    MT_COLD_BOOT_NONCE_TAMPER,       /**< resPQ echoes back a nonce != client's. */
+    MT_COLD_BOOT_BAD_PQ              /**< resPQ pq is unfactorisable (prime). */
+} MtColdBootMode;
+
+/**
+ * @brief Arm the mock to reply to an incoming req_pq_multi#be7e8ef1
+ *        handshake frame with a resPQ#05162463 response.
+ *
+ * The mock reads the client's 16-byte nonce from the unencrypted frame,
+ * echoes it back, picks its own 16-byte server_nonce (deterministic for
+ * reproducibility), and emits pq = 21 (= 3 * 7) plus the canonical
+ * Telegram RSA fingerprint. @p mode selects the response variant:
+ *   - MT_COLD_BOOT_OK            → valid resPQ the client accepts
+ *   - MT_COLD_BOOT_BAD_FINGERPRINT → fingerprint 0xDEADBEEF...
+ *   - MT_COLD_BOOT_WRONG_CONSTRUCTOR → constructor 0xDEADBEEFU
+ *   - MT_COLD_BOOT_NONCE_TAMPER  → echoed nonce XOR 0xFF per byte
+ *   - MT_COLD_BOOT_BAD_PQ        → pq = 0xFFFFFFFFFFFFFFC5 (prime)
+ *
+ * Clears any seeded auth_key so the client can re-run the handshake on
+ * a genuinely empty session. Call @p mt_server_reset beforehand.
+ */
+void mt_server_simulate_cold_boot(MtColdBootMode mode);
+
+/**
+ * @brief After mt_server_simulate_cold_boot(MT_COLD_BOOT_OK), arm the
+ *        mock to additionally reply to the client's req_DH_params
+ *        frame with a server_DH_params_ok envelope whose AES-IGE inner
+ *        payload is random bytes.
+ *
+ * The client's auth_step_parse_dh decrypts the payload with a temp key
+ * derived from new_nonce+server_nonce, sees a garbage inner_crc, and
+ * returns -1. This drives the full mtproto_auth_key_gen orchestrator
+ * through steps 1 + 2 + 3 and proves the failure is handled cleanly
+ * (no partial session persistence).
+ */
+void mt_server_simulate_cold_boot_through_step3(void);
+
+/**
+ * @brief Counter of req_pq_multi frames seen since last reset.
+ *
+ * Lets tests assert "the handshake restarted once" without having to
+ * scan the raw crc ring buffer manually.
+ */
+int mt_server_handshake_req_pq_count(void);
+
+/**
+ * @brief Counter of req_DH_params frames seen since last reset.
+ */
+int mt_server_handshake_req_dh_count(void);
+
 #endif /* MOCK_TEL_SERVER_H */
