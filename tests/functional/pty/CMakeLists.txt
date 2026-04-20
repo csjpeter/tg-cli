@@ -152,3 +152,37 @@ target_compile_definitions(pty-wizard-test-runner PRIVATE
 target_link_libraries(pty-wizard-test-runner PRIVATE ptytest)
 
 add_test(NAME PtyWizardTests COMMAND pty-wizard-test-runner)
+
+# ── TEST-87: terminal_read_password masking tests ────────────────────
+# password_harness: tiny binary that calls terminal_read_password() and
+# prints the result.  Isolates the masked-input behaviour from the full
+# tg-tui login path (no mock server needed).
+add_executable(password_harness
+    password_harness.c
+)
+
+target_include_directories(password_harness PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/platform
+)
+
+target_link_libraries(password_harness PRIVATE tg-proto)
+
+# Test runner that drives password_harness through the PTY.
+add_executable(pty-password-test-runner
+    test_password_prompt.c
+)
+
+target_include_directories(pty-password-test-runner PRIVATE
+    ${CMAKE_SOURCE_DIR}/tests/functional/pty
+    ${CMAKE_SOURCE_DIR}/tests/common
+    ${CMAKE_SOURCE_DIR}/libs/libptytest
+)
+
+target_compile_definitions(pty-password-test-runner PRIVATE
+    PASSWORD_HARNESS_BINARY="$<TARGET_FILE:password_harness>"
+)
+
+target_link_libraries(pty-password-test-runner PRIVATE ptytest)
+
+add_test(NAME PtyPasswordTests COMMAND pty-password-test-runner)
