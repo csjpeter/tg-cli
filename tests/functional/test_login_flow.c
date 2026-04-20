@@ -639,9 +639,12 @@ static void test_credentials_env_override(void) {
     else saved_home[0] = '\0';
     setenv("HOME", tmp, 1);
 
-    /* Set env vars that must take precedence over the INI file. */
-    setenv("TG_CLI_API_ID",   "9999",    1);
-    setenv("TG_CLI_API_HASH", "zzzHash", 1);
+    /* Set env vars that must take precedence over the INI file.
+     * TEST-84 / US-33 introduced api_hash length+hex validation in
+     * credentials_load(), so use a valid 32-char lowercase hex marker
+     * distinct from the INI value (`aaahash`) to prove precedence. */
+    setenv("TG_CLI_API_ID",   "9999",                              1);
+    setenv("TG_CLI_API_HASH", "abcd0123abcd0123abcd0123abcd0123", 1);
 
     ApiConfig cfg;
     int rc = credentials_load(&cfg);
@@ -650,7 +653,7 @@ static void test_credentials_env_override(void) {
            "credentials_load returns api_id from env, not INI");
     ASSERT(cfg.api_hash != NULL,
            "credentials_load returns non-NULL api_hash from env");
-    ASSERT(strcmp(cfg.api_hash, "zzzHash") == 0,
+    ASSERT(strcmp(cfg.api_hash, "abcd0123abcd0123abcd0123abcd0123") == 0,
            "credentials_load returns api_hash value from env, not INI");
 
     /* Cleanup. */
