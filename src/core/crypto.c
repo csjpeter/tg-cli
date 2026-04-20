@@ -162,6 +162,50 @@ void crypto_rsa_free(CryptoRsaKey *key) {
     }
 }
 
+CryptoRsaKey *crypto_rsa_load_private(const char *pem) {
+    if (!pem) return NULL;
+
+    BIO *bio = BIO_new_mem_buf(pem, (int)strlen(pem));
+    if (!bio) return NULL;
+
+    EVP_PKEY *pkey = PEM_read_bio_PrivateKey(bio, NULL, NULL, NULL);
+    BIO_free(bio);
+
+    if (!pkey) return NULL;
+
+    CryptoRsaKey *key = (CryptoRsaKey *)calloc(1, sizeof(CryptoRsaKey));
+    if (!key) { EVP_PKEY_free(pkey); return NULL; }
+    key->pkey = pkey;
+    return key;
+}
+
+int crypto_rsa_private_decrypt(CryptoRsaKey *key, const unsigned char *data,
+                               size_t data_len, unsigned char *out, size_t *out_len) {
+    if (!key || !data || !out || !out_len) return -1;
+
+    EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new(key->pkey, NULL);
+    if (!ctx) return -1;
+
+    if (EVP_PKEY_decrypt_init(ctx) <= 0) {
+        EVP_PKEY_CTX_free(ctx);
+        return -1;
+    }
+
+    /* RSA_NO_PADDING — mirrors the RSA_PAD scheme used by the client */
+    if (EVP_PKEY_CTX_set_rsa_padding(ctx, RSA_NO_PADDING) <= 0) {
+        EVP_PKEY_CTX_free(ctx);
+        return -1;
+    }
+
+    if (EVP_PKEY_decrypt(ctx, out, out_len, data, data_len) <= 0) {
+        EVP_PKEY_CTX_free(ctx);
+        return -1;
+    }
+
+    EVP_PKEY_CTX_free(ctx);
+    return 0;
+}
+
 int crypto_rsa_public_encrypt(CryptoRsaKey *key, const unsigned char *data,
                               size_t data_len, unsigned char *out, size_t *out_len) {
     if (!key || !data || !out || !out_len) return -1;

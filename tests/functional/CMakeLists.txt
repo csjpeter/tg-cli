@@ -4,6 +4,11 @@ include_directories(
 )
 
 set(FUNCTIONAL_SOURCES
+    # TEST-72: Test-only RSA key pair (DIP override of production tg-rsakey).
+    # The private key is in mock_tel_server.c; the public key fingerprint
+    # here lets the production client encrypt with the test key so the mock
+    # can decrypt and complete a full DH handshake. NEVER link this in prod.
+    ../../tests/mocks/telegram_server_key.c
     test_runner.c
     test_ige_aes_functional.c
     test_mtproto_crypto_functional.c

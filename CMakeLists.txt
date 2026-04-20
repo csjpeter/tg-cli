@@ -105,6 +105,9 @@ add_library(tg-proto STATIC
     src/core/mtproto_session.c
     src/core/tl_registry.c
     src/core/pii_redact.c
+    # Production Telegram RSA key; functional-test-runner overrides by
+    # compiling tests/mocks/telegram_server_key.c first in the link order.
+    src/core/telegram_server_key.c
     src/infrastructure/config_store.c
     src/infrastructure/cache_store.c
     src/infrastructure/transport.c

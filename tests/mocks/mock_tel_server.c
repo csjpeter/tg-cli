@@ -7,6 +7,7 @@
 #include "mock_socket.h"
 
 #include "crypto.h"
+#include "ige_aes.h"
 #include "mtproto_crypto.h"
 #include "mtproto_session.h"
 #include "tl_serial.h"
@@ -127,11 +128,23 @@ static struct {
      * When handshake_mode != 0 the mock processes unencrypted frames
      * (auth_key_id == 0) alongside encrypted ones, emitting synthetic
      * resPQ / server_DH_params_ok envelopes so functional tests can
-     * exercise src/infrastructure/mtproto_auth.c against real OpenSSL. */
-    int         handshake_mode;          /* 0 = off, 1 = resPQ-only, 2 = through step 3 */
+     * exercise src/infrastructure/mtproto_auth.c against real OpenSSL.
+     * Mode 3 (TEST-72) completes the full DH exchange: RSA-PAD decrypt,
+     * server_DH_params_ok, dh_gen_ok — enabling full auth_key derivation. */
+    int         handshake_mode;          /* 0=off 1=resPQ-only 2=through step3 3=full DH */
     int         handshake_cold_boot_variant; /* MtColdBootMode value */
     int         handshake_req_pq_count;
     int         handshake_req_dh_count;
+    int         handshake_set_client_dh_count; /* TEST-72 */
+
+    /* TEST-72: DH state preserved between req_DH_params and set_client_DH_params. */
+    uint8_t     hs_new_nonce[32];      /* extracted from client's RSA_PAD payload */
+    uint8_t     hs_server_nonce[16];   /* echoed from resPQ */
+    uint8_t     hs_nonce[16];          /* client nonce */
+    uint8_t     hs_b[256];             /* server's DH secret (random) */
+    uint8_t     hs_dh_prime[32];       /* safe prime for DH */
+    uint8_t     hs_g_a[256];           /* g^a mod p (received from client) */
+    size_t      hs_g_a_len;
 } g_srv;
 
 /* ---- forward decls ---- */
@@ -145,6 +158,7 @@ static uint64_t derive_auth_key_id(const uint8_t *auth_key);
 static uint64_t make_server_msg_id(void);
 static void handshake_on_req_pq_multi(const uint8_t *body, size_t body_len);
 static void handshake_on_req_dh_params(const uint8_t *body, size_t body_len);
+static void handshake_on_set_client_dh(const uint8_t *body, size_t body_len);
 static void handshake_queue_unenc(const uint8_t *tl, size_t tl_len);
 
 /* ================================================================ */
@@ -683,15 +697,20 @@ void mt_server_reply_import_authorization_auth_key_invalid_once(void) {
  * path). Tests assert handshake start, negative variants, and
  * no-persistence-on-failure. */
 
-/* Canonical Telegram RSA fingerprint — the hardcoded constant the
- * production client compares against in auth_step_req_pq. Duplicated
- * here so the mock does not have to link against telegram_server_key.h. */
-#define COLD_BOOT_FP_OK          0xc3b42b026ce86b21ULL
-#define COLD_BOOT_FP_BAD         0xDEADBEEFCAFEBABEULL
-#define CRC_resPQ                0x05162463U
-#define CRC_req_pq_multi         0xbe7e8ef1U
-#define CRC_req_DH_params        0xd712e4beU
-#define CRC_server_DH_params_ok  0xd0e8075cU
+/* TEST-72: The functional test runner links tests/mocks/telegram_server_key.c
+ * which defines TELEGRAM_RSA_FINGERPRINT = 0x8671de275f1cabc5ULL (test-only
+ * 2048-bit key pair). This constant must match that value so resPQ lists a
+ * fingerprint the production client recognises during handshake tests.
+ * NEVER use this fingerprint in production. */
+#define COLD_BOOT_FP_OK           0x8671de275f1cabc5ULL
+#define COLD_BOOT_FP_BAD          0xDEADBEEFCAFEBABEULL
+#define CRC_resPQ                 0x05162463U
+#define CRC_req_pq_multi          0xbe7e8ef1U
+#define CRC_req_DH_params         0xd712e4beU
+#define CRC_server_DH_params_ok   0xd0e8075cU
+#define CRC_server_DH_inner_data  0xb5890dbaU
+#define CRC_set_client_DH_params  0xf5045f1fU
+#define CRC_dh_gen_ok             0x3bcbf734U
 
 void mt_server_simulate_cold_boot(MtColdBootMode mode) {
     /* A cold-boot session has no persisted auth_key_id. Clear the seeded
@@ -719,12 +738,27 @@ void mt_server_simulate_cold_boot_through_step3(void) {
     g_srv.handshake_mode = 2;
 }
 
+void mt_server_simulate_full_dh_handshake(void) {
+    /* TEST-72: Full DH handshake — the mock RSA-PAD-decrypts the client's
+     * req_DH_params payload (using the test RSA private key), generates
+     * valid server_DH_inner_data, and handles set_client_DH_params to
+     * return dh_gen_ok. On success the session auth_key is set and the
+     * session is persisted. NEVER call this outside functional tests. */
+    mt_server_simulate_cold_boot(MT_COLD_BOOT_OK);
+    g_srv.handshake_mode = 3;
+    g_srv.handshake_set_client_dh_count = 0;
+}
+
 int mt_server_handshake_req_pq_count(void) {
     return g_srv.handshake_req_pq_count;
 }
 
 int mt_server_handshake_req_dh_count(void) {
     return g_srv.handshake_req_dh_count;
+}
+
+int mt_server_handshake_set_client_dh_count(void) {
+    return g_srv.handshake_set_client_dh_count;
 }
 
 /* ================================================================ */
@@ -845,6 +879,12 @@ static void on_client_sent(const uint8_t *buf, size_t len) {
                 /* Count it but do not reply — tests can observe the
                  * counter to prove the client reached step 2. */
                 g_srv.handshake_req_dh_count++;
+            } else if (raw_crc == CRC_set_client_DH_params
+                       && g_srv.handshake_mode == 3) {
+                /* TEST-72: full DH — compute auth_key from client's g_b,
+                 * verify key_hash, send dh_gen_ok, persist session. */
+                g_srv.handshake_set_client_dh_count++;
+                handshake_on_set_client_dh(tl_body, tl_body_len);
             }
             continue;
         }
@@ -1161,11 +1201,111 @@ static void handshake_on_req_pq_multi(const uint8_t *body, size_t body_len) {
     tl_writer_free(&tl);
 }
 
-/** Handle an incoming req_DH_params frame. The mock cannot decrypt the
- *  RSA_PAD-encrypted inner_data, so it emits a server_DH_params_ok whose
- *  encrypted_answer is random bytes. The client's AES-IGE decrypt will
- *  yield garbage, the inner CRC check will fail, and auth_step_parse_dh
- *  will return -1 — exactly the negative path we want to cover. */
+/* ---- TEST-72: RSA-PAD decrypt (inverse of rsa_pad_encrypt in mtproto_auth.c) ----
+ *
+ * Reverses the RSA_PAD scheme used by the client to encrypt p_q_inner_data_dc.
+ * Returns 0 on success and writes the decrypted payload into @p plain_out[192].
+ *
+ * TEST_ONLY — only called from handshake_on_req_dh_params in mode 3. */
+static int rsa_pad_decrypt(const uint8_t *ciphertext, size_t cipher_len,
+                           uint8_t *plain_out  /* must be >= 192 bytes */) {
+    if (cipher_len != 256) return -1;
+
+    /* TEST_ONLY private key — matches tests/mocks/telegram_server_key.c pubkey. */
+    static const char TEST_PRIVATE_KEY_PEM[] =
+        "-----BEGIN PRIVATE KEY-----\n"
+        "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCbG/j8RdvTAAWv\n"
+        "870ayFCbJI73fEEB43/l/NnocYeAh9L/Zcv9HwYwFOXms9o2ccvp+e/4GE55vUzY\n"
+        "8XrM1h6dtClGYNvRNpvcthfmVrpGGIjKH2b3snip4ajtUOcZIyTynZo1vMG5uqCx\n"
+        "YaXWyhBwMPJQ87Gw5WbcaKNJWg3jZ1GI0g+tJUAqXpfPwF3KjKzIZwa/rbnJ9ick\n"
+        "OX12OaG1c2enW1+sv1K1qz6CcxmbCyRuD+xUKVTLHc5ykmcYDJ12CLES8DdfbPOt\n"
+        "UGAP082CQOptfpPm5fvnU6c53suIItnddjiT74+hyQBXQpvWXKIZzFEdgxJ2QUzp\n"
+        "TlRwqVijAgMBAAECggEAJll6rIjrKlaRkWjOgw4u28Tksize98QTTb4/9DgJnA44\n"
+        "7VtyXYFrqryoAOvL0nU9SPq6SZlc4b2bf/HofjecdzphkByHjMkXLTE6ZIFh6c3M\n"
+        "GEk+UJSoP7xi41YC5VSqoG+1/n5OWYjajTDK63mnKc34Q2qVLtrxHSKj6JFi6Kuy\n"
+        "uO1+lXUiGS5vvlPllAoDTIFn4e4PHChHeVNiwzBe8HNgVWc9JasL7IiS37gsfuZC\n"
+        "l4QlW3IkhCMkb5fj7xV/xcwQ4SuYWcNkrfuX7Fu3g4Hpeir3xJlJMxh2iqJnARvM\n"
+        "nLy9gY04ejqdxI9+VopQyXafe0tP/veuqO7RzR3x+QKBgQDQvd9drWmvWM9g7Lrj\n"
+        "jEr4oo00b5/cOQd12VJaxhWUdfzyDxsygGPeuP3/7QxgwxB+VmnsS2xfNvv4hDdd\n"
+        "vL6DhFPicTV5Xv25U52QaxNefc5XSSzY68XMFtUyWjzD+35GIUO27TnDfQhFBkbS\n"
+        "RFDg3uJ1KbcI05nM+DSQJZPaqQKBgQC+ObQxrgZBPd6K6vVM/uaoA45Htc8UVIS/\n"
+        "+eU69k1lVp6BZm1ebaTOf6CTOO/AcyM4jZu7lVFwfanVMVSfJ+Nbd1BEXtg1BKou\n"
+        "2cLlYkJX6mVmCs39sQDscvoO67RMhR4jshCE0nxaAxFatdEfpq9ZTrQIXWKnQhRq\n"
+        "nHsyIyHUawKBgQCwTf5vx70AvfkB+1BqSp8z2096X2FdBsn3TqORSccGSpVm+T1W\n"
+        "bTxs7ECUPWn7/CVdH619R8LztKQjJcEBqh4bRNP46PdqWMHiGu51AQst/wIdlQ+M\n"
+        "865vj0VorvCt8yeXIhdoVHs6Ust+SSveApdxJq+Ml7whd19q0KTMrwBvaQKBgC8C\n"
+        "i6mLXDhbVdf24NA6Xj4/QrYuFBLuIDBhTWkY3V+h3GIWMgkYB5aQq9o2Q+nHini7\n"
+        "ZjUhXZLzOzlYi5UZgnJkNg3vcncHxBb38dZGRib74jspiGadi6DjeTCex1vxudUQ\n"
+        "eEyax+hmwa8tJ5Uu2D612IAItAypo+oE6d0mGYIpAoGAS2P6e2iOW2HG3CA2kiLp\n"
+        "xw/guEi8BTTljxMSUEqS5YhDI2uVe2QEYlvgDG7zYMl2UzoadZcK1VVa01WM2LDC\n"
+        "wThzA+NhfHS4ukPuuOkJUVwGAJGUG/KcIypTTYz4RPj6BpALLXstF+Qf8F3aqDvL\n"
+        "bAd3PHlfEWOhiWzBj/dVjUY=\n"
+        "-----END PRIVATE KEY-----\n";
+
+    CryptoRsaKey *priv = crypto_rsa_load_private(TEST_PRIVATE_KEY_PEM);
+    if (!priv) {
+        fprintf(stderr, "mock: rsa_pad_decrypt: failed to load private key\n");
+        return -1;
+    }
+
+    /* Step 1: RSA decrypt (NO_PADDING) → rsa_output[256] */
+    uint8_t rsa_output[256];
+    size_t rsa_out_len = sizeof(rsa_output);
+    if (crypto_rsa_private_decrypt(priv, ciphertext, cipher_len,
+                                   rsa_output, &rsa_out_len) != 0) {
+        crypto_rsa_free(priv);
+        fprintf(stderr, "mock: rsa_pad_decrypt: RSA decrypt failed\n");
+        return -1;
+    }
+    crypto_rsa_free(priv);
+
+    /* Step 2: Split into temp_key_xor(32) + aes_encrypted(224) */
+    const uint8_t *temp_key_xor = rsa_output;
+    const uint8_t *aes_encrypted = rsa_output + 32;
+
+    /* Step 3: SHA256(aes_encrypted) → aes_hash */
+    uint8_t aes_hash[32];
+    crypto_sha256(aes_encrypted, 224, aes_hash);
+
+    /* Step 4: temp_key = temp_key_xor XOR aes_hash */
+    uint8_t temp_key[32];
+    for (int i = 0; i < 32; i++) temp_key[i] = temp_key_xor[i] ^ aes_hash[i];
+
+    /* Step 5: AES-IGE decrypt(aes_encrypted, key=temp_key, IV=zeros) → data_with_hash */
+    uint8_t zero_iv[32];
+    memset(zero_iv, 0, 32);
+    uint8_t data_with_hash[224];
+    aes_ige_decrypt(aes_encrypted, 224, temp_key, zero_iv, data_with_hash);
+
+    /* Step 6: data_with_hash = reversed(192) + hash(32)
+     * Verify SHA256(temp_key + reversed) == hash */
+    uint8_t verify_buf[32 + 192];
+    memcpy(verify_buf, temp_key, 32);
+    memcpy(verify_buf + 32, data_with_hash, 192);
+    uint8_t expected_hash[32];
+    crypto_sha256(verify_buf, sizeof(verify_buf), expected_hash);
+    if (memcmp(expected_hash, data_with_hash + 192, 32) != 0) {
+        fprintf(stderr, "mock: rsa_pad_decrypt: hash mismatch\n");
+        return -1;
+    }
+
+    /* Step 7: un-reverse to get the original padded data */
+    const uint8_t *reversed = data_with_hash;
+    for (int i = 0; i < 192; i++) plain_out[i] = reversed[191 - i];
+
+    return 0;
+}
+
+/** Handle an incoming req_DH_params frame.
+ *
+ * Mode 2 (original): emits server_DH_params_ok with random encrypted_answer
+ * (garbage). The client's AES-IGE decrypt yields garbage, the inner CRC check
+ * fails, and auth_step_parse_dh returns -1 — the negative path.
+ *
+ * Mode 3 (TEST-72): RSA-PAD-decrypts the client's payload to extract new_nonce,
+ * generates a valid server_DH_inner_data (g=2, safe prime, g_a=g^b mod p),
+ * AES-IGE-encrypts it with the derived temp key, and sends server_DH_params_ok.
+ * Stores DH state for subsequent set_client_DH_params handling. */
 static void handshake_on_req_dh_params(const uint8_t *body, size_t body_len) {
     if (body_len < 4 + 16 + 16) return;
     /* body = CRC(4) nonce(16) server_nonce(16) p:bytes q:bytes fp:long encrypted_data:bytes */
@@ -1173,18 +1313,312 @@ static void handshake_on_req_dh_params(const uint8_t *body, size_t body_len) {
     memcpy(nonce,        body + 4,       16);
     memcpy(server_nonce, body + 4 + 16,  16);
 
-    /* Random encrypted_answer: 32 bytes, which is a valid AES-IGE size
-     * (multiple of 16). Client derives a temp key, decrypts, expects
-     * inner_crc = CRC_server_DH_inner_data (0xb5890dba) — random bytes
-     * will almost certainly mismatch. */
-    uint8_t enc_answer[32];
-    crypto_rand_bytes(enc_answer, sizeof(enc_answer));
+    if (g_srv.handshake_mode < 3) {
+        /* Original mode 2 path: random garbage encrypted_answer. */
+        uint8_t enc_answer[32];
+        crypto_rand_bytes(enc_answer, sizeof(enc_answer));
+        TlWriter tl; tl_writer_init(&tl);
+        tl_write_uint32(&tl, CRC_server_DH_params_ok);
+        tl_write_int128(&tl, nonce);
+        tl_write_int128(&tl, server_nonce);
+        tl_write_bytes(&tl, enc_answer, sizeof(enc_answer));
+        handshake_queue_unenc(tl.data, tl.len);
+        tl_writer_free(&tl);
+        return;
+    }
 
+    /* ---- Mode 3: full DH handshake ---- */
+
+    /* Parse the req_DH_params body to find the encrypted_data.
+     * Layout: CRC(4) nonce(16) server_nonce(16) p:bytes q:bytes fp:int64 encrypted_data:bytes */
+    TlReader r = tl_reader_init(body, body_len);
+    tl_read_uint32(&r);            /* CRC */
+    uint8_t _nonce[16]; tl_read_int128(&r, _nonce);
+    uint8_t _snonce[16]; tl_read_int128(&r, _snonce);
+    size_t p_len = 0, q_len = 0, enc_len = 0;
+    uint8_t *p_bytes = tl_read_bytes(&r, &p_len);
+    free(p_bytes);
+    uint8_t *q_bytes = tl_read_bytes(&r, &q_len);
+    free(q_bytes);
+    tl_read_uint64(&r);            /* fingerprint */
+    uint8_t *enc_data = tl_read_bytes(&r, &enc_len);
+    if (!enc_data || enc_len != 256) {
+        free(enc_data);
+        fprintf(stderr, "mock: full DH: unexpected enc_data size %zu\n", enc_len);
+        return;
+    }
+
+    /* RSA-PAD decrypt to get padded p_q_inner_data_dc (192 bytes) */
+    uint8_t inner_plain[192];
+    if (rsa_pad_decrypt(enc_data, enc_len, inner_plain) != 0) {
+        free(enc_data);
+        fprintf(stderr, "mock: full DH: RSA_PAD decrypt failed\n");
+        return;
+    }
+    free(enc_data);
+
+    /* Parse p_q_inner_data_dc from inner_plain.
+     * TL: CRC(4) pq:bytes p:bytes q:bytes nonce(16) server_nonce(16) new_nonce(32) dc:int */
+    TlReader ir = tl_reader_init(inner_plain, sizeof(inner_plain));
+    uint32_t inner_crc = tl_read_uint32(&ir);
+    if (inner_crc != 0xb936a01aU) {  /* CRC_p_q_inner_data_dc */
+        fprintf(stderr, "mock: full DH: unexpected inner CRC 0x%08x\n", inner_crc);
+        return;
+    }
+    /* Skip pq, p, q bytes */
+    size_t tmp_len = 0;
+    uint8_t *tmp = tl_read_bytes(&ir, &tmp_len); free(tmp);  /* pq */
+    tmp = tl_read_bytes(&ir, &tmp_len); free(tmp);             /* p */
+    tmp = tl_read_bytes(&ir, &tmp_len); free(tmp);             /* q */
+    /* Read nonce, server_nonce, new_nonce */
+    uint8_t extracted_nonce[16], extracted_snonce[16], new_nonce[32];
+    tl_read_int128(&ir, extracted_nonce);
+    tl_read_int128(&ir, extracted_snonce);
+    tl_read_int256(&ir, new_nonce);
+
+    /* Save DH state for set_client_DH_params */
+    memcpy(g_srv.hs_new_nonce,    new_nonce,        32);
+    memcpy(g_srv.hs_nonce,        extracted_nonce,  16);
+    memcpy(g_srv.hs_server_nonce, extracted_snonce, 16);
+
+    /* Use a fixed 256-bit safe prime for DH (TEST_ONLY).
+     * This prime was generated with openssl: BN_generate_prime_ex(p,256,1,...).
+     * g=2 is a generator for this group. */
+    static const uint8_t TEST_DH_PRIME[32] = {
+        0xfa, 0xd0, 0x8e, 0x08, 0xa4, 0x4d, 0x25, 0xaa,
+        0x45, 0x2b, 0xda, 0x58, 0x62, 0xac, 0xc4, 0xb2,
+        0x76, 0x23, 0xd3, 0x30, 0x4d, 0xd0, 0x9d, 0x64,
+        0xc1, 0xdd, 0xc0, 0xfb, 0x35, 0x09, 0x40, 0xdb
+    };
+    memcpy(g_srv.hs_dh_prime, TEST_DH_PRIME, 32);
+
+    /* Generate server-side DH secret b (256 bytes) and compute g_b = 2^b mod p */
+    crypto_rand_bytes(g_srv.hs_b, 256);
+
+    uint8_t g_be[1] = { 0x02 };  /* g = 2 as 1-byte big-endian */
+    uint8_t g_b[32];
+    size_t g_b_len = sizeof(g_b);
+    CryptoBnCtx *bn_ctx = crypto_bn_ctx_new();
+    if (!bn_ctx) { fprintf(stderr, "mock: full DH: BN ctx alloc failed\n"); return; }
+    if (crypto_bn_mod_exp(g_b, &g_b_len, g_be, 1,
+                          g_srv.hs_b, 256,
+                          TEST_DH_PRIME, 32, bn_ctx) != 0) {
+        crypto_bn_ctx_free(bn_ctx);
+        fprintf(stderr, "mock: full DH: g_b computation failed\n");
+        return;
+    }
+    crypto_bn_ctx_free(bn_ctx);
+
+    /* Derive temp AES key/IV from new_nonce + server_nonce (same as production) */
+    uint8_t tmp_aes_key[32], tmp_aes_iv[32];
+    {
+        uint8_t buf[64];
+        uint8_t sha1_a[20], sha1_b[20], sha1_c[20];
+
+        memcpy(buf, new_nonce, 32); memcpy(buf + 32, extracted_snonce, 16);
+        crypto_sha1(buf, 48, sha1_a);
+        memcpy(buf, extracted_snonce, 16); memcpy(buf + 16, new_nonce, 32);
+        crypto_sha1(buf, 48, sha1_b);
+        memcpy(buf, new_nonce, 32); memcpy(buf + 32, new_nonce, 32);
+        crypto_sha1(buf, 64, sha1_c);
+
+        memcpy(tmp_aes_key,      sha1_a, 20);
+        memcpy(tmp_aes_key + 20, sha1_b, 12);
+        memcpy(tmp_aes_iv,       sha1_b + 12, 8);
+        memcpy(tmp_aes_iv + 8,   sha1_c, 20);
+        memcpy(tmp_aes_iv + 28,  new_nonce, 4);
+    }
+
+    /* Build server_DH_inner_data TL */
+    TlWriter inner; tl_writer_init(&inner);
+    tl_write_uint32(&inner, CRC_server_DH_inner_data);
+    tl_write_int128(&inner, extracted_nonce);
+    tl_write_int128(&inner, extracted_snonce);
+    tl_write_int32(&inner, 2);                     /* g = 2 */
+    tl_write_bytes(&inner, TEST_DH_PRIME, 32);     /* dh_prime */
+    tl_write_bytes(&inner, g_b, g_b_len);          /* g_a (server's g^b) */
+    tl_write_int32(&inner, (int32_t)time(NULL));   /* server_time */
+
+    /* Prepend SHA1 + pad to 16-byte boundary */
+    uint8_t sha1_inner[20];
+    crypto_sha1(inner.data, inner.len, sha1_inner);
+    size_t raw_len = 20 + inner.len;
+    size_t padded_len = (raw_len + 15) & ~(size_t)15;
+    uint8_t *padded = (uint8_t *)calloc(1, padded_len);
+    if (!padded) { tl_writer_free(&inner); return; }
+    memcpy(padded, sha1_inner, 20);
+    memcpy(padded + 20, inner.data, inner.len);
+    if (padded_len > raw_len) {
+        crypto_rand_bytes(padded + raw_len, padded_len - raw_len);
+    }
+    tl_writer_free(&inner);
+
+    /* AES-IGE encrypt */
+    uint8_t *enc_answer = (uint8_t *)malloc(padded_len);
+    if (!enc_answer) { free(padded); return; }
+    aes_ige_encrypt(padded, padded_len, tmp_aes_key, tmp_aes_iv, enc_answer);
+    free(padded);
+
+    /* Send server_DH_params_ok */
     TlWriter tl; tl_writer_init(&tl);
     tl_write_uint32(&tl, CRC_server_DH_params_ok);
-    tl_write_int128(&tl, nonce);
-    tl_write_int128(&tl, server_nonce);
-    tl_write_bytes(&tl, enc_answer, sizeof(enc_answer));
+    tl_write_int128(&tl, extracted_nonce);
+    tl_write_int128(&tl, extracted_snonce);
+    tl_write_bytes(&tl, enc_answer, padded_len);
+    handshake_queue_unenc(tl.data, tl.len);
+    tl_writer_free(&tl);
+    free(enc_answer);
+}
+
+/** TEST-72: Handle set_client_DH_params, compute auth_key = g_b^a mod p,
+ *  verify key_hash, send dh_gen_ok, and persist the session. */
+static void handshake_on_set_client_dh(const uint8_t *body, size_t body_len) {
+    if (body_len < 4 + 16 + 16) return;
+
+    /* Derive temp AES key/IV from stored new_nonce + server_nonce */
+    uint8_t tmp_aes_key[32], tmp_aes_iv[32];
+    {
+        uint8_t buf[64];
+        uint8_t sha1_a[20], sha1_b[20], sha1_c[20];
+
+        memcpy(buf, g_srv.hs_new_nonce, 32);
+        memcpy(buf + 32, g_srv.hs_server_nonce, 16);
+        crypto_sha1(buf, 48, sha1_a);
+
+        memcpy(buf, g_srv.hs_server_nonce, 16);
+        memcpy(buf + 16, g_srv.hs_new_nonce, 32);
+        crypto_sha1(buf, 48, sha1_b);
+
+        memcpy(buf, g_srv.hs_new_nonce, 32);
+        memcpy(buf + 32, g_srv.hs_new_nonce, 32);
+        crypto_sha1(buf, 64, sha1_c);
+
+        memcpy(tmp_aes_key,      sha1_a, 20);
+        memcpy(tmp_aes_key + 20, sha1_b, 12);
+        memcpy(tmp_aes_iv,       sha1_b + 12, 8);
+        memcpy(tmp_aes_iv + 8,   sha1_c, 20);
+        memcpy(tmp_aes_iv + 28,  g_srv.hs_new_nonce, 4);
+    }
+
+    /* Parse set_client_DH_params body:
+     * CRC(4) nonce(16) server_nonce(16) encrypted_data:bytes */
+    TlReader r = tl_reader_init(body, body_len);
+    tl_read_uint32(&r);              /* CRC */
+    uint8_t _nonce[16]; tl_read_int128(&r, _nonce);
+    uint8_t _snonce[16]; tl_read_int128(&r, _snonce);
+    size_t enc_len = 0;
+    uint8_t *enc_data = tl_read_bytes(&r, &enc_len);
+    if (!enc_data || enc_len == 0 || enc_len % 16 != 0) {
+        free(enc_data);
+        fprintf(stderr, "mock: set_client_DH: bad encrypted_data len %zu\n", enc_len);
+        return;
+    }
+
+    /* AES-IGE decrypt encrypted_data */
+    uint8_t *plain = (uint8_t *)malloc(enc_len);
+    if (!plain) { free(enc_data); return; }
+    aes_ige_decrypt(enc_data, enc_len, tmp_aes_key, tmp_aes_iv, plain);
+    free(enc_data);
+
+    /* Parse client_DH_inner_data: SHA1(20) + CRC(4) nonce(16) server_nonce(16)
+     *                               retry_id:int64 g_b:bytes */
+    if (enc_len < 20 + 4 + 16 + 16 + 8) {
+        free(plain);
+        fprintf(stderr, "mock: set_client_DH: plaintext too short\n");
+        return;
+    }
+    TlReader ir = tl_reader_init(plain + 20, enc_len - 20);
+    uint32_t crc = tl_read_uint32(&ir);
+    if (crc != 0x6643b654U) {  /* CRC_client_DH_inner_data */
+        free(plain);
+        fprintf(stderr, "mock: set_client_DH: wrong CRC 0x%08x\n", crc);
+        return;
+    }
+    uint8_t cli_nonce[16]; tl_read_int128(&ir, cli_nonce);
+    uint8_t cli_snonce[16]; tl_read_int128(&ir, cli_snonce);
+    tl_read_uint64(&ir);  /* retry_id */
+    size_t g_b_len = 0;
+    uint8_t *g_b = tl_read_bytes(&ir, &g_b_len);  /* client's g^client_b mod p */
+    if (!g_b || g_b_len == 0) {
+        free(g_b); free(plain);
+        fprintf(stderr, "mock: set_client_DH: failed to read g_b\n");
+        return;
+    }
+    free(plain);
+
+    /* Save g_a (client's g^client_b mod p) for auth_key computation */
+    if (g_b_len > sizeof(g_srv.hs_g_a)) {
+        free(g_b);
+        fprintf(stderr, "mock: set_client_DH: g_b too large (%zu)\n", g_b_len);
+        return;
+    }
+    memcpy(g_srv.hs_g_a, g_b, g_b_len);
+    g_srv.hs_g_a_len = g_b_len;
+    free(g_b);
+
+    /* Compute auth_key = g_b^server_b mod dh_prime */
+    uint8_t auth_key[256];
+    size_t ak_len = sizeof(auth_key);
+    CryptoBnCtx *bn_ctx = crypto_bn_ctx_new();
+    if (!bn_ctx) { fprintf(stderr, "mock: set_client_DH: BN ctx alloc\n"); return; }
+    if (crypto_bn_mod_exp(auth_key, &ak_len,
+                          g_srv.hs_g_a, g_srv.hs_g_a_len,
+                          g_srv.hs_b, 256,
+                          g_srv.hs_dh_prime, 32, bn_ctx) != 0) {
+        crypto_bn_ctx_free(bn_ctx);
+        fprintf(stderr, "mock: set_client_DH: auth_key exp failed\n");
+        return;
+    }
+    crypto_bn_ctx_free(bn_ctx);
+
+    /* Pad auth_key to 256 bytes */
+    uint8_t auth_key_padded[256];
+    memset(auth_key_padded, 0, 256);
+    if (ak_len <= 256) {
+        memcpy(auth_key_padded + (256 - ak_len), auth_key, ak_len);
+    }
+
+    /* Compute new_nonce_hash1 = last 16 bytes of SHA1(new_nonce||0x01||ak_aux_hash[8])
+     * where ak_aux_hash = SHA1(auth_key)[0:8] */
+    uint8_t ak_full_hash[20];
+    crypto_sha1(auth_key_padded, 256, ak_full_hash);
+
+    uint8_t nnh_input[32 + 1 + 8];
+    memcpy(nnh_input,      g_srv.hs_new_nonce, 32);
+    nnh_input[32] = 0x01;
+    memcpy(nnh_input + 33, ak_full_hash, 8);
+
+    uint8_t nnh_full[20];
+    crypto_sha1(nnh_input, sizeof(nnh_input), nnh_full);
+    /* last 16 bytes = nnh_full[4:20] */
+    uint8_t new_nonce_hash1[16];
+    memcpy(new_nonce_hash1, nnh_full + 4, 16);
+
+    /* Save auth_key to mock server state so encrypted frames work after handshake */
+    memcpy(g_srv.auth_key, auth_key_padded, 256);
+    g_srv.auth_key_id  = derive_auth_key_id(auth_key_padded);
+    /* salt = new_nonce[0:8] XOR server_nonce[0:8] */
+    g_srv.server_salt = 0;
+    for (int i = 0; i < 8; i++) {
+        ((uint8_t *)&g_srv.server_salt)[i] =
+            g_srv.hs_new_nonce[i] ^ g_srv.hs_server_nonce[i];
+    }
+    g_srv.session_id = 0xAABBCCDD11223344ULL;
+
+    /* Persist session so the client can verify it was written */
+    MtProtoSession sess;
+    mtproto_session_init(&sess);
+    mtproto_session_set_auth_key(&sess, auth_key_padded);
+    mtproto_session_set_salt(&sess, g_srv.server_salt);
+    sess.session_id = g_srv.session_id;
+    session_store_save(&sess, 2);  /* dc_id=2 matches the test */
+
+    /* Send dh_gen_ok */
+    TlWriter tl; tl_writer_init(&tl);
+    tl_write_uint32(&tl, CRC_dh_gen_ok);
+    tl_write_int128(&tl, g_srv.hs_nonce);
+    tl_write_int128(&tl, g_srv.hs_server_nonce);
+    tl_write_int128(&tl, new_nonce_hash1);
     handshake_queue_unenc(tl.data, tl.len);
     tl_writer_free(&tl);
 }

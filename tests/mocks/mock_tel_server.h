@@ -455,6 +455,25 @@ void mt_server_simulate_cold_boot(MtColdBootMode mode);
 void mt_server_simulate_cold_boot_through_step3(void);
 
 /**
+ * @brief TEST-72: Arm the mock for a full MTProto DH handshake using the
+ *        test-only RSA key pair embedded in tests/mocks/telegram_server_key.c.
+ *
+ * In this mode the mock:
+ *   1. Responds to req_pq_multi with a valid resPQ (test fingerprint).
+ *   2. RSA-PAD-decrypts req_DH_params (using the test RSA private key),
+ *      extracts new_nonce, generates g=2 and a 256-bit safe prime,
+ *      computes g_a=2^b mod p, and sends a valid server_DH_params_ok.
+ *   3. Decrypts set_client_DH_params, computes auth_key = g_b^b mod p,
+ *      verifies new_nonce_hash1, sends dh_gen_ok, persists the session.
+ *
+ * On success mtproto_auth_key_gen returns 0, s.has_auth_key == 1, and
+ * session.bin is written to $HOME/.config/tg-cli/.
+ *
+ * WARNING: TEST_ONLY — never call in production. Uses a test private key.
+ */
+void mt_server_simulate_full_dh_handshake(void);
+
+/**
  * @brief Counter of req_pq_multi frames seen since last reset.
  *
  * Lets tests assert "the handshake restarted once" without having to
@@ -466,5 +485,12 @@ int mt_server_handshake_req_pq_count(void);
  * @brief Counter of req_DH_params frames seen since last reset.
  */
 int mt_server_handshake_req_dh_count(void);
+
+/**
+ * @brief Counter of set_client_DH_params frames seen since last reset.
+ *
+ * Incremented only in full-DH mode (mt_server_simulate_full_dh_handshake).
+ */
+int mt_server_handshake_set_client_dh_count(void);
 
 #endif /* MOCK_TEL_SERVER_H */

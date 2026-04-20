@@ -320,6 +320,47 @@ static void test_cold_boot_orchestrator_null_args(void) {
     transport_close(&t);
 }
 
+/* ---- Full DH handshake success (TEST-72) --------------------------- */
+
+/**
+ * End-to-end full DH handshake: the mock uses the test RSA private key to
+ * decrypt req_DH_params, derives valid server_DH_params_ok, handles
+ * set_client_DH_params, and sends dh_gen_ok. The orchestrator must return 0,
+ * the session must have an auth_key, and session.bin must be persisted.
+ */
+static void test_full_dh_handshake_succeeds(void) {
+    fresh_mock("full-dh");
+    ASSERT(!session_bin_exists(), "session.bin absent before full DH test");
+
+    mt_server_simulate_full_dh_handshake();
+
+    Transport t; MtProtoSession s;
+    bring_transport_up(&t, &s);
+
+    int rc = mtproto_auth_key_gen(&t, &s);
+    ASSERT(rc == 0, "mtproto_auth_key_gen returns 0 on full DH success");
+    ASSERT(s.has_auth_key, "session has auth_key after full DH");
+
+    /* auth_key must be non-trivially non-zero (DH result is large) */
+    int nonzero = 0;
+    for (int i = 0; i < 256; i++) {
+        if (s.auth_key[i]) { nonzero = 1; break; }
+    }
+    ASSERT(nonzero, "auth_key is non-zero after full DH");
+
+    ASSERT(session_bin_exists(),
+           "session.bin persisted after successful DH handshake");
+
+    ASSERT(mt_server_handshake_req_pq_count() == 1,
+           "orchestrator sent exactly one req_pq_multi");
+    ASSERT(mt_server_handshake_req_dh_count() == 1,
+           "orchestrator sent exactly one req_DH_params");
+    ASSERT(mt_server_handshake_set_client_dh_count() == 1,
+           "mock received exactly one set_client_DH_params");
+
+    transport_close(&t);
+}
+
 /* ---- Suite entry point --------------------------------------------- */
 
 void run_handshake_cold_boot_tests(void) {
@@ -332,4 +373,5 @@ void run_handshake_cold_boot_tests(void) {
     RUN_TEST(test_cold_boot_parse_dh_rejects_garbage);
     RUN_TEST(test_cold_boot_orchestrator_fails_cleanly);
     RUN_TEST(test_cold_boot_orchestrator_null_args);
+    RUN_TEST(test_full_dh_handshake_succeeds);
 }

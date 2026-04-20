@@ -92,6 +92,22 @@ void crypto_rsa_free(CryptoRsaKey *key);
 int crypto_rsa_public_encrypt(CryptoRsaKey *key, const unsigned char *data,
                               size_t data_len, unsigned char *out, size_t *out_len);
 
+/** Load RSA private key from PKCS#8 PEM string. Returns NULL on error. */
+CryptoRsaKey *crypto_rsa_load_private(const char *pem);
+
+/**
+ * RSA raw (NO_PADDING) decrypt.
+ * Used by the mock server to reverse Telegram's RSA_PAD scheme.
+ * @param key        RSA private key (loaded with crypto_rsa_load_private).
+ * @param data       Ciphertext (must equal key size, e.g. 256 bytes).
+ * @param data_len   Ciphertext length.
+ * @param out        Output buffer (must hold key size bytes).
+ * @param out_len    Input: buffer capacity; Output: decrypted length.
+ * @return 0 on success, -1 on error.
+ */
+int crypto_rsa_private_decrypt(CryptoRsaKey *key, const unsigned char *data,
+                               size_t data_len, unsigned char *out, size_t *out_len);
+
 /* ---- Big Number Arithmetic (for DH) ---- */
 
 /** Big number context (opaque). */
