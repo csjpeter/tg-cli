@@ -1301,6 +1301,1050 @@ static void test_message_replies_empty(void) {
     tl_writer_free(&w);
 }
 
+/* ---- messageMediaGame → skip_game ---- */
+static void test_media_game(void) {
+    /* messageMediaGame + game#bdf9653b flags=0 (no document). */
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, 0xfdb19008u);          /* messageMediaGame */
+    /* game#bdf9653b flags:# id:long access_hash:long short_name title desc photo */
+    tl_write_uint32(&w, 0xbdf9653bu);
+    tl_write_uint32(&w, 0);                    /* flags */
+    tl_write_int64 (&w, 5000LL);               /* id */
+    tl_write_int64 (&w, 6000LL);               /* access_hash */
+    tl_write_string(&w, "snake");              /* short_name */
+    tl_write_string(&w, "Snake");              /* title */
+    tl_write_string(&w, "Classic snake");      /* description */
+    /* photo: photoEmpty */
+    tl_write_uint32(&w, 0x2331b22du);
+    tl_write_int64 (&w, 0LL);
+    TlReader r = tl_reader_init(w.data, w.len);
+    MediaInfo mi = {0};
+    ASSERT(tl_skip_message_media_ex(&r, &mi) == 0, "mediaGame walked");
+    ASSERT(mi.kind == MEDIA_GAME, "kind=GAME");
+    ASSERT(r.pos == r.len, "reader consumed game");
+    tl_writer_free(&w);
+
+    /* game with document (flags.0). */
+    tl_writer_init(&w);
+    tl_write_uint32(&w, 0xfdb19008u);
+    tl_write_uint32(&w, 0xbdf9653bu);
+    tl_write_uint32(&w, (1u << 0));            /* flags.0 → document present */
+    tl_write_int64 (&w, 7000LL);
+    tl_write_int64 (&w, 8000LL);
+    tl_write_string(&w, "pong");
+    tl_write_string(&w, "Pong");
+    tl_write_string(&w, "Old-school pong");
+    tl_write_uint32(&w, 0x2331b22du);          /* photoEmpty */
+    tl_write_int64 (&w, 0LL);
+    /* documentEmpty */
+    tl_write_uint32(&w, 0x36f8c871u);
+    tl_write_int64 (&w, 42LL);
+    TlReader r2 = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r2, NULL) == 0, "game+doc walked");
+    ASSERT(r2.pos == r2.len, "reader consumed game+doc");
+    tl_writer_free(&w);
+
+    /* unknown game CRC → -1 */
+    tl_writer_init(&w);
+    tl_write_uint32(&w, 0xfdb19008u);
+    tl_write_uint32(&w, 0xFF00ABCDu);
+    tl_write_uint32(&w, 0);
+    TlReader r3 = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r3, NULL) == -1,
+           "unknown game CRC rejected");
+    tl_writer_free(&w);
+}
+
+/* ---- messageMediaInvoice → skip_web_document + skip_message_extended_media ---- */
+static void test_media_invoice(void) {
+    /* Invoice with photo (webDocument, flags.0) — no receipt, no ext-media. */
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, 0xf6a548d3u);          /* messageMediaInvoice */
+    tl_write_uint32(&w, (1u << 0));            /* flags.0 → photo present */
+    tl_write_string(&w, "Ticket");             /* title */
+    tl_write_string(&w, "One event entry");   /* description */
+    /* webDocumentNoProxy#f9c8bcc6 url:string size:int mime_type:string attrs:Vector */
+    tl_write_uint32(&w, 0xf9c8bcc6u);
+    tl_write_string(&w, "https://img.example.com/t.jpg");
+    tl_write_int32 (&w, 1024);                 /* size */
+    tl_write_string(&w, "image/jpeg");
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 0);
+    /* currency + amount + start_param */
+    tl_write_string(&w, "USD");
+    tl_write_int64 (&w, 500LL);
+    tl_write_string(&w, "start123");
+    TlReader r = tl_reader_init(w.data, w.len);
+    MediaInfo mi = {0};
+    ASSERT(tl_skip_message_media_ex(&r, &mi) == 0, "invoice+webDoc walked");
+    ASSERT(mi.kind == MEDIA_INVOICE, "kind=INVOICE");
+    ASSERT(r.pos == r.len, "reader consumed invoice");
+    tl_writer_free(&w);
+
+    /* Invoice with webDocument (full, has access_hash), no ext-media. */
+    tl_writer_init(&w);
+    tl_write_uint32(&w, 0xf6a548d3u);
+    tl_write_uint32(&w, (1u << 0));
+    tl_write_string(&w, "Prod");
+    tl_write_string(&w, "Desc");
+    /* webDocument#1c570ed1 url access_hash size mime attrs */
+    tl_write_uint32(&w, 0x1c570ed1u);
+    tl_write_string(&w, "https://cdn.tg/img.png");
+    tl_write_int64 (&w, 999LL);                /* access_hash */
+    tl_write_int32 (&w, 2048);
+    tl_write_string(&w, "image/png");
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, 0x11b58939u);          /* documentAttributeAnimated */
+    tl_write_string(&w, "EUR");
+    tl_write_int64 (&w, 1000LL);
+    tl_write_string(&w, "");
+    TlReader r2 = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r2, NULL) == 0, "invoice+webDoc full");
+    ASSERT(r2.pos == r2.len, "consumed invoice full");
+    tl_writer_free(&w);
+
+    /* Unknown webDocument CRC → -1 */
+    tl_writer_init(&w);
+    tl_write_uint32(&w, 0xf6a548d3u);
+    tl_write_uint32(&w, (1u << 0));
+    tl_write_string(&w, "T"); tl_write_string(&w, "D");
+    tl_write_uint32(&w, 0xFF00FEFEu);          /* unknown webDocument */
+    tl_write_string(&w, "USD"); tl_write_int64(&w, 0LL); tl_write_string(&w, "");
+    TlReader r3 = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r3, NULL) == -1,
+           "unknown webDocument CRC rejected");
+    tl_writer_free(&w);
+}
+
+/* ---- messageMediaPaidMedia → skip_message_extended_media ---- */
+static void test_media_paid_media(void) {
+    /* Paid media with one messageExtendedMediaPreview (flags=0). */
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, 0xa8852491u);          /* messageMediaPaidMedia */
+    tl_write_int64 (&w, 25LL);                 /* stars_amount */
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 1);
+    /* messageExtendedMediaPreview#ad628cc8 flags=0 (no w/h, no thumb, no dur) */
+    tl_write_uint32(&w, 0xad628cc8u);
+    tl_write_uint32(&w, 0);
+    TlReader r = tl_reader_init(w.data, w.len);
+    MediaInfo mi = {0};
+    ASSERT(tl_skip_message_media_ex(&r, &mi) == 0, "paidMedia preview walked");
+    ASSERT(mi.kind == MEDIA_PAID, "kind=PAID");
+    ASSERT(r.pos == r.len, "reader consumed paid preview");
+    tl_writer_free(&w);
+
+    /* Paid media preview with all flags set (w+h + thumb + video_duration). */
+    tl_writer_init(&w);
+    tl_write_uint32(&w, 0xa8852491u);
+    tl_write_int64 (&w, 50LL);
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, 0xad628cc8u);
+    tl_write_uint32(&w, 0x7u);                 /* flags: bits 0,1,2 */
+    tl_write_int32 (&w, 640); tl_write_int32(&w, 480);
+    /* thumb: photoSizeEmpty */
+    tl_write_uint32(&w, 0x0e17e23cu);
+    tl_write_string(&w, "s");
+    tl_write_int32 (&w, 10);                   /* video_duration */
+    TlReader r2 = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r2, NULL) == 0, "paid preview all-flags");
+    ASSERT(r2.pos == r2.len, "consumed paid preview all-flags");
+    tl_writer_free(&w);
+
+    /* Paid with messageExtendedMedia (wraps another MessageMedia). */
+    tl_writer_init(&w);
+    tl_write_uint32(&w, 0xa8852491u);
+    tl_write_int64 (&w, 10LL);
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, 0xee479c64u);          /* messageExtendedMedia */
+    /* wrapped: messageMediaEmpty */
+    tl_write_uint32(&w, 0x3ded6320u);
+    TlReader r3 = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r3, NULL) == 0, "extMedia wrapper walked");
+    ASSERT(r3.pos == r3.len, "consumed extMedia");
+    tl_writer_free(&w);
+
+    /* Unknown messageExtendedMedia CRC → -1 */
+    tl_writer_init(&w);
+    tl_write_uint32(&w, 0xa8852491u);
+    tl_write_int64 (&w, 5LL);
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, 0xFF00FFABu);
+    tl_write_uint32(&w, 0);
+    TlReader r4 = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r4, NULL) == -1,
+           "unknown extMedia CRC rejected");
+    tl_writer_free(&w);
+}
+
+/* ---- messageMediaStory → skip_story_item, skip_story_views,
+ *     skip_privacy_rule, skip_media_area, skip_geo_point_address,
+ *     skip_media_area_coordinates, skip_story_fwd_header ---- */
+static void test_media_story(void) {
+    /* Story with storyItemDeleted (simplest). */
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, 0x68cb6283u);          /* messageMediaStory */
+    tl_write_uint32(&w, (1u << 0));            /* flags.0 → story present */
+    tl_write_uint32(&w, TL_peerUser); tl_write_int64(&w, 1LL);
+    tl_write_int32 (&w, 101);                  /* id */
+    /* storyItemDeleted#51e6ee4f id:int */
+    tl_write_uint32(&w, 0x51e6ee4fu);
+    tl_write_int32 (&w, 101);
+    TlReader r = tl_reader_init(w.data, w.len);
+    MediaInfo mi = {0};
+    ASSERT(tl_skip_message_media_ex(&r, &mi) == 0, "story deleted walked");
+    ASSERT(mi.kind == MEDIA_STORY, "kind=STORY");
+    tl_writer_free(&w);
+
+    /* storyItemSkipped */
+    tl_writer_init(&w);
+    tl_write_uint32(&w, 0x68cb6283u);
+    tl_write_uint32(&w, (1u << 0));
+    tl_write_uint32(&w, TL_peerUser); tl_write_int64(&w, 2LL);
+    tl_write_int32 (&w, 200);
+    tl_write_uint32(&w, 0xffadc913u);          /* storyItemSkipped */
+    tl_write_uint32(&w, 0);                    /* flags */
+    tl_write_int32 (&w, 200);                  /* id */
+    tl_write_int32 (&w, 1700001000);           /* date */
+    tl_write_int32 (&w, 1700087400);           /* expire_date */
+    TlReader r2 = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r2, NULL) == 0, "story skipped walked");
+    ASSERT(r2.pos == r2.len, "reader consumed story skipped");
+    tl_writer_free(&w);
+
+    /* Full storyItem with caption + entities + mediaAreaVenue + privacyRule
+     * + storyViews + storyFwdHeader. Drives all the 0% static helpers. */
+    tl_writer_init(&w);
+    tl_write_uint32(&w, 0x68cb6283u);
+    tl_write_uint32(&w, (1u << 0));
+    tl_write_uint32(&w, TL_peerUser); tl_write_int64(&w, 3LL);
+    tl_write_int32 (&w, 300);
+    /* storyItem#79b26a24 */
+    tl_write_uint32(&w, 0x79b26a24u);
+    /* flags: bit 0=caption, 1=entities, 2=privacy, 3=views, 14=media_areas,
+     *        17=fwd_from (storyFwdHeader) */
+    uint32_t sflags = (1u << 0) | (1u << 1) | (1u << 2) | (1u << 3) | (1u << 14) | (1u << 17);
+    tl_write_uint32(&w, sflags);
+    tl_write_int32 (&w, 300);                  /* id */
+    tl_write_int32 (&w, 1700001000);           /* date */
+    /* fwd_from: storyFwdHeader#b826e150 flags=0b110 (from_name + story_id) */
+    tl_write_uint32(&w, 0xb826e150u);
+    tl_write_uint32(&w, (1u << 1) | (1u << 2));
+    tl_write_string(&w, "Original Poster");   /* from_name */
+    tl_write_int32 (&w, 77);                  /* story_id */
+    tl_write_int32 (&w, 1700087400);           /* expire_date */
+    tl_write_string(&w, "Hello from story"); /* caption */
+    /* entities: Vector<MessageEntity> (bold) */
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, 0xbd610bc9u);          /* messageEntityBold */
+    tl_write_int32 (&w, 0); tl_write_int32(&w, 5);
+    /* media: messageMediaEmpty */
+    tl_write_uint32(&w, 0x3ded6320u);
+    /* media_areas (flags.14): Vector<MediaArea> with two variants */
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 2);
+    /* mediaAreaUrl: coordinates + url */
+    tl_write_uint32(&w, 0x37381085u);
+    /* mediaAreaCoordinates#03d1ea4e flags=0 x y w h rotation */
+    tl_write_uint32(&w, 0x03d1ea4eu);
+    tl_write_uint32(&w, 0);                    /* flags */
+    double dvals[5] = {0.1, 0.2, 0.3, 0.4, 0.0};
+    for (int i = 0; i < 5; i++) {
+        uint64_t bits; __builtin_memcpy(&bits, &dvals[i], 8);
+        tl_write_uint32(&w, (uint32_t)bits);
+        tl_write_uint32(&w, (uint32_t)(bits >> 32));
+    }
+    tl_write_string(&w, "https://example.com");
+    /* mediaAreaGeoPoint with flags.0 → geoPointAddress */
+    tl_write_uint32(&w, 0xdf8b3b22u);
+    tl_write_uint32(&w, (1u << 0));            /* flags.0 → address present */
+    /* coordinates */
+    tl_write_uint32(&w, 0x03d1ea4eu);
+    tl_write_uint32(&w, 0);
+    for (int i = 0; i < 5; i++) {
+        uint64_t bits; __builtin_memcpy(&bits, &dvals[i], 8);
+        tl_write_uint32(&w, (uint32_t)bits);
+        tl_write_uint32(&w, (uint32_t)(bits >> 32));
+    }
+    /* geoPoint#b2a2f663 flags=0 long lat access_hash */
+    tl_write_uint32(&w, 0xb2a2f663u);
+    tl_write_uint32(&w, 0);
+    {
+        double lng = 13.4, lat = 52.5, acc = 0.0; uint64_t b;
+        __builtin_memcpy(&b, &lng, 8);
+        tl_write_uint32(&w, (uint32_t)b); tl_write_uint32(&w, (uint32_t)(b>>32));
+        __builtin_memcpy(&b, &lat, 8);
+        tl_write_uint32(&w, (uint32_t)b); tl_write_uint32(&w, (uint32_t)(b>>32));
+        (void)acc;
+        tl_write_int64(&w, 0LL);
+    }
+    /* geoPointAddress#de4c5d93 flags=0b111 country state city street */
+    tl_write_uint32(&w, 0xde4c5d93u);
+    tl_write_uint32(&w, 0x7u);
+    tl_write_string(&w, "DE");
+    tl_write_string(&w, "Berlin");
+    tl_write_string(&w, "Berlin");
+    tl_write_string(&w, "Unter den Linden");
+    /* privacy: Vector<PrivacyRule> with two variants (no-payload + users) */
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 2);
+    tl_write_uint32(&w, 0xfffe1bacu);          /* privacyValueAllowContacts */
+    tl_write_uint32(&w, 0xb8905fb2u);          /* privacyValueAllowUsers */
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 2);
+    tl_write_int64 (&w, 11LL); tl_write_int64(&w, 22LL);
+    /* views: storyViews#8d595cd6 flags=0b11101 */
+    tl_write_uint32(&w, 0x8d595cd6u);
+    uint32_t vflags = (1u << 0) | (1u << 2) | (1u << 3) | (1u << 4);
+    tl_write_uint32(&w, vflags);
+    tl_write_int32 (&w, 100);                  /* views_count */
+    tl_write_int32 (&w, 5);                    /* forwards_count */
+    /* reactions: Vector<ReactionCount> */
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, 0xa3d1cb80u);
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, 0x79f5d419u);          /* reactionEmpty */
+    tl_write_int32 (&w, 3);
+    tl_write_int32 (&w, 10);                   /* reactions_count */
+    /* recent_viewers: Vector<long> */
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 1);
+    tl_write_int64 (&w, 99LL);
+    TlReader r3 = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r3, NULL) == 0, "full story walked");
+    ASSERT(r3.pos == r3.len, "reader consumed full story");
+    tl_writer_free(&w);
+
+    /* storyFwdHeader with from peer (flags.0) + story_id (flags.2). */
+    tl_writer_init(&w);
+    tl_write_uint32(&w, 0x68cb6283u);
+    tl_write_uint32(&w, (1u << 0));
+    tl_write_uint32(&w, TL_peerChannel); tl_write_int64(&w, 5LL);
+    tl_write_int32 (&w, 400);
+    tl_write_uint32(&w, 0x79b26a24u);
+    uint32_t sfwdflags = (1u << 17);
+    tl_write_uint32(&w, sfwdflags);
+    tl_write_int32 (&w, 400);
+    tl_write_int32 (&w, 1700001000);
+    tl_write_uint32(&w, 0xb826e150u);
+    tl_write_uint32(&w, (1u << 0) | (1u << 2)); /* from_peer + story_id */
+    tl_write_uint32(&w, TL_peerChannel); tl_write_int64(&w, 10LL);
+    tl_write_int32 (&w, 55);
+    tl_write_int32 (&w, 1700087400);
+    tl_write_uint32(&w, 0x3ded6320u);          /* media: empty */
+    TlReader r4 = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r4, NULL) == 0,
+           "story fwdHeader peer+storyId walked");
+    ASSERT(r4.pos == r4.len, "consumed story fwdHeader");
+    tl_writer_free(&w);
+
+    /* Unknown storyItem CRC → -1 */
+    tl_writer_init(&w);
+    tl_write_uint32(&w, 0x68cb6283u);
+    tl_write_uint32(&w, (1u << 0));
+    tl_write_uint32(&w, TL_peerUser); tl_write_int64(&w, 6LL);
+    tl_write_int32 (&w, 500);
+    tl_write_uint32(&w, 0xFF00AAAAu);          /* unknown storyItem */
+    tl_write_uint32(&w, 0);
+    TlReader r5 = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r5, NULL) == -1,
+           "unknown storyItem rejected");
+    tl_writer_free(&w);
+
+    /* mediaAreaSuggestedReaction */
+    tl_writer_init(&w);
+    tl_write_uint32(&w, 0x68cb6283u);
+    tl_write_uint32(&w, (1u << 0));
+    tl_write_uint32(&w, TL_peerUser); tl_write_int64(&w, 7LL);
+    tl_write_int32 (&w, 600);
+    tl_write_uint32(&w, 0x79b26a24u);
+    uint32_t sarf = (1u << 14);
+    tl_write_uint32(&w, sarf);
+    tl_write_int32 (&w, 600); tl_write_int32(&w, 1700001000);
+    tl_write_int32 (&w, 1700087400);
+    tl_write_uint32(&w, 0x3ded6320u);
+    /* media_areas Vector with mediaAreaSuggestedReaction */
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, 0x14455871u);          /* mediaAreaSuggestedReaction */
+    tl_write_uint32(&w, 0);                    /* flags */
+    /* coordinates */
+    tl_write_uint32(&w, 0x03d1ea4eu);
+    tl_write_uint32(&w, 0);
+    for (int i = 0; i < 5; i++) {
+        uint64_t bits; __builtin_memcpy(&bits, &dvals[i], 8);
+        tl_write_uint32(&w, (uint32_t)bits); tl_write_uint32(&w, (uint32_t)(bits>>32));
+    }
+    tl_write_uint32(&w, 0x79f5d419u);          /* reactionEmpty */
+    TlReader r6 = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r6, NULL) == 0,
+           "mediaAreaSuggestedReaction walked");
+    ASSERT(r6.pos == r6.len, "consumed suggestedReaction");
+    tl_writer_free(&w);
+
+    /* mediaAreaChannelPost, mediaAreaWeather, mediaAreaStarGift, mediaAreaVenue */
+    tl_writer_init(&w);
+    tl_write_uint32(&w, 0x68cb6283u);
+    tl_write_uint32(&w, (1u << 0));
+    tl_write_uint32(&w, TL_peerUser); tl_write_int64(&w, 8LL);
+    tl_write_int32 (&w, 700);
+    tl_write_uint32(&w, 0x79b26a24u);
+    uint32_t s4f = (1u << 14);
+    tl_write_uint32(&w, s4f);
+    tl_write_int32 (&w, 700); tl_write_int32(&w, 1700001000);
+    tl_write_int32 (&w, 1700087400);
+    tl_write_uint32(&w, 0x3ded6320u);
+    /* media_areas: Vector with 4 areas */
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 4);
+    /* helper macro: write bare coordinates (flags=0) */
+#define WRITE_COORDS(ww) do { \
+    tl_write_uint32(ww, 0x03d1ea4eu); tl_write_uint32(ww, 0); \
+    double _d[5] = {0.1,0.2,0.3,0.4,0.0}; \
+    for(int _i=0;_i<5;_i++){uint64_t _b; __builtin_memcpy(&_b,&_d[_i],8); \
+        tl_write_uint32(ww,(uint32_t)_b); tl_write_uint32(ww,(uint32_t)(_b>>32));} \
+} while(0)
+    /* mediaAreaChannelPost */
+    tl_write_uint32(&w, 0x770416afu);
+    WRITE_COORDS(&w);
+    tl_write_int64(&w, 12345LL);               /* channel_id */
+    tl_write_int32(&w, 777);                   /* msg_id */
+    /* mediaAreaWeather */
+    tl_write_uint32(&w, 0x49a6549cu);
+    WRITE_COORDS(&w);
+    tl_write_string(&w, "\xe2\x98\x80\xef\xb8\x8f"); /* emoji */
+    double temp = 22.5; uint64_t tbits; __builtin_memcpy(&tbits, &temp, 8);
+    tl_write_uint32(&w, (uint32_t)tbits); tl_write_uint32(&w, (uint32_t)(tbits>>32));
+    tl_write_int32(&w, 0xFFFFFFu);             /* color */
+    /* mediaAreaStarGift */
+    tl_write_uint32(&w, 0x5787686du);
+    WRITE_COORDS(&w);
+    tl_write_string(&w, "gift-slug-42");
+    /* mediaAreaVenue */
+    tl_write_uint32(&w, 0xbe82db9cu);
+    WRITE_COORDS(&w);
+    tl_write_uint32(&w, 0x1117dd5fu);          /* geoPointEmpty */
+    tl_write_string(&w, "Cafe");
+    tl_write_string(&w, "Main St 1");
+    tl_write_string(&w, "foursquare");
+    tl_write_string(&w, "v42");
+    tl_write_string(&w, "cafe");
+    TlReader r7 = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r7, NULL) == 0, "4 media area variants");
+    ASSERT(r7.pos == r7.len, "consumed 4 media areas");
+    tl_writer_free(&w);
+#undef WRITE_COORDS
+
+    /* Unknown mediaArea CRC → -1 */
+    tl_writer_init(&w);
+    tl_write_uint32(&w, 0x68cb6283u);
+    tl_write_uint32(&w, (1u << 0));
+    tl_write_uint32(&w, TL_peerUser); tl_write_int64(&w, 9LL);
+    tl_write_int32 (&w, 800);
+    tl_write_uint32(&w, 0x79b26a24u);
+    tl_write_uint32(&w, (1u << 14));
+    tl_write_int32 (&w, 800); tl_write_int32(&w, 1700001000);
+    tl_write_int32 (&w, 1700087400);
+    tl_write_uint32(&w, 0x3ded6320u);
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, 0xFF00DDDDu);          /* unknown mediaArea */
+    tl_write_uint32(&w, 0);
+    TlReader r8 = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r8, NULL) == -1, "unknown mediaArea rejected");
+    tl_writer_free(&w);
+
+    /* Unknown privacyRule CRC → -1 */
+    tl_writer_init(&w);
+    tl_write_uint32(&w, 0x68cb6283u);
+    tl_write_uint32(&w, (1u << 0));
+    tl_write_uint32(&w, TL_peerUser); tl_write_int64(&w, 10LL);
+    tl_write_int32 (&w, 900);
+    tl_write_uint32(&w, 0x79b26a24u);
+    tl_write_uint32(&w, (1u << 2));            /* only privacy flag */
+    tl_write_int32 (&w, 900); tl_write_int32(&w, 1700001000);
+    tl_write_int32 (&w, 1700087400);
+    tl_write_uint32(&w, 0x3ded6320u);
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, 0xFF00CCCCu);          /* unknown privacyRule */
+    TlReader r9 = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r9, NULL) == -1, "unknown privacyRule rejected");
+    tl_writer_free(&w);
+
+    /* storyViews unknown CRC → -1 */
+    tl_writer_init(&w);
+    tl_write_uint32(&w, 0x68cb6283u);
+    tl_write_uint32(&w, (1u << 0));
+    tl_write_uint32(&w, TL_peerUser); tl_write_int64(&w, 11LL);
+    tl_write_int32 (&w, 1000);
+    tl_write_uint32(&w, 0x79b26a24u);
+    tl_write_uint32(&w, (1u << 3));            /* only views flag */
+    tl_write_int32 (&w, 1000); tl_write_int32(&w, 1700001000);
+    tl_write_int32 (&w, 1700087400);
+    tl_write_uint32(&w, 0x3ded6320u);
+    tl_write_uint32(&w, 0xFF00BBBBu);          /* unknown storyViews */
+    tl_write_uint32(&w, 0);
+    TlReader r10 = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r10, NULL) == -1,
+           "unknown storyViews rejected");
+    tl_writer_free(&w);
+}
+
+/* ---- messageMediaPoll → skip_poll_answer_voters ---- */
+static void test_media_poll_with_results(void) {
+    /* Build a poll + results that exercises skip_poll_answer_voters. */
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, 0x4bd6e798u);          /* messageMediaPoll */
+    /* poll#58747131 flags=0 id question answers */
+    tl_write_uint32(&w, 0x58747131u);
+    tl_write_uint32(&w, 0);                    /* flags */
+    tl_write_int64 (&w, 77LL);                 /* id */
+    /* question: textWithEntities#751f3146 */
+    tl_write_uint32(&w, 0x751f3146u);
+    tl_write_string(&w, "Best fruit?");
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 0);
+    /* answers: Vector<PollAnswer> — two answers */
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 2);
+    /* PollAnswer#6ca9c2e9 text:TextWithEntities option:bytes */
+    tl_write_uint32(&w, 0x6ca9c2e9u);
+    tl_write_uint32(&w, 0x751f3146u); tl_write_string(&w, "Apple");
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 0);
+    tl_write_bytes (&w, (const unsigned char *)"\x01", 1);
+    tl_write_uint32(&w, 0x6ca9c2e9u);
+    tl_write_uint32(&w, 0x751f3146u); tl_write_string(&w, "Banana");
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 0);
+    tl_write_bytes (&w, (const unsigned char *)"\x02", 1);
+    /* PollResults#7adc669d flags=0b1110 (results + total_voters + recent) */
+    tl_write_uint32(&w, 0x7adc669du);
+    uint32_t rflags = (1u << 1) | (1u << 2) | (1u << 3);
+    tl_write_uint32(&w, rflags);
+    /* results: Vector<PollAnswerVoters> */
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 2);
+    /* PollAnswerVoters#3b6ddad2 flags option:bytes voters */
+    tl_write_uint32(&w, 0x3b6ddad2u);
+    tl_write_uint32(&w, 0);                    /* flags */
+    tl_write_bytes (&w, (const unsigned char *)"\x01", 1);
+    tl_write_int32 (&w, 30);
+    tl_write_uint32(&w, 0x3b6ddad2u);
+    tl_write_uint32(&w, 0);
+    tl_write_bytes (&w, (const unsigned char *)"\x02", 1);
+    tl_write_int32 (&w, 20);
+    tl_write_int32 (&w, 50);                   /* total_voters */
+    /* recent_voters: Vector<Peer> */
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, TL_peerUser); tl_write_int64(&w, 42LL);
+    TlReader r = tl_reader_init(w.data, w.len);
+    MediaInfo mi = {0};
+    ASSERT(tl_skip_message_media_ex(&r, &mi) == 0, "poll+results walked");
+    ASSERT(mi.kind == MEDIA_POLL, "kind=POLL");
+    ASSERT(r.pos == r.len, "reader consumed poll");
+    tl_writer_free(&w);
+
+    /* PollResults with solution (flags.4). */
+    tl_writer_init(&w);
+    tl_write_uint32(&w, 0x4bd6e798u);
+    tl_write_uint32(&w, 0x58747131u);
+    tl_write_uint32(&w, 0);
+    tl_write_int64 (&w, 78LL);
+    tl_write_uint32(&w, 0x751f3146u); tl_write_string(&w, "Q?");
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, 0x7adc669du);
+    tl_write_uint32(&w, (1u << 4));            /* solution flag */
+    tl_write_string(&w, "Answer is 42");
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 0);
+    TlReader r2 = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r2, NULL) == 0, "poll+solution walked");
+    tl_writer_free(&w);
+
+    /* Bad PollAnswerVoters CRC → -1 */
+    tl_writer_init(&w);
+    tl_write_uint32(&w, 0x4bd6e798u);
+    tl_write_uint32(&w, 0x58747131u);
+    tl_write_uint32(&w, 0);
+    tl_write_int64 (&w, 79LL);
+    tl_write_uint32(&w, 0x751f3146u); tl_write_string(&w, "Q?");
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, 0x7adc669du);
+    tl_write_uint32(&w, (1u << 1));
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, 0xFF00EEEEu);          /* bad PollAnswerVoters */
+    tl_write_uint32(&w, 0);
+    TlReader r3 = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r3, NULL) == -1,
+           "bad PollAnswerVoters rejected");
+    tl_writer_free(&w);
+}
+
+/* ---- messageMediaWebPage → skip_webpage + deep nested page/block/rich ---- */
+static void test_media_webpage_variants(void) {
+    /* webPageEmpty */
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, 0xddf8c26eu);          /* messageMediaWebPage */
+    tl_write_uint32(&w, 0);                    /* flags */
+    tl_write_uint32(&w, 0xeb1477e8u);          /* webPageEmpty */
+    tl_write_uint32(&w, 0);                    /* flags */
+    tl_write_int64 (&w, 1LL);                  /* id */
+    TlReader r = tl_reader_init(w.data, w.len);
+    MediaInfo mi = {0};
+    ASSERT(tl_skip_message_media_ex(&r, &mi) == 0, "webPageEmpty walked");
+    ASSERT(mi.kind == MEDIA_WEBPAGE, "kind=WEBPAGE");
+    tl_writer_free(&w);
+
+    /* webPagePending */
+    tl_writer_init(&w);
+    tl_write_uint32(&w, 0xddf8c26eu);
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, 0xb0d13e47u);          /* webPagePending */
+    tl_write_uint32(&w, 0);
+    tl_write_int64 (&w, 2LL);
+    tl_write_int32 (&w, 1700000000);           /* date */
+    TlReader r2 = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r2, NULL) == 0, "webPagePending walked");
+    tl_writer_free(&w);
+
+    /* webPageNotModified (no flags) */
+    tl_writer_init(&w);
+    tl_write_uint32(&w, 0xddf8c26eu);
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, 0x7311ca11u);          /* webPageNotModified */
+    tl_write_uint32(&w, (1u << 0));            /* flags.0 → cached_page_views */
+    tl_write_int32 (&w, 1234);                 /* cached_page_views */
+    TlReader r3 = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r3, NULL) == 0, "webPageNotModified walked");
+    tl_writer_free(&w);
+
+    /* Full webPage — type + site + title + description + embed + author,
+     * flags 0,1,2,3,5,6,7,8 — no photo/document/page/attributes. */
+    tl_writer_init(&w);
+    tl_write_uint32(&w, 0xddf8c26eu);
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, 0xe89c45b2u);          /* webPage */
+    uint32_t wpf = (1u<<0)|(1u<<1)|(1u<<2)|(1u<<3)|(1u<<5)|(1u<<6)|(1u<<7)|(1u<<8);
+    tl_write_uint32(&w, wpf);
+    tl_write_int64 (&w, 99LL);
+    tl_write_string(&w, "https://example.com");
+    tl_write_string(&w, "example.com");
+    tl_write_int32 (&w, 0);                    /* hash */
+    tl_write_string(&w, "article");            /* type */
+    tl_write_string(&w, "Example Site");       /* site_name */
+    tl_write_string(&w, "My Title");           /* title */
+    tl_write_string(&w, "Description here");  /* description */
+    tl_write_string(&w, "https://embed.example.com");
+    tl_write_string(&w, "text/html");          /* embed_type */
+    tl_write_int32 (&w, 640); tl_write_int32(&w, 360);
+    tl_write_int32 (&w, 120);                  /* duration */
+    tl_write_string(&w, "Author Name");
+    TlReader r4 = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r4, NULL) == 0, "full webPage walked");
+    ASSERT(r4.pos == r4.len, "consumed full webPage");
+    tl_writer_free(&w);
+
+    /* webPage with cached_page (flags.10) — exercises skip_page + skip_page_block. */
+    tl_writer_init(&w);
+    tl_write_uint32(&w, 0xddf8c26eu);
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, 0xe89c45b2u);
+    uint32_t pgf = (1u << 10);                 /* cached_page */
+    tl_write_uint32(&w, pgf);
+    tl_write_int64 (&w, 100LL);
+    tl_write_string(&w, "https://telegraph.ph/article");
+    tl_write_string(&w, "telegraph.ph");
+    tl_write_int32 (&w, 0);
+    /* page#98657f0d flags=0 url blocks photos docs */
+    tl_write_uint32(&w, 0x98657f0du);
+    tl_write_uint32(&w, 0);
+    tl_write_string(&w, "https://telegraph.ph/article");
+    /* blocks: Vector<PageBlock> — cover several block variants */
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 8);
+    /* pageBlockUnsupported */
+    tl_write_uint32(&w, 0x13567e8au);
+    /* pageBlockDivider */
+    tl_write_uint32(&w, 0xdb20b188u);
+    /* pageBlockTitle: rich text textPlain */
+    tl_write_uint32(&w, 0x70abc3fdu);
+    tl_write_uint32(&w, 0x744694e0u); tl_write_string(&w, "My Title");
+    /* pageBlockParagraph: textBold wrapping textPlain */
+    tl_write_uint32(&w, 0x467a0766u);
+    tl_write_uint32(&w, 0x6724abc4u);          /* textBold */
+    tl_write_uint32(&w, 0x744694e0u); tl_write_string(&w, "bold");
+    /* pageBlockAnchor: string */
+    tl_write_uint32(&w, 0xce0d37b0u);
+    tl_write_string(&w, "anchor1");
+    /* pageBlockPreformatted: rich + language string */
+    tl_write_uint32(&w, 0xc070d93eu);
+    tl_write_uint32(&w, 0xdc3d824fu);          /* textEmpty */
+    tl_write_string(&w, "python");
+    /* pageBlockAuthorDate: rich + int */
+    tl_write_uint32(&w, 0xbaafe5e0u);
+    tl_write_uint32(&w, 0x744694e0u); tl_write_string(&w, "Author");
+    tl_write_int32 (&w, 1700001000);
+    /* pageBlockBlockquote: two rich texts */
+    tl_write_uint32(&w, 0x263d7c26u);
+    tl_write_uint32(&w, 0xdc3d824fu);          /* textEmpty */
+    tl_write_uint32(&w, 0xdc3d824fu);
+    /* photos: Vector<Photo> — empty */
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 0);
+    /* docs: Vector<Document> — empty */
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 0);
+    TlReader r5 = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r5, NULL) == 0, "webPage+page walked");
+    ASSERT(r5.pos == r5.len, "consumed page");
+    tl_writer_free(&w);
+
+    /* Page with more block variants: Cover, List, OrderedList, Table,
+     * RelatedArticles, Collage, Details. */
+    tl_writer_init(&w);
+    tl_write_uint32(&w, 0xddf8c26eu);
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, 0xe89c45b2u);
+    tl_write_uint32(&w, (1u << 10));
+    tl_write_int64 (&w, 101LL);
+    tl_write_string(&w, "https://t.me/a");
+    tl_write_string(&w, "t.me");
+    tl_write_int32 (&w, 0);
+    tl_write_uint32(&w, 0x98657f0du);
+    tl_write_uint32(&w, 0);
+    tl_write_string(&w, "https://t.me/a");
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 7);
+    /* pageBlockCover wrapping a pageBlockDivider */
+    tl_write_uint32(&w, 0x39f23300u);
+    tl_write_uint32(&w, 0xdb20b188u);
+    /* pageBlockList: one text item */
+    tl_write_uint32(&w, 0xe4e88011u);
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, 0xb92fb6cdu);          /* pageListItemText */
+    tl_write_uint32(&w, 0xdc3d824fu);          /* textEmpty */
+    /* pageBlockOrderedList: one ordered text item */
+    tl_write_uint32(&w, 0x9a8ae1e1u);
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, 0x5e068047u);          /* pageListOrderedItemText */
+    tl_write_string(&w, "1.");
+    tl_write_uint32(&w, 0xdc3d824fu);
+    /* pageBlockTable: flags=0 title rows */
+    tl_write_uint32(&w, 0xbf4dea82u);
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, 0xdc3d824fu);          /* title: textEmpty */
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 1);
+    /* pageTableRow: Vector<pageTableCell> with one cell */
+    tl_write_uint32(&w, 0xe0c0c5e5u);
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 1);
+    /* pageTableCell: flags=0b11000010 (text=bit7, colspan=bit1, rowspan=bit2) */
+    tl_write_uint32(&w, 0x34566b6au);
+    tl_write_uint32(&w, (1u<<7)|(1u<<1)|(1u<<2));
+    tl_write_uint32(&w, 0xdc3d824fu);          /* text: textEmpty */
+    tl_write_int32 (&w, 2);                    /* colspan */
+    tl_write_int32 (&w, 1);                    /* rowspan */
+    /* pageBlockRelatedArticles: title + articles */
+    tl_write_uint32(&w, 0x16115a96u);
+    tl_write_uint32(&w, 0xdc3d824fu);          /* title */
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 1);
+    /* pageRelatedArticle#b390dc08 flags=0b11111 */
+    tl_write_uint32(&w, 0xb390dc08u);
+    tl_write_uint32(&w, 0x1fu);
+    tl_write_string(&w, "https://rel.example.com");
+    tl_write_int64 (&w, 5LL);
+    tl_write_string(&w, "Related Title");
+    tl_write_string(&w, "Related Desc");
+    tl_write_int64 (&w, 6LL);
+    tl_write_string(&w, "Rel Author");
+    tl_write_int32 (&w, 1700000000);
+    /* pageBlockDetails: flags=0 blocks title */
+    tl_write_uint32(&w, 0x76768bedu);
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, 0xdc3d824fu);          /* title */
+    /* pageBlockCollage: blocks caption */
+    tl_write_uint32(&w, 0x65a0fa4du);
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 0);
+    /* caption: pageCaption#6f747657 text:RichText credit:RichText */
+    tl_write_uint32(&w, 0x6f747657u);
+    tl_write_uint32(&w, 0xdc3d824fu);
+    tl_write_uint32(&w, 0xdc3d824fu);
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 0);
+    TlReader r6 = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r6, NULL) == 0, "page block variants walked");
+    ASSERT(r6.pos == r6.len, "consumed page block variants");
+    tl_writer_free(&w);
+
+    /* Rich text variants: textUrl, textEmail, textPhone, textConcat,
+     * textImage, textAnchor. */
+    tl_writer_init(&w);
+    tl_write_uint32(&w, 0xddf8c26eu);
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, 0xe89c45b2u);
+    tl_write_uint32(&w, (1u << 10));
+    tl_write_int64 (&w, 102LL);
+    tl_write_string(&w, "https://t.me/b"); tl_write_string(&w, "t.me");
+    tl_write_int32 (&w, 0);
+    tl_write_uint32(&w, 0x98657f0du);
+    tl_write_uint32(&w, 0);
+    tl_write_string(&w, "https://t.me/b");
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 1);
+    /* pageBlockPullquote: two rich text fields — use complex rich texts */
+    tl_write_uint32(&w, 0x4f4456d5u);
+    /* text: textConcat wrapping [textUrl, textEmail, textPhone, textImage, textAnchor] */
+    tl_write_uint32(&w, 0x7e6260d7u);          /* textConcat */
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 5);
+    /* textUrl: rich + url + webpage_id */
+    tl_write_uint32(&w, 0x3c2884c1u);
+    tl_write_uint32(&w, 0xdc3d824fu);
+    tl_write_string(&w, "https://link.example.com");
+    tl_write_int64 (&w, 7LL);
+    /* textEmail: rich + email */
+    tl_write_uint32(&w, 0xde5a0dd6u);
+    tl_write_uint32(&w, 0xdc3d824fu);
+    tl_write_string(&w, "a@b.com");
+    /* textPhone: rich + phone */
+    tl_write_uint32(&w, 0x1ccb966au);
+    tl_write_uint32(&w, 0xdc3d824fu);
+    tl_write_string(&w, "+15550001234");
+    /* textImage: document_id w h */
+    tl_write_uint32(&w, 0x081ccf4fu);
+    tl_write_int64 (&w, 8LL);
+    tl_write_int32 (&w, 32); tl_write_int32(&w, 32);
+    /* textAnchor: rich + name */
+    tl_write_uint32(&w, 0x35553762u);
+    tl_write_uint32(&w, 0xdc3d824fu);
+    tl_write_string(&w, "sec1");
+    /* credit: textEmpty */
+    tl_write_uint32(&w, 0xdc3d824fu);
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 0);
+    TlReader r7 = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r7, NULL) == 0, "rich text variants walked");
+    ASSERT(r7.pos == r7.len, "consumed rich text variants");
+    tl_writer_free(&w);
+
+    /* webPage with attributes (flags.12) — webPageAttributeTheme (no docs) +
+     * webPageAttributeStickerSet (empty stickers). */
+    tl_writer_init(&w);
+    tl_write_uint32(&w, 0xddf8c26eu);
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, 0xe89c45b2u);
+    tl_write_uint32(&w, (1u << 12));
+    tl_write_int64 (&w, 103LL);
+    tl_write_string(&w, "https://t.me/c"); tl_write_string(&w, "t.me");
+    tl_write_int32 (&w, 0);
+    /* attributes: Vector<WebPageAttribute> */
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 2);
+    /* webPageAttributeTheme flags=0 (no documents, no settings) */
+    tl_write_uint32(&w, 0x54b56617u);
+    tl_write_uint32(&w, 0);
+    /* webPageAttributeStickerSet flags=0 stickers=[] */
+    tl_write_uint32(&w, 0x50cc03d3u);
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 0);
+    TlReader r8 = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r8, NULL) == 0, "webPage attributes walked");
+    ASSERT(r8.pos == r8.len, "consumed webPage attributes");
+    tl_writer_free(&w);
+
+    /* Unknown webPage CRC → -1 */
+    tl_writer_init(&w);
+    tl_write_uint32(&w, 0xddf8c26eu);
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, 0xFF001234u);
+    tl_write_uint32(&w, 0);
+    TlReader r9 = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r9, NULL) == -1, "unknown webPage rejected");
+    tl_writer_free(&w);
+}
+
+/* ---- Chat with admin rights + banned rights ---- */
+static void test_chat_admin_banned_rights(void) {
+    /* chat#41cbf256 with flags.14 (admin_rights) and flags.18 (banned_rights). */
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, TL_chat);
+    uint32_t cflags = (1u << 14) | (1u << 18);
+    tl_write_uint32(&w, cflags);
+    tl_write_int64 (&w, 1001LL);
+    tl_write_string(&w, "Test Group");
+    /* chatPhotoEmpty */
+    tl_write_uint32(&w, 0x37c1011cu);
+    tl_write_int32 (&w, 5);                    /* participants_count */
+    tl_write_int32 (&w, 1700000000);           /* date */
+    tl_write_int32 (&w, 1);                    /* version */
+    /* chatAdminRights#5fb224d5 flags:# */
+    tl_write_uint32(&w, 0x5fb224d5u);
+    tl_write_uint32(&w, 0x1ff);               /* all known bits */
+    /* chatBannedRights#9f120418 flags:# until_date:int */
+    tl_write_uint32(&w, 0x9f120418u);
+    tl_write_uint32(&w, 0);
+    tl_write_int32 (&w, 0);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ChatSummary cs = {0};
+    ASSERT(tl_extract_chat(&r, &cs) == 0, "chat with admin+banned walked");
+    ASSERT(cs.id == 1001LL, "chat id captured");
+    ASSERT(r.pos == r.len, "reader consumed chat");
+    tl_writer_free(&w);
+
+    /* channel with flags.14 (admin_rights) + flags.15 (banned_rights) +
+     * flags.18 (default_banned_rights). Minimal: no access_hash, no username. */
+    tl_writer_init(&w);
+    tl_write_uint32(&w, TL_channel);
+    uint32_t chflags = (1u << 14) | (1u << 15) | (1u << 18);
+    tl_write_uint32(&w, chflags);
+    tl_write_uint32(&w, 0);                    /* flags2 */
+    tl_write_int64 (&w, 2001LL);
+    tl_write_string(&w, "My Channel");
+    tl_write_uint32(&w, 0x37c1011cu);          /* chatPhotoEmpty */
+    tl_write_int32 (&w, 1700000000);           /* date */
+    tl_write_uint32(&w, 0x5fb224d5u);          /* chatAdminRights */
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, 0x9f120418u);          /* chatBannedRights (flags.15) */
+    tl_write_uint32(&w, 0); tl_write_int32(&w, 0);
+    tl_write_uint32(&w, 0x9f120418u);          /* default_banned_rights (flags.18) */
+    tl_write_uint32(&w, 0); tl_write_int32(&w, 0);
+    TlReader r2 = tl_reader_init(w.data, w.len);
+    ChatSummary cs2 = {0};
+    ASSERT(tl_extract_chat(&r2, &cs2) == 0, "channel with rights walked");
+    ASSERT(cs2.id == 2001LL, "channel id captured");
+    tl_writer_free(&w);
+
+    /* chatAdminRights unknown CRC → -1 (reach via chat) */
+    tl_writer_init(&w);
+    tl_write_uint32(&w, TL_chat);
+    tl_write_uint32(&w, (1u << 14));
+    tl_write_int64 (&w, 1002LL);
+    tl_write_string(&w, "G");
+    tl_write_uint32(&w, 0x37c1011cu);
+    tl_write_int32 (&w, 0); tl_write_int32(&w, 0); tl_write_int32(&w, 0);
+    tl_write_uint32(&w, 0xFF00DDDDu);          /* unknown admin rights */
+    tl_write_uint32(&w, 0);
+    TlReader r3 = tl_reader_init(w.data, w.len);
+    ASSERT(tl_extract_chat(&r3, NULL) == -1, "unknown adminRights rejected");
+    tl_writer_free(&w);
+
+    /* chatBannedRights unknown CRC → -1 */
+    tl_writer_init(&w);
+    tl_write_uint32(&w, TL_chat);
+    tl_write_uint32(&w, (1u << 18));
+    tl_write_int64 (&w, 1003LL);
+    tl_write_string(&w, "H");
+    tl_write_uint32(&w, 0x37c1011cu);
+    tl_write_int32 (&w, 0); tl_write_int32(&w, 0); tl_write_int32(&w, 0);
+    tl_write_uint32(&w, 0xFF00CCCCu);          /* unknown banned rights */
+    tl_write_uint32(&w, 0); tl_write_int32(&w, 0);
+    TlReader r4 = tl_reader_init(w.data, w.len);
+    ASSERT(tl_extract_chat(&r4, NULL) == -1, "unknown bannedRights rejected");
+    tl_writer_free(&w);
+}
+
+/* ---- Remaining list/ordered list blocks variant (blocks variant) ---- */
+static void test_page_block_list_blocks_variant(void) {
+    /* Exercises pageListItemBlocks and pageListOrderedItemBlocks branches. */
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, 0xddf8c26eu);
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, 0xe89c45b2u);
+    tl_write_uint32(&w, (1u << 10));
+    tl_write_int64 (&w, 104LL);
+    tl_write_string(&w, "https://t.me/d"); tl_write_string(&w, "t.me");
+    tl_write_int32 (&w, 0);
+    tl_write_uint32(&w, 0x98657f0du);
+    tl_write_uint32(&w, 0);
+    tl_write_string(&w, "https://t.me/d");
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 2);
+    /* pageBlockList with a pageListItemBlocks item */
+    tl_write_uint32(&w, 0xe4e88011u);
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, 0x25e073fcu);          /* pageListItemBlocks */
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, 0xdb20b188u);          /* pageBlockDivider (leaf) */
+    /* pageBlockOrderedList with a pageListOrderedItemBlocks item */
+    tl_write_uint32(&w, 0x9a8ae1e1u);
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, 0x98dd8936u);          /* pageListOrderedItemBlocks */
+    tl_write_string(&w, "a.");
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, 0xdb20b188u);
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 0);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r, NULL) == 0, "list blocks variant walked");
+    ASSERT(r.pos == r.len, "consumed list blocks");
+    tl_writer_free(&w);
+}
+
+/* ---- Remaining rich text + other page blocks ---- */
+static void test_page_block_extra_variants(void) {
+    /* pageBlockSlideshow, pageBlockEmbed, pageBlockEmbedPost,
+     * pageBlockVideo, pageBlockAudio, pageBlockPhoto, pageBlockMap,
+     * pageBlockChannel — and rich text subscript/superscript/marked/fixed/strike. */
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, 0xddf8c26eu);
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, 0xe89c45b2u);
+    tl_write_uint32(&w, (1u << 10));
+    tl_write_int64 (&w, 105LL);
+    tl_write_string(&w, "https://t.me/e"); tl_write_string(&w, "t.me");
+    tl_write_int32 (&w, 0);
+    tl_write_uint32(&w, 0x98657f0du);
+    tl_write_uint32(&w, 0);
+    tl_write_string(&w, "https://t.me/e");
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 10);
+    /* pageBlockSlideshow: blocks + caption */
+    tl_write_uint32(&w, 0x031f9590u);
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 1);
+    tl_write_uint32(&w, 0xdb20b188u);
+    tl_write_uint32(&w, 0x6f747657u);          /* pageCaption */
+    tl_write_uint32(&w, 0xdc3d824fu); tl_write_uint32(&w, 0xdc3d824fu);
+    /* pageBlockEmbed: flags=0 (no url, no html, no poster, no wh) + caption */
+    tl_write_uint32(&w, 0xa8718dc5u);
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, 0x6f747657u);
+    tl_write_uint32(&w, 0xdc3d824fu); tl_write_uint32(&w, 0xdc3d824fu);
+    /* pageBlockEmbedPost: url + webpage_id + author_photo_id + author + date + blocks + caption */
+    tl_write_uint32(&w, 0xf259a80bu);
+    tl_write_string(&w, "https://t.me/post/1");
+    tl_write_int64 (&w, 8LL);
+    tl_write_int64 (&w, 9LL);
+    tl_write_string(&w, "PostAuthor");
+    tl_write_int32 (&w, 1700001000);
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, 0x6f747657u);
+    tl_write_uint32(&w, 0xdc3d824fu); tl_write_uint32(&w, 0xdc3d824fu);
+    /* pageBlockVideo: flags=0 video_id + caption */
+    tl_write_uint32(&w, 0x7c8fe7b6u);
+    tl_write_uint32(&w, 0);                    /* flags */
+    tl_write_int64 (&w, 11LL);
+    tl_write_uint32(&w, 0x6f747657u);
+    tl_write_uint32(&w, 0xdc3d824fu); tl_write_uint32(&w, 0xdc3d824fu);
+    /* pageBlockAudio: audio_id + caption */
+    tl_write_uint32(&w, 0x804361eau);
+    tl_write_int64 (&w, 12LL);
+    tl_write_uint32(&w, 0x6f747657u);
+    tl_write_uint32(&w, 0xdc3d824fu); tl_write_uint32(&w, 0xdc3d824fu);
+    /* pageBlockPhoto: flags=0 photo_id + caption */
+    tl_write_uint32(&w, 0x1759c560u);
+    tl_write_uint32(&w, 0);
+    tl_write_int64 (&w, 13LL);
+    tl_write_uint32(&w, 0x6f747657u);
+    tl_write_uint32(&w, 0xdc3d824fu); tl_write_uint32(&w, 0xdc3d824fu);
+    /* pageBlockMap: geoPointEmpty + zoom w h + caption */
+    tl_write_uint32(&w, 0xa44f3ef6u);
+    tl_write_uint32(&w, 0x1117dd5fu);          /* geoPointEmpty */
+    tl_write_int32 (&w, 10); tl_write_int32(&w, 400); tl_write_int32(&w, 300);
+    tl_write_uint32(&w, 0x6f747657u);
+    tl_write_uint32(&w, 0xdc3d824fu); tl_write_uint32(&w, 0xdc3d824fu);
+    /* pageBlockChannel: a chatEmpty */
+    tl_write_uint32(&w, 0xef1751b5u);
+    tl_write_uint32(&w, TL_chatEmpty);
+    tl_write_int64 (&w, 333LL);
+    /* pageBlockSubtitle: rich text with subscript + superscript + marked + fixed + strike */
+    tl_write_uint32(&w, 0x8ffa9a1fu);
+    tl_write_uint32(&w, 0x7e6260d7u);          /* textConcat */
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 5);
+    tl_write_uint32(&w, 0xed6a8504u); tl_write_uint32(&w, 0xdc3d824fu); /* subscript */
+    tl_write_uint32(&w, 0xc7fb5e01u); tl_write_uint32(&w, 0xdc3d824fu); /* superscript */
+    tl_write_uint32(&w, 0x034b27f6u); tl_write_uint32(&w, 0xdc3d824fu); /* marked */
+    tl_write_uint32(&w, 0x6c3f19b9u); tl_write_uint32(&w, 0xdc3d824fu); /* fixed */
+    tl_write_uint32(&w, 0x9bf8bb95u); tl_write_uint32(&w, 0xdc3d824fu); /* strike */
+    /* pageBlockKicker + pageBlockHeader + pageBlockSubheader + pageBlockFooter */
+    tl_write_uint32(&w, 0x1e148390u);          /* kicker */
+    tl_write_uint32(&w, 0xdc3d824fu);
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, TL_vector); tl_write_uint32(&w, 0);
+    TlReader r = tl_reader_init(w.data, w.len);
+    ASSERT(tl_skip_message_media_ex(&r, NULL) == 0, "extra page blocks walked");
+    ASSERT(r.pos == r.len, "consumed extra page blocks");
+    tl_writer_free(&w);
+}
+
 void run_tl_forward_compat_tests(void) {
     RUN_TEST(test_unknown_top_level_result_skipped);
     RUN_TEST(test_unknown_media_in_history);
@@ -1326,4 +2370,13 @@ void run_tl_forward_compat_tests(void) {
     RUN_TEST(test_reactions_replies_trailers);
     RUN_TEST(test_media_photo_and_document);
     RUN_TEST(test_message_replies_empty);
+    RUN_TEST(test_media_game);
+    RUN_TEST(test_media_invoice);
+    RUN_TEST(test_media_paid_media);
+    RUN_TEST(test_media_story);
+    RUN_TEST(test_media_poll_with_results);
+    RUN_TEST(test_media_webpage_variants);
+    RUN_TEST(test_chat_admin_banned_rights);
+    RUN_TEST(test_page_block_list_blocks_variant);
+    RUN_TEST(test_page_block_extra_variants);
 }
