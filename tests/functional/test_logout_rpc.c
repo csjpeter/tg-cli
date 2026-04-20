@@ -37,6 +37,10 @@ static void with_tmp_home_logout(const char *tag) {
     snprintf(bin, sizeof(bin), "%s/.config/tg-cli/session.bin", tmp);
     (void)unlink(bin);
     setenv("HOME", tmp, 1);
+    /* CI runners (GitHub Actions) may export XDG_CONFIG_HOME, which would
+     * make platform_config_dir() ignore our redirected HOME. Force the
+     * HOME-based fallback so prod code and session_bin_exists() agree. */
+    unsetenv("XDG_CONFIG_HOME");
 }
 
 static int session_bin_exists(void) {
