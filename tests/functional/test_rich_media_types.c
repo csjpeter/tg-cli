@@ -813,6 +813,288 @@ static void test_rich_media_cross_dc_rejects_unsupported_kind(void) {
     mt_server_reset();
 }
 
+/* ================================================================ */
+/* download_loop error-branch and cache-copy coverage              */
+/* ================================================================ */
+
+/* Reply with a raw TL body whose first word is CRC_upload_fileCdnRedirect.
+ * download_loop sees this as CDN redirect and returns -1. */
+#define CRC_upload_fileCdnRedirect_T 0xf18cda44u
+
+static void on_get_file_cdn_redirect(MtRpcContext *ctx) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_upload_fileCdnRedirect_T);
+    /* Minimal trailing bytes so resp_len >= 4 */
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, 0);
+    mt_server_reply_result(ctx, w.data, w.len);
+    tl_writer_free(&w);
+}
+
+/* Reply with an unknown CRC — triggers the "unexpected top" branch. */
+static void on_get_file_unknown_top(MtRpcContext *ctx) {
+    TlWriter w; tl_writer_init(&w);
+    tl_write_uint32(&w, 0xDEAD1234u);
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, 0);
+    mt_server_reply_result(ctx, w.data, w.len);
+    tl_writer_free(&w);
+}
+
+/* download_loop: CDN redirect reply → download returns -1. */
+static void test_media_download_loop_cdn_redirect(void) {
+    with_tmp_home("dl-cdn");
+    mt_server_init(); mt_server_reset();
+    MtProtoSession s; load_session(&s);
+    mt_server_expect(CRC_upload_getFile, on_get_file_cdn_redirect, NULL);
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    MediaInfo mi; make_document_mi(&mi, "x.bin", "application/octet-stream");
+    int wrong = 0;
+    ASSERT(domain_download_document(&cfg, &s, &t, &mi,
+                                     "/tmp/tg-cli-ft-rm-cdn.bin",
+                                     &wrong) == -1,
+           "CDN redirect causes download to return -1");
+
+    transport_close(&t);
+    mt_server_reset();
+}
+
+/* download_loop: unknown top CRC → download returns -1. */
+static void test_media_download_loop_unexpected_top(void) {
+    with_tmp_home("dl-badtop");
+    mt_server_init(); mt_server_reset();
+    MtProtoSession s; load_session(&s);
+    mt_server_expect(CRC_upload_getFile, on_get_file_unknown_top, NULL);
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    MediaInfo mi; make_document_mi(&mi, "x.bin", "application/octet-stream");
+    int wrong = 0;
+    ASSERT(domain_download_document(&cfg, &s, &t, &mi,
+                                     "/tmp/tg-cli-ft-rm-badtop.bin",
+                                     &wrong) == -1,
+           "Unexpected top CRC causes download to return -1");
+
+    transport_close(&t);
+    mt_server_reset();
+}
+
+/* download_loop: api_call fails (bad_msg_notification) → download returns -1.
+ * Covers the "api_call failed at offset" log branch. */
+static void test_media_download_loop_api_call_fail(void) {
+    with_tmp_home("dl-apifail");
+    mt_server_init(); mt_server_reset();
+    MtProtoSession s; load_session(&s);
+    /* Arm bad_msg_notification: api_call returns -1 on the first RPC. */
+    mt_server_reply_bad_msg_notification(0, 16);
+    mt_server_expect(CRC_upload_getFile, on_get_file_cdn_redirect, NULL);
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    MediaInfo mi; make_document_mi(&mi, "x.bin", "application/octet-stream");
+    int wrong = 0;
+    ASSERT(domain_download_document(&cfg, &s, &t, &mi,
+                                     "/tmp/tg-cli-ft-rm-apifail.bin",
+                                     &wrong) == -1,
+           "api_call fail causes download to return -1");
+
+    transport_close(&t);
+    mt_server_reset();
+}
+
+/* download_loop: fopen fails because output directory does not exist. */
+static void test_media_download_loop_fopen_fail(void) {
+    with_tmp_home("dl-fopen");
+    mt_server_init(); mt_server_reset();
+    MtProtoSession s; load_session(&s);
+    /* No server expectation needed — fopen fails before the first RPC. */
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    MediaInfo mi; make_document_mi(&mi, "x.bin", "application/octet-stream");
+    int wrong = 0;
+    /* Path under a directory that does not exist. */
+    ASSERT(domain_download_document(&cfg, &s, &t, &mi,
+                                     "/tmp/tg-cli-no-such-dir/out.bin",
+                                     &wrong) == -1,
+           "fopen fail causes download to return -1");
+
+    transport_close(&t);
+    mt_server_reset();
+}
+
+/* Cache-hit copy path for photos: first download to path A, second to
+ * path B (different path, same photo_id).  The copy branch in
+ * domain_download_photo runs and B must exist with identical content. */
+static void make_photo_mi(MediaInfo *mi) {
+    memset(mi, 0, sizeof(*mi));
+    mi->kind              = MEDIA_PHOTO;
+    mi->photo_id          = 0xABCD1234EF56LL;
+    mi->access_hash       = (int64_t)0xCAFEBABEDEADBEEFLL;
+    mi->dc_id             = 2;
+    mi->file_reference_len = 4;
+    mi->file_reference[0] = 0x01; mi->file_reference[1] = 0x02;
+    mi->file_reference[2] = 0x03; mi->file_reference[3] = 0x04;
+    mi->thumb_type[0]     = 'y';   mi->thumb_type[1]     = '\0';
+}
+
+static void test_media_photo_cache_hit_copy(void) {
+    with_tmp_home("dl-cache-copy-photo");
+    mt_server_init(); mt_server_reset();
+    MtProtoSession s; load_session(&s);
+    mt_server_expect(CRC_upload_getFile, on_get_file_short_doc, NULL);
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    MediaInfo mi; make_photo_mi(&mi);
+    const char *path_a = "/tmp/tg-cli-ft-rm-cache-photo-a.bin";
+    const char *path_b = "/tmp/tg-cli-ft-rm-cache-photo-b.bin";
+    unlink(path_a); unlink(path_b);
+
+    /* First download → server is called, result cached at path_a. */
+    int wrong = 0;
+    ASSERT(domain_download_photo(&cfg, &s, &t, &mi, path_a, &wrong) == 0,
+           "first photo download ok");
+
+    /* Second download to a DIFFERENT path → cache-hit copy branch fires. */
+    ASSERT(domain_download_photo(&cfg, &s, &t, &mi, path_b, &wrong) == 0,
+           "second photo download (different path) ok via cache copy");
+
+    struct stat st_a, st_b;
+    ASSERT(stat(path_a, &st_a) == 0, "path_a exists");
+    ASSERT(stat(path_b, &st_b) == 0, "path_b exists after copy");
+    ASSERT(st_a.st_size == st_b.st_size, "copy has same size as original");
+
+    unlink(path_a); unlink(path_b);
+    transport_close(&t);
+    mt_server_reset();
+}
+
+/* Cache-hit copy path for documents: first download to path A, second to
+ * path B — exercises the copy branch in domain_download_document. */
+static void test_media_document_cache_hit_copy(void) {
+    with_tmp_home("dl-cache-copy-doc");
+    mt_server_init(); mt_server_reset();
+    MtProtoSession s; load_session(&s);
+    mt_server_expect(CRC_upload_getFile, on_get_file_short_doc, NULL);
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    MediaInfo mi; make_document_mi(&mi, "doc.bin", "application/octet-stream");
+    const char *path_a = "/tmp/tg-cli-ft-rm-cache-doc-a.bin";
+    const char *path_b = "/tmp/tg-cli-ft-rm-cache-doc-b.bin";
+    unlink(path_a); unlink(path_b);
+
+    int wrong = 0;
+    ASSERT(domain_download_document(&cfg, &s, &t, &mi, path_a, &wrong) == 0,
+           "first document download ok");
+
+    ASSERT(domain_download_document(&cfg, &s, &t, &mi, path_b, &wrong) == 0,
+           "second document download (different path) ok via cache copy");
+
+    struct stat st_a, st_b;
+    ASSERT(stat(path_a, &st_a) == 0, "path_a exists");
+    ASSERT(stat(path_b, &st_b) == 0, "path_b exists after copy");
+    ASSERT(st_a.st_size == st_b.st_size, "copy has same size as original");
+
+    unlink(path_a); unlink(path_b);
+    transport_close(&t);
+    mt_server_reset();
+}
+
+/* cross-DC FILE_MIGRATE: home DC returns FILE_MIGRATE_4 on upload.getFile;
+ * domain_download_media_cross_dc enters the retry path (lines 273+).
+ * We test two sub-cases:
+ *   A) dc_session_open fails → domain_download_media_cross_dc returns -1
+ *      (covers the LOG_INFO "FILE_MIGRATE" line and the dc_session_open
+ *      failure branch at lines 277-279).
+ *   B) dc_session_open succeeds (pre-seeded DC4) but the DC4 download
+ *      also returns FILE_MIGRATE → dummy wrong_dc ignored, returns -1
+ *      (covers dc_session_ensure_authorized fast path + download_any
+ *      + dc_session_close at lines 285-300).
+ */
+static void on_get_file_always_file_migrate(MtRpcContext *ctx) {
+    /* Always returns FILE_MIGRATE_4 — used in sub-case B where we need
+     * the home-DC call to set wrong_dc=4 and the DC4 call to also fail. */
+    mt_server_arm_reconnect();
+    mt_server_reply_error(ctx, 303, "FILE_MIGRATE_4");
+}
+
+static void test_media_cross_dc_session_open_fails(void) {
+    /* Sub-case A: the home DC returns FILE_MIGRATE_4, then dc_session_open
+     * for DC4 fails (mock connect failure) → cross_dc returns -1.
+     * Covers lines 273, 277-279. */
+    with_tmp_home("dl-xdc-openfail");
+    mt_server_init(); mt_server_reset();
+
+    MtProtoSession s; load_session(&s);
+    mt_server_expect(CRC_upload_getFile, on_get_file_always_file_migrate, NULL);
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    /* Do NOT seed DC4 session → session_store_load_dc(4) fails → dc_session
+     * falls through to the DH handshake path → auth_flow_connect_dc runs
+     * transport_connect which succeeds (mock), but the handshake itself fails
+     * because there is no proper DH responder set up.  This causes
+     * dc_session_open to return -1. */
+    mock_socket_fail_connect();   /* make the DC4 transport_connect fail */
+
+    MediaInfo mi; make_document_mi(&mi, "xdc.bin", "application/octet-stream");
+    const char *out = "/tmp/tg-cli-ft-rm-xdc-openfail.bin";
+    unlink(out);
+
+    ASSERT(domain_download_media_cross_dc(&cfg, &s, &t, &mi, out) == -1,
+           "cross_dc returns -1 when dc_session_open fails after FILE_MIGRATE_4");
+
+    unlink(out);
+    transport_close(&t);
+    mt_server_reset();
+}
+
+static void test_media_cross_dc_download_any_on_foreign_dc(void) {
+    /* Sub-case B: home DC returns FILE_MIGRATE_4, DC4 session opens OK
+     * (pre-seeded), but DC4's download also returns an rpc_error (not a
+     * migration this time — 400 MEDIA_INVALID) so download_any fails on the
+     * foreign DC, covering lines 293-300. */
+    with_tmp_home("dl-xdc-foreign");
+    mt_server_init(); mt_server_reset();
+
+    MtProtoSession s; load_session(&s);
+    ASSERT(mt_server_seed_extra_dc(4) == 0, "seed DC4 session");
+    /* Same handler for both calls: first call sets wrong_dc=4 (home DC),
+     * reconnect is armed; second call (DC4) also returns an rpc_error
+     * (400, not a migration) so download_any on DC4 fails. */
+    mt_server_expect(CRC_upload_getFile, on_get_file_always_file_migrate, NULL);
+
+    ApiConfig cfg; init_cfg(&cfg);
+    Transport t; connect_mock(&t);
+
+    MediaInfo mi; make_document_mi(&mi, "xdc.bin", "application/octet-stream");
+    const char *out = "/tmp/tg-cli-ft-rm-xdc-foreign.bin";
+    unlink(out);
+
+    /* Both home DC and DC4 return FILE_MIGRATE_4.  The DC4 call receives the
+     * migrate error but since wrong_dc is the dummy parameter,
+     * domain_download_media_cross_dc returns -1 (download_any rc != 0). */
+    ASSERT(domain_download_media_cross_dc(&cfg, &s, &t, &mi, out) == -1,
+           "cross_dc returns -1 when DC4 download also fails");
+
+    unlink(out);
+    transport_close(&t);
+    mt_server_reset();
+}
+
 void run_rich_media_types_tests(void) {
     /* Parse-path coverage — one test per media variant. */
     RUN_TEST(test_rich_media_parse_geo);
@@ -836,4 +1118,14 @@ void run_rich_media_types_tests(void) {
     RUN_TEST(test_rich_media_download_document_rejects_photo_kind);
     RUN_TEST(test_rich_media_cross_dc_home_succeeds);
     RUN_TEST(test_rich_media_cross_dc_rejects_unsupported_kind);
+
+    /* download_loop error branches and cache-copy paths (media.c ≥90%). */
+    RUN_TEST(test_media_download_loop_cdn_redirect);
+    RUN_TEST(test_media_download_loop_unexpected_top);
+    RUN_TEST(test_media_download_loop_api_call_fail);
+    RUN_TEST(test_media_download_loop_fopen_fail);
+    RUN_TEST(test_media_photo_cache_hit_copy);
+    RUN_TEST(test_media_document_cache_hit_copy);
+    RUN_TEST(test_media_cross_dc_session_open_fails);
+    RUN_TEST(test_media_cross_dc_download_any_on_foreign_dc);
 }
