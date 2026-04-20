@@ -37,6 +37,7 @@ void run_wrong_session_id_tests(void);
 void run_config_wizard_batch_tests(void);
 void run_tg_cli_read_dispatch_tests(void);
 void run_logger_lifecycle_tests(void);
+void run_session_corruption_tests(void);
 
 /** Run suite_fn only when no filter is set or the filter is a substring of
  *  the stringified function name. */
@@ -74,6 +75,7 @@ int main(int argc, char *argv[]) {
     RUN_SUITE(run_config_wizard_batch_tests);
     RUN_SUITE(run_tg_cli_read_dispatch_tests);
     RUN_SUITE(run_logger_lifecycle_tests);
+    RUN_SUITE(run_session_corruption_tests);
 
     printf("\n--- Functional Test Results ---\n");
     printf("Tests Run:    %d\n", g_tests_run);
