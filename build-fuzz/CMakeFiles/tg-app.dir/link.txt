@@ -1,2 +1,0 @@
-/usr/bin/llvm-ar-18 qc libtg-app.a "CMakeFiles/tg-app.dir/src/app/bootstrap.c.o" "CMakeFiles/tg-app.dir/src/app/dc_config.c.o" "CMakeFiles/tg-app.dir/src/app/auth_flow.c.o" "CMakeFiles/tg-app.dir/src/app/credentials.c.o" "CMakeFiles/tg-app.dir/src/app/session_store.c.o" "CMakeFiles/tg-app.dir/src/app/dc_session.c.o"
-/usr/bin/llvm-ranlib-18 libtg-app.a

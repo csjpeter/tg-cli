@@ -1,1 +1,0 @@
-/usr/bin/clang-18 -O2 -g -DNDEBUG -fsanitize=address "CMakeFiles/pty-readline-test-runner.dir/test_readline.c.o" -o pty-readline-test-runner  ../../../libs/libptytest/libptytest.a -lutil 

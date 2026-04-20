@@ -1,1 +1,0 @@
-/usr/bin/clang-18 -O2 -g -DNDEBUG -fsanitize=address -fsanitize=fuzzer,address "CMakeFiles/fuzz-tl-parse.dir/fuzz_tl_parse.c.o" -o fuzz-tl-parse  ../../libtg-proto.a ../../libtg-crypto.a /usr/lib/x86_64-linux-gnu/libssl.so /usr/lib/x86_64-linux-gnu/libcrypto.so 

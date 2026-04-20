@@ -1,2 +1,0 @@
-/usr/bin/llvm-ar-18 qc libtg-tui-lib.a "CMakeFiles/tg-tui-lib.dir/src/tui/screen.c.o" "CMakeFiles/tg-tui-lib.dir/src/tui/pane.c.o" "CMakeFiles/tg-tui-lib.dir/src/tui/list_view.c.o" "CMakeFiles/tg-tui-lib.dir/src/tui/dialog_pane.c.o" "CMakeFiles/tg-tui-lib.dir/src/tui/history_pane.c.o" "CMakeFiles/tg-tui-lib.dir/src/tui/status_row.c.o" "CMakeFiles/tg-tui-lib.dir/src/tui/app.c.o"
-/usr/bin/llvm-ranlib-18 libtg-tui-lib.a

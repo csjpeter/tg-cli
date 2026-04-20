@@ -1,2 +1,0 @@
-/usr/bin/llvm-ar-18 qc libtg-domain-read.a "CMakeFiles/tg-domain-read.dir/src/domain/read/self.c.o" "CMakeFiles/tg-domain-read.dir/src/domain/read/dialogs.c.o" "CMakeFiles/tg-domain-read.dir/src/domain/read/history.c.o" "CMakeFiles/tg-domain-read.dir/src/domain/read/updates.c.o" "CMakeFiles/tg-domain-read.dir/src/domain/read/user_info.c.o" "CMakeFiles/tg-domain-read.dir/src/domain/read/search.c.o" "CMakeFiles/tg-domain-read.dir/src/domain/read/contacts.c.o" "CMakeFiles/tg-domain-read.dir/src/domain/read/media.c.o"
-/usr/bin/llvm-ranlib-18 libtg-domain-read.a

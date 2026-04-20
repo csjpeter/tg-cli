@@ -1,2 +1,0 @@
-/usr/bin/llvm-ar-18 qc libptytest.a CMakeFiles/ptytest.dir/pty_session.c.o CMakeFiles/ptytest.dir/pty_screen.c.o CMakeFiles/ptytest.dir/pty_sync.c.o
-/usr/bin/llvm-ranlib-18 libptytest.a

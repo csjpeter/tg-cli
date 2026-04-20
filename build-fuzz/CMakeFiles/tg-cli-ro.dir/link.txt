@@ -1,1 +1,0 @@
-/usr/bin/clang-18 -O2 -g -DNDEBUG -fsanitize=address "CMakeFiles/tg-cli-ro.dir/src/main/tg_cli_ro.c.o" -o tg-cli-ro  libtg-domain-read.a libtg-app.a libtg-proto.a libtg-crypto.a /usr/lib/x86_64-linux-gnu/libssl.so /usr/lib/x86_64-linux-gnu/libcrypto.so 
