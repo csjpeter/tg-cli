@@ -75,7 +75,9 @@ A user landing at my.telegram.org for the first time has no guidance on:
 ## Step 4 — Copy the generated credentials
   "App api_id"   → a 6–8 digit number
   "App api_hash" → a 32-char lowercase hex string
-  Ignore "Public Keys" and "Server URLs" — tg-cli bundles these.
+  "Public Keys" and "Server URLs" should match tg-cli's built-in values.
+  If Telegram has changed them, override via rsa_pem / dc_N_host in config.ini
+  (see FEAT-38).
 
 ## Step 5 — Put the credentials into tg-cli
   Option A — interactive:  tg-tui login

@@ -114,12 +114,29 @@ need exactly two values:
   App api_id:    12345678
   App api_hash:  a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4
 
-  Public Keys:   -----BEGIN RSA PUBLIC KEY-----   ← IGNORE
-  Server URLs:   https://149.154.167.50            ← IGNORE
+  Public Keys:   -----BEGIN RSA PUBLIC KEY-----
+  Server URLs:   https://149.154.167.50
 ```
 
-**Ignore** the "Public Keys" and "Server URLs" sections entirely.  tg-cli
-bundles its own DC endpoints and does not use these values.
+Copy the **Public Keys** and **Server URLs** values and compare them with
+what tg-cli has built in.  They should match — Telegram uses the same
+canonical RSA key and DC endpoints for every user.  If they differ from
+what is shown above (e.g. Telegram has rotated the key), you can override
+them in `~/.config/tg-cli/config.ini`:
+
+```ini
+; Optional overrides — only needed when Telegram changes the canonical values.
+rsa_pem      = -----BEGIN RSA PUBLIC KEY-----\n...\n-----END RSA PUBLIC KEY-----
+dc_1_host    = 149.154.175.50
+dc_2_host    = 149.154.167.50
+dc_3_host    = 149.154.175.100
+dc_4_host    = 149.154.167.91
+dc_5_host    = 91.108.56.130
+```
+
+> **Note:** config.ini override for `rsa_pem` and `dc_N_host` is tracked
+> in [FEAT-38](../../issues/pending/FEAT-38-config-dc-rsa-override.md) and
+> not yet implemented.  If you encounter a mismatch, please open an issue.
 
 **Save your api_hash now.**  Telegram does not let you view it again after you
 navigate away (as of 2026 — verify at my.telegram.org).  Copy it to a
