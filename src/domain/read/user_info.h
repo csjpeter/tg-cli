@@ -19,6 +19,7 @@
 #include "transport.h"
 
 #include <stdint.h>
+#include <time.h>
 
 typedef enum {
     RESOLVED_KIND_UNKNOWN = 0,
@@ -59,6 +60,26 @@ int domain_resolve_username(const ApiConfig *cfg,
  * cache hits masking fresh RPCs.
  */
 void resolve_cache_flush(void);
+
+/**
+ * @brief Override the clock used for resolver-cache TTL checks (test use
+ *        only).  Pass NULL to restore the real time() clock.
+ *
+ * This is a compile-time seam: the production function pointer defaults to
+ * @c NULL which causes resolver_now() to fall back to @c time(NULL).  A
+ * test may install a fake so it can fast-forward past the positive or
+ * negative TTL without sleeping.
+ */
+void resolve_cache_set_now_fn(time_t (*fn)(void));
+
+/** Positive-cache TTL in seconds (exposed for tests). */
+int resolve_cache_positive_ttl(void);
+
+/** Negative-cache TTL in seconds (exposed for tests). */
+int resolve_cache_negative_ttl(void);
+
+/** Maximum entries held by the resolver cache (exposed for tests). */
+int resolve_cache_capacity(void);
 
 /** Fields extracted from a users.getFullUser response. */
 typedef struct {

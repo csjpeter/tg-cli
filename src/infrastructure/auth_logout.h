@@ -55,4 +55,17 @@ int auth_logout_rpc(const ApiConfig *cfg, MtProtoSession *s, Transport *t);
  */
 void auth_logout(const ApiConfig *cfg, MtProtoSession *s, Transport *t);
 
+/**
+ * @brief Register a callback invoked by auth_logout() after the local
+ *        session has been cleared.
+ *
+ * Intended for binaries to drop in-process caches that are scoped to the
+ * logged-out account (e.g. the resolver cache in user_info.c).  Passing
+ * @c NULL disables the callback.  A single slot is supported — a later
+ * call replaces the previously registered callback.  The layering rule is
+ * that infrastructure/ cannot reach domain/ directly, so the binary's
+ * main() registers the flush function at startup.
+ */
+void auth_logout_set_cache_flush_cb(void (*cb)(void));
+
 #endif /* INFRASTRUCTURE_AUTH_LOGOUT_H */

@@ -33,11 +33,18 @@
 /** TTL for resolved username cache entries (seconds). */
 #define RESOLVE_CACHE_TTL_S  300
 
+/** TTL for cached negative lookups (USERNAME_INVALID /
+ *  USERNAME_NOT_OCCUPIED).  Kept much shorter than the positive TTL so a
+ *  user that appears later is visible within a few minutes while still
+ *  stopping retry storms. */
+#define RESOLVE_CACHE_NEG_TTL_S  60
+
 /** Maximum number of cached username resolutions. */
 #define RESOLVE_CACHE_MAX    32
 
 typedef struct {
     int          valid;
+    int          negative;    /**< 1 = cached "not found" / "invalid". */
     time_t       fetched_at;
     char         key[64];    /**< username without '@'. */
     ResolvedPeer value;
@@ -45,25 +52,54 @@ typedef struct {
 
 static ResolveCacheEntry s_rcache[RESOLVE_CACHE_MAX];
 
+/** @brief Mockable clock — tests may replace this with a fake. */
+static time_t (*s_rcache_now_fn)(void) = NULL;
+
+static time_t resolver_now(void) {
+    if (s_rcache_now_fn) return s_rcache_now_fn();
+    return time(NULL);
+}
+
+void resolve_cache_set_now_fn(time_t (*fn)(void)) {
+    s_rcache_now_fn = fn;
+}
+
+int resolve_cache_positive_ttl(void) { return RESOLVE_CACHE_TTL_S;     }
+int resolve_cache_negative_ttl(void) { return RESOLVE_CACHE_NEG_TTL_S; }
+int resolve_cache_capacity(void)     { return RESOLVE_CACHE_MAX;       }
+
 void resolve_cache_flush(void) {
     memset(s_rcache, 0, sizeof(s_rcache));
 }
 
-static const ResolvedPeer *rcache_lookup(const char *name) {
-    time_t now = time(NULL);
+/** Lookup result codes for rcache_lookup_v2. */
+typedef enum {
+    RCACHE_MISS     = 0,  /**< no entry (or expired). */
+    RCACHE_HIT_POS  = 1,  /**< positive hit — *out filled. */
+    RCACHE_HIT_NEG  = 2,  /**< negative hit — skip RPC, report not-found. */
+} RcacheLookupResult;
+
+static RcacheLookupResult rcache_lookup_v2(const char *name, ResolvedPeer *out) {
+    time_t now = resolver_now();
     for (int i = 0; i < RESOLVE_CACHE_MAX; i++) {
         if (!s_rcache[i].valid) continue;
         if (strcmp(s_rcache[i].key, name) != 0) continue;
-        if ((now - s_rcache[i].fetched_at) >= RESOLVE_CACHE_TTL_S) {
+        int ttl = s_rcache[i].negative
+                      ? RESOLVE_CACHE_NEG_TTL_S
+                      : RESOLVE_CACHE_TTL_S;
+        if ((now - s_rcache[i].fetched_at) >= ttl) {
             s_rcache[i].valid = 0; /* expired */
-            return NULL;
+            return RCACHE_MISS;
         }
-        return &s_rcache[i].value;
+        if (s_rcache[i].negative) return RCACHE_HIT_NEG;
+        if (out) *out = s_rcache[i].value;
+        return RCACHE_HIT_POS;
     }
-    return NULL;
+    return RCACHE_MISS;
 }
 
-static void rcache_store(const char *name, const ResolvedPeer *rp) {
+static void rcache_store_entry(const char *name, const ResolvedPeer *rp,
+                                 int negative) {
     /* Prefer an empty slot; evict the oldest on full table. */
     int slot = 0;
     time_t oldest = s_rcache[0].fetched_at;
@@ -72,12 +108,22 @@ static void rcache_store(const char *name, const ResolvedPeer *rp) {
         if (s_rcache[i].fetched_at < oldest) { oldest = s_rcache[i].fetched_at; slot = i; }
     }
     s_rcache[slot].valid      = 1;
-    s_rcache[slot].fetched_at = time(NULL);
+    s_rcache[slot].negative   = negative ? 1 : 0;
+    s_rcache[slot].fetched_at = resolver_now();
     size_t klen = strlen(name);
     if (klen >= sizeof(s_rcache[slot].key)) klen = sizeof(s_rcache[slot].key) - 1;
     memcpy(s_rcache[slot].key, name, klen);
     s_rcache[slot].key[klen] = '\0';
-    s_rcache[slot].value = *rp;
+    if (rp) s_rcache[slot].value = *rp;
+    else memset(&s_rcache[slot].value, 0, sizeof(s_rcache[slot].value));
+}
+
+static void rcache_store(const char *name, const ResolvedPeer *rp) {
+    rcache_store_entry(name, rp, /*negative=*/0);
+}
+
+static void rcache_store_negative(const char *name) {
+    rcache_store_entry(name, NULL, /*negative=*/1);
 }
 
 static void copy_small(char *dst, size_t cap, const char *src) {
@@ -145,11 +191,16 @@ int domain_resolve_username(const ApiConfig *cfg,
     copy_small(out->username, sizeof(out->username), bare);
 
     /* Check session-scoped cache first. */
-    const ResolvedPeer *cached = rcache_lookup(bare);
-    if (cached) {
-        *out = *cached;
+    ResolvedPeer cached = {0};
+    RcacheLookupResult cr = rcache_lookup_v2(bare, &cached);
+    if (cr == RCACHE_HIT_POS) {
+        *out = cached;
         logger_log(LOG_DEBUG, "resolve: cache hit for '%s'", bare);
         return 0;
+    }
+    if (cr == RCACHE_HIT_NEG) {
+        logger_log(LOG_DEBUG, "resolve: negative cache hit for '%s'", bare);
+        return -1;
     }
 
     uint8_t query[128];
@@ -171,6 +222,11 @@ int domain_resolve_username(const ApiConfig *cfg,
         RpcError err; rpc_parse_error(resp, resp_len, &err);
         logger_log(LOG_ERROR, "resolve: RPC error %d: %s",
                    err.error_code, err.error_msg);
+        /* Cache USERNAME_* errors with a short TTL to stop retry storms. */
+        if (err.error_msg[0] != '\0' &&
+            strncmp(err.error_msg, "USERNAME_", 9) == 0) {
+            rcache_store_negative(bare);
+        }
         return -1;
     }
     if (top != TL_contacts_resolvedPeer) {

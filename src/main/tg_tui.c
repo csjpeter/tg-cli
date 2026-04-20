@@ -875,6 +875,10 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    /* Drop the session-scoped resolver cache when the user logs out so a
+     * subsequent login does not see stale @peer → id mappings. */
+    auth_logout_set_cache_flush_cb(resolve_cache_flush);
+
     /* --logout: invalidate session server-side, then wipe the local file. */
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--logout") == 0) {

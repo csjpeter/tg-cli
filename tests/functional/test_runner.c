@@ -39,6 +39,7 @@ void run_tg_cli_read_dispatch_tests(void);
 void run_logger_lifecycle_tests(void);
 void run_session_corruption_tests(void);
 void run_config_ini_robustness_tests(void);
+void run_resolver_cache_tests(void);
 
 /** Run suite_fn only when no filter is set or the filter is a substring of
  *  the stringified function name. */
@@ -78,6 +79,7 @@ int main(int argc, char *argv[]) {
     RUN_SUITE(run_logger_lifecycle_tests);
     RUN_SUITE(run_session_corruption_tests);
     RUN_SUITE(run_config_ini_robustness_tests);
+    RUN_SUITE(run_resolver_cache_tests);
 
     printf("\n--- Functional Test Results ---\n");
     printf("Tests Run:    %d\n", g_tests_run);

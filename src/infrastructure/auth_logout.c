@@ -17,6 +17,14 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* ---- Logout observer (Observer pattern keeps domain/ out of here) ---- */
+
+static void (*s_on_logout_cb)(void) = NULL;
+
+void auth_logout_set_cache_flush_cb(void (*cb)(void)) {
+    s_on_logout_cb = cb;
+}
+
 /* ---- Build the auth.logOut TL request ---- */
 
 static int build_logout_request(uint8_t *out, size_t max_len, size_t *out_len) {
@@ -98,4 +106,8 @@ void auth_logout(const ApiConfig *cfg, MtProtoSession *s, Transport *t) {
                    "auth_logout: server invalidation failed; clearing local session anyway");
     }
     session_store_clear();
+    /* Drop session-scoped caches. Infrastructure cannot depend on the
+     * domain layer directly, so we do this through a registered callback
+     * set by the calling binary. */
+    if (s_on_logout_cb) s_on_logout_cb();
 }
