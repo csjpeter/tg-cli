@@ -1,5 +1,7 @@
 build/
+build-*/
 bin/
 .env
 *~
 *.log
+tests/fuzz/corpus/
