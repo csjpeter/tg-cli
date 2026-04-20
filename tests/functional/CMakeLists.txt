@@ -37,6 +37,7 @@ set(FUNCTIONAL_SOURCES
     test_transport_resilience.c
     test_service_frames.c
     test_login_migrate.c
+    test_cross_dc_auth_transfer.c
     # Real crypto implementation (not the mock used by unit tests).
     ../../src/core/crypto.c
     # Mock socket + in-process Telegram server emulator. Real crypto on

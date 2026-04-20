@@ -32,6 +32,17 @@
 #define CRC_auth_sendCode_local  0xa677244fU
 #define CRC_auth_signIn_local    0x8d52a951U
 
+/* TL CRCs for auth.exportAuthorization / auth.importAuthorization and
+ * their reply constructors — local copies so the mock stays decoupled
+ * from src/infrastructure/auth_transfer.c. Kept aligned with the
+ * CRC_* macros in that file. */
+#define CRC_auth_exportAuthorization_local        0xe5bfffcdU
+#define CRC_auth_exportedAuthorization_local      0xb434e2b8U
+#define CRC_auth_importAuthorization_local        0xa57a7dadU
+#define CRC_auth_authorization_local              0x2ea2c0d4U
+#define CRC_auth_authorizationSignUpRequired_local 0x44747e9aU
+#define CRC_user_local                            0x3ff6ecb0U
+
 #define MT_MAX_HANDLERS      64
 #define MT_MAX_UPDATES       32
 #define MT_FRAME_MAX         (256 * 1024)
@@ -565,6 +576,87 @@ void mt_server_reply_user_migrate(int dc_id) {
 void mt_server_reply_network_migrate(int dc_id) {
     g_network_migrate_dc = dc_id;
     mt_server_expect(CRC_auth_sendCode_local, on_network_migrate, NULL);
+}
+
+/* ---- TEST-70 / US-19 auth.exportAuthorization / importAuthorization ----
+ *
+ * Static slots hold the export token (id + bytes) and an override flag
+ * for the one-shot AUTH_KEY_INVALID case. Using statics keeps the helper
+ * API alloc-free and mirrors how the PHONE/USER/NETWORK_MIGRATE helpers
+ * store their target DC. */
+#define MT_EXPORT_BYTES_MAX 1024
+static int64_t g_export_id = 0;
+static uint8_t g_export_bytes[MT_EXPORT_BYTES_MAX];
+static size_t  g_export_bytes_len = 0;
+static int     g_import_sign_up = 0;
+static int     g_import_auth_key_invalid_pending = 0;
+
+static void on_export_authorization(MtRpcContext *ctx) {
+    /* auth.exportedAuthorization#b434e2b8 id:long bytes:bytes = auth.ExportedAuthorization */
+    TlWriter w;
+    tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_auth_exportedAuthorization_local);
+    tl_write_int64 (&w, g_export_id);
+    tl_write_bytes (&w, g_export_bytes, g_export_bytes_len);
+    mt_server_reply_result(ctx, w.data, w.len);
+    tl_writer_free(&w);
+}
+
+static void on_import_authorization(MtRpcContext *ctx) {
+    if (g_import_auth_key_invalid_pending) {
+        /* Simulate a server-side token expiry race: the token we just
+         * issued has gone stale before the client imported it. */
+        g_import_auth_key_invalid_pending = 0;
+        mt_server_reply_error(ctx, 401, "AUTH_KEY_INVALID");
+        return;
+    }
+    TlWriter w;
+    tl_writer_init(&w);
+    if (g_import_sign_up) {
+        /* auth.authorizationSignUpRequired#44747e9a has flags:#
+         * terms_of_service:flags.0?help.TermsOfService = auth.Authorization.
+         * Emit flags=0 (no TOS attached) — the client only cares about the
+         * constructor CRC. */
+        tl_write_uint32(&w, CRC_auth_authorizationSignUpRequired_local);
+        tl_write_uint32(&w, 0);
+    } else {
+        /* auth.authorization#2ea2c0d4 flags:# ... user:User = auth.Authorization.
+         * Emit the minimal shape accepted by the client's parser:
+         * flags=0 + a user#3ff6ecb0 stub with flags=0 and id=101. */
+        tl_write_uint32(&w, CRC_auth_authorization_local);
+        tl_write_uint32(&w, 0);                       /* outer flags */
+        tl_write_uint32(&w, CRC_user_local);          /* user constructor */
+        tl_write_uint32(&w, 0);                       /* user.flags */
+        tl_write_int64 (&w, 101LL);                   /* user.id */
+    }
+    mt_server_reply_result(ctx, w.data, w.len);
+    tl_writer_free(&w);
+}
+
+void mt_server_reply_export_authorization(int64_t id,
+                                           const uint8_t *bytes, size_t len) {
+    if (!bytes || len == 0 || len > MT_EXPORT_BYTES_MAX) return;
+    g_export_id = id;
+    memcpy(g_export_bytes, bytes, len);
+    g_export_bytes_len = len;
+    mt_server_expect(CRC_auth_exportAuthorization_local,
+                     on_export_authorization, NULL);
+}
+
+void mt_server_reply_import_authorization(int sign_up) {
+    g_import_sign_up = sign_up ? 1 : 0;
+    mt_server_expect(CRC_auth_importAuthorization_local,
+                     on_import_authorization, NULL);
+}
+
+void mt_server_reply_import_authorization_auth_key_invalid_once(void) {
+    g_import_auth_key_invalid_pending = 1;
+    /* Next dispatch after the AUTH_KEY_INVALID one-shot falls through to
+     * the happy auth.authorization path (sign_up=0) so callers that want
+     * a full reject→retry cycle do not need two helper calls. */
+    g_import_sign_up = 0;
+    mt_server_expect(CRC_auth_importAuthorization_local,
+                     on_import_authorization, NULL);
 }
 
 /* ================================================================ */

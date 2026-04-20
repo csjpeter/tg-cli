@@ -346,4 +346,53 @@ void mt_server_reply_user_migrate(int dc_id);
  */
 void mt_server_reply_network_migrate(int dc_id);
 
+/**
+ * @brief Install a responder on auth.exportAuthorization that emits
+ *        `auth.exportedAuthorization { id, bytes }`.
+ *
+ * Used by TEST-70 / US-19 (cross-DC auth transfer) to drive the home-DC
+ * side of the export/import handshake. The returned token is the
+ * opaque bytes the client will feed into auth.importAuthorization on
+ * the foreign DC. Same lifecycle as the `mt_server_reply_*` family:
+ * the responder fires until replaced or until mt_server_reset() clears
+ * the handler table.
+ *
+ * @param id     Token id the server emits (echoed in the reply).
+ * @param bytes  Opaque token bytes (server-chosen, ≤ 1024 bytes so the
+ *               client's AUTH_TRANSFER_BYTES_MAX cap is respected).
+ * @param len    Length of @p bytes. Must be > 0 and ≤ 1024.
+ */
+void mt_server_reply_export_authorization(int64_t id,
+                                           const uint8_t *bytes, size_t len);
+
+/**
+ * @brief Install a responder on auth.importAuthorization.
+ *
+ * Counterpart of mt_server_reply_export_authorization. The responder
+ * emits either `auth.authorization#2ea2c0d4 { user }` or, if @p sign_up
+ * is non-zero, the `auth.authorizationSignUpRequired#44747e9a` sentinel
+ * that signals the foreign DC holds no account for this user and a
+ * fresh signup is required (US-19 `authorizationSignUpRequired` edge
+ * case).
+ *
+ * Same lifecycle as the sibling helpers.
+ *
+ * @param sign_up  0 → auth.authorization (happy path), non-zero → the
+ *                 sign-up-required sentinel.
+ */
+void mt_server_reply_import_authorization(int sign_up);
+
+/**
+ * @brief One-shot override: next auth.importAuthorization reply is an
+ *        `rpc_error(401, "AUTH_KEY_INVALID")`.
+ *
+ * Useful for simulating the US-19 "token expiry race" where the DC4
+ * handshake takes too long and the exported token has already expired
+ * server-side. The override auto-clears after a single dispatch; the
+ * standard auth.importAuthorization responder (if any) fires on the
+ * retry. Call before (or instead of)
+ * mt_server_reply_import_authorization.
+ */
+void mt_server_reply_import_authorization_auth_key_invalid_once(void);
+
 #endif /* MOCK_TEL_SERVER_H */
