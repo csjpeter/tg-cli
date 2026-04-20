@@ -27,6 +27,7 @@ set(FUNCTIONAL_SOURCES
     test_tg_cli_read_dispatch.c
     test_logger_lifecycle.c
     test_session_corruption.c
+    test_session_migration.c
     test_config_ini_robustness.c
     test_resolver_cache.c
     test_text_rendering_safety.c

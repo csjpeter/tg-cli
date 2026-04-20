@@ -14,7 +14,15 @@
  *                               uint64 session_id, uint8 auth_key[256] }
  *
  * Per-entry size = 276 bytes. Max payload = 16 + 5*276 = 1396 bytes.
- * Version bump: loader rejects older versions so the operator re-logs in.
+ *
+ * Version handling:
+ *   - v1 (legacy single-DC, 284-byte payload): loader migrates into the
+ *     v2 multi-DC structure in memory; the next successful save rewrites
+ *     the file atomically in v2 format.
+ *   - v2 (current): loaded verbatim.
+ *   - future (> current): refused with "unknown session version — upgrade
+ *     client"; the on-disk bytes are left untouched so an upgraded client
+ *     can read them later.
  */
 
 #ifndef APP_SESSION_STORE_H

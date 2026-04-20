@@ -38,7 +38,26 @@
 #endif
 
 #define STORE_MAGIC      "TGCS"
-#define STORE_VERSION    2
+/* Current on-disk schema version. Increment (and teach the loader the previous
+ * layout) whenever the header or entry format changes. Older files are
+ * silently upgraded on the next save; newer ("future") files are refused
+ * with a distinct diagnostic so an out-of-date client does not clobber
+ * session state it cannot safely parse. */
+#define STORE_VERSION        2
+/* Historical single-DC layout predating multi-DC support (US-16 landing).
+ *   4 bytes magic "TGCS"
+ *   4 bytes version = 1
+ *   4 bytes dc_id         (int32 LE)
+ *   8 bytes server_salt   (uint64 LE)
+ *   8 bytes session_id    (uint64 LE)
+ * 256 bytes auth_key
+ *
+ * The whole payload is exactly 284 bytes. Retained as a read-only
+ * compatibility path — on load the entry is lifted into the v2 multi-DC
+ * struct, marked as home_dc, and the next successful save() atomically
+ * rewrites the file in v2 format. */
+#define STORE_VERSION_V1     1
+#define STORE_V1_TOTAL_SIZE  284
 #define STORE_HEADER     16                  /* magic+ver+home_dc+count */
 #define STORE_ENTRY_SIZE 276                 /* 4 + 8 + 8 + 256 */
 #define STORE_MAX_SIZE   (STORE_HEADER + SESSION_STORE_MAX_DCS * STORE_ENTRY_SIZE)
@@ -178,8 +197,50 @@ static int read_file_locked(StoreFile *out) {
     }
     int32_t version;
     memcpy(&version, buf + 4, 4);
+    /* Legacy v1 single-DC payload — lift into a v2-shaped in-memory store so
+     * the rest of the code (and the next save) is version-agnostic. The file
+     * on disk is left untouched until an explicit save rewrites it atomically
+     * in v2 format, which preserves the migration's crash-safety: if the
+     * client exits between load and save, the v1 bytes remain usable. */
+    if (version == STORE_VERSION_V1) {
+        if (n < STORE_V1_TOTAL_SIZE) {
+            logger_log(LOG_WARN, "session_store: truncated v1 payload");
+            return -1;
+        }
+        int32_t  dc_id;
+        uint64_t server_salt;
+        uint64_t session_id;
+        memcpy(&dc_id,       buf + 8,  4);
+        memcpy(&server_salt, buf + 12, 8);
+        memcpy(&session_id,  buf + 20, 8);
+        out->home_dc_id = dc_id;
+        out->count      = 1;
+        out->entries[0].dc_id       = dc_id;
+        out->entries[0].server_salt = server_salt;
+        out->entries[0].session_id  = session_id;
+        memcpy(out->entries[0].auth_key, buf + 28, MTPROTO_AUTH_KEY_SIZE);
+        logger_log(LOG_INFO,
+                   "session_store: migrated v1 file for DC%d "
+                   "(will rewrite as v2 on next save)", dc_id);
+        return 0;
+    }
     if (version != STORE_VERSION) {
-        logger_log(LOG_WARN, "session_store: unsupported version %d", version);
+        /* Either an out-of-bounds garbage number (classic corruption) or a
+         * *future* version that a newer client wrote.  In the latter case
+         * the safe reaction is to refuse the load and never overwrite — we
+         * ask the operator to upgrade the client instead of silently
+         * clobbering their real session with a freshly-re-authenticated
+         * v2 one. Both paths share the "unsupported version" prefix so
+         * existing corruption-recovery assertions keep matching. */
+        if (version > STORE_VERSION) {
+            logger_log(LOG_WARN,
+                       "session_store: unsupported version %d "
+                       "— unknown session version, upgrade client",
+                       version);
+        } else {
+            logger_log(LOG_WARN,
+                       "session_store: unsupported version %d", version);
+        }
         return -1;
     }
     memcpy(&out->home_dc_id, buf + 8,  4);

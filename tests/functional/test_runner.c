@@ -38,6 +38,7 @@ void run_config_wizard_batch_tests(void);
 void run_tg_cli_read_dispatch_tests(void);
 void run_logger_lifecycle_tests(void);
 void run_session_corruption_tests(void);
+void run_session_migration_tests(void);
 void run_config_ini_robustness_tests(void);
 void run_resolver_cache_tests(void);
 void run_text_rendering_safety_tests(void);
@@ -83,6 +84,7 @@ int main(int argc, char *argv[]) {
     RUN_SUITE(run_tg_cli_read_dispatch_tests);
     RUN_SUITE(run_logger_lifecycle_tests);
     RUN_SUITE(run_session_corruption_tests);
+    RUN_SUITE(run_session_migration_tests);
     RUN_SUITE(run_config_ini_robustness_tests);
     RUN_SUITE(run_resolver_cache_tests);
     RUN_SUITE(run_text_rendering_safety_tests);
