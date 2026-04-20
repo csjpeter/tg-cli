@@ -600,6 +600,8 @@ static void print_help(void) {
         "  --password <pass>            Pre-fill 2FA password\n"
         "  --logout                     Clear persisted session and exit\n"
         "  login [--api-id N --api-hash HEX] [--force]  First-run config wizard\n"
+        "      Interactive when stdin is a TTY. From a script, pass both\n"
+        "      flags; otherwise the command exits with 1 (never blocks on input).\n"
         "\n"
         "See man tg-tui(1) for the full reference.\n"
     );

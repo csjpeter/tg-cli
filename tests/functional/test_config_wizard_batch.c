@@ -183,6 +183,28 @@ static void test_batch_null_args(void) {
            "null api_hash_str: must fail");
 }
 
+/* Script-invocation guard: when stdin is not a TTY (e.g. piped from a
+ * shell script or a cron job), config_wizard_run_interactive() must
+ * bail out immediately with a clear error rather than block on fgets
+ * (which would read EOF in a tight loop or hang). CTest runs its
+ * children with stdin attached to a pipe, so calling the function
+ * here is the exact script scenario. */
+static void test_interactive_refuses_when_stdin_not_tty(void) {
+    set_config_home(get_tmp_dir());
+    rm_cfg();
+    ASSERT(!isatty(STDIN_FILENO),
+           "precondition: CTest gives us a non-TTY stdin");
+    /* Must return -1 quickly — no read, no hang. */
+    ASSERT(config_wizard_run_interactive() == -1,
+           "interactive wizard: must refuse non-TTY stdin with rc=-1");
+    /* Must NOT have created the config file on this error path. */
+    struct stat st;
+    char cfg[1024];
+    snprintf(cfg, sizeof(cfg), "%s/tg-cli/config.ini", get_tmp_dir());
+    ASSERT(stat(cfg, &st) != 0,
+           "interactive wizard: must not create config on TTY guard failure");
+}
+
 /* ---- Runner ---- */
 
 void run_config_wizard_batch_tests(void) {
@@ -196,4 +218,5 @@ void run_config_wizard_batch_tests(void) {
     RUN_TEST(test_batch_rejects_uppercase_api_hash);
     RUN_TEST(test_batch_rejects_non_hex_api_hash);
     RUN_TEST(test_batch_null_args);
+    RUN_TEST(test_interactive_refuses_when_stdin_not_tty);
 }

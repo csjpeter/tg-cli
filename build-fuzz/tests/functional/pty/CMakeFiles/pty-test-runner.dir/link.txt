@@ -1,0 +1,1 @@
+/usr/bin/clang-18 -O2 -g -DNDEBUG -fsanitize=address "CMakeFiles/pty-test-runner.dir/test_pty_smoke.c.o" -o pty-test-runner  ../../../libs/libptytest/libptytest.a -lutil 

@@ -77,7 +77,10 @@ Clear persisted session and exit.
 .TP
 .BI login " [--api-id N --api-hash HEX] [--force]"
 First-run config wizard (FEAT-37). Run before entering the REPL/TUI to
-set up \fB~/.config/tg-cli/config.ini\fR. See \fB.SH CONFIGURATION\fR.
+set up \fB~/.config/tg-cli/config.ini\fR. Interactive prompts require a
+TTY; if stdin is a pipe or redirected, the command exits with status
+\fB1\fR and prints a hint to pass \fB--api-id\fR and \fB--api-hash\fR
+instead \(em it never blocks on input. See \fB.SH CONFIGURATION\fR.
 
 .SH REPL COMMANDS
 Commands apply to the current user's account; a leading \fB/\fR is

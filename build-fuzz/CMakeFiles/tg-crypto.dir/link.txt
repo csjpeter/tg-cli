@@ -1,0 +1,2 @@
+/usr/bin/llvm-ar-18 qc libtg-crypto.a "CMakeFiles/tg-crypto.dir/src/core/crypto.c.o"
+/usr/bin/llvm-ranlib-18 libtg-crypto.a

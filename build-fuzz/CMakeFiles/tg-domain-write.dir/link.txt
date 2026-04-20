@@ -1,0 +1,2 @@
+/usr/bin/llvm-ar-18 qc libtg-domain-write.a "CMakeFiles/tg-domain-write.dir/src/domain/write/send.c.o" "CMakeFiles/tg-domain-write.dir/src/domain/write/read_history.c.o" "CMakeFiles/tg-domain-write.dir/src/domain/write/edit.c.o" "CMakeFiles/tg-domain-write.dir/src/domain/write/delete.c.o" "CMakeFiles/tg-domain-write.dir/src/domain/write/forward.c.o" "CMakeFiles/tg-domain-write.dir/src/domain/write/upload.c.o"
+/usr/bin/llvm-ranlib-18 libtg-domain-write.a

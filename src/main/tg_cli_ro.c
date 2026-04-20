@@ -906,6 +906,8 @@ static void print_usage(void) {
         "\n"
         "Session:\n"
         "  login [--api-id N --api-hash HEX] [--force]  First-run config wizard\n"
+        "      Interactive when stdin is a TTY. From a script, pass both\n"
+        "      flags; otherwise the command exits with 1 (never blocks on input).\n"
         "  --logout                             Clear persisted session\n"
         "\n"
         "Global flags:\n"

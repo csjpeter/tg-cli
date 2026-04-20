@@ -120,7 +120,11 @@ to \fB~/.cache/tg-cli/downloads/photo-<photo_id>.jpg\fR; cross-DC
 First-run config wizard. Writes \fB~/.config/tg-cli/config.ini\fR
 (mode 0600). Interactive when stdin is a TTY and flags are omitted;
 batch when \fB--api-id\fR and \fB--api-hash\fR are supplied.
-Use \fB--force\fR to overwrite an existing config. See \fB.SH CONFIGURATION\fR.
+Use \fB--force\fR to overwrite an existing config. If the interactive
+wizard is invoked but stdin is \fInot\fR a TTY (shell script, cron,
+redirected pipe), the command exits with status \fB1\fR and prints the
+batch-mode hint to stderr \(em it never blocks on input.
+See \fB.SH CONFIGURATION\fR.
 .TP
 .B help
 Alias for

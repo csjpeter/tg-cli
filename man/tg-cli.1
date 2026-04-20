@@ -151,6 +151,13 @@ up to a 1.5 GiB cap (US-14).
 First-run config wizard. Interactive when \fB--api-id\fR and
 \fB--api-hash\fR are omitted and stdin is a TTY. Batch mode when both
 flags are provided; use \fB--force\fR to overwrite an existing config.
+If the interactive wizard is invoked but stdin is \fInot\fR a TTY
+(e.g. launched from a shell script, cron job, or any non-terminal
+pipeline), the command exits immediately with status \fB1\fR and a
+stderr hint pointing to the batch flags \(em it never blocks on
+input. Scripts should pass \fB--api-id\fR and \fB--api-hash\fR or
+set \fBTG_CLI_API_ID\fR / \fBTG_CLI_API_HASH\fR environment variables
+instead of invoking \fBlogin\fR interactively.
 See \fB.SH CONFIGURATION\fR and \fIdocs/user/setup-my-telegram-org.md\fR.
 .TP
 .B --logout
