@@ -23,6 +23,8 @@ show_help() {
     echo "  valgrind           Build and run unit + functional tests with Valgrind"
   echo "  valgrind-unit      Build and run unit tests only with Valgrind"
   echo "  valgrind-functional Build and run functional tests only with Valgrind"
+    echo "  integration [flt]  Build and run integration tests against Telegram test DC"
+    echo "                     Requires TG_TEST_* env vars; skips gracefully when absent"
     echo "  coverage           Run tests and generate coverage report"
     echo "  tidy               Run clang-tidy static analysis on src/ (warn-only)"
     echo "  check-ro-isolation Verify tg-cli-ro contains no write-domain symbols (ADR-0005)"
@@ -121,6 +123,10 @@ build_functional_runner() {
     cmake --build "$BUILD_DIR" --target functional-test-runner
 }
 
+build_integration_runner() {
+    cmake --build "$BUILD_DIR" --target tg-integration-test-runner
+}
+
 case "$1" in
     deps)
         install_deps
@@ -165,6 +171,16 @@ case "$1" in
         build_release
         build_functional_runner
         valgrind --leak-check=full --error-exitcode=1 "$BUILD_DIR/tests/functional/functional-test-runner"
+        ;;
+    integration)
+        if [ -z "${TG_TEST_API_ID:-}" ]; then
+            echo "integration tests skipped — set TG_TEST_* env vars to run"
+            exit 0
+        fi
+        echo "Running integration tests with ASAN (Telegram test DC)..."
+        build_debug
+        build_integration_runner
+        "$BUILD_DIR/tests/integration/tg-integration-test-runner" ${2:+"$2"}
         ;;
     coverage)
         cmake_configure Debug "-DENABLE_COVERAGE=ON"

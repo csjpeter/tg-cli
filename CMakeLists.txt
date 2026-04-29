@@ -224,6 +224,11 @@ add_subdirectory(tests/unit)
 # Functional tests (real crypto, no mocks)
 add_subdirectory(tests/functional)
 
+# Integration tests — target tg-integration-test-runner, EXCLUDED_FROM_ALL.
+# Build explicitly with: cmake --build <dir> --target tg-integration-test-runner
+# or via: ./manage.sh integration
+add_subdirectory(tests/integration)
+
 # libFuzzer harness — only built when -DENABLE_FUZZ=ON is passed.
 # The option is declared earlier (near ENABLE_COVERAGE) so the
 # -fsanitize=fuzzer-no-link flag is applied to all static libraries.

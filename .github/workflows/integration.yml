@@ -1,0 +1,37 @@
+name: Integration
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  integration:
+    # Only run when the test-DC credentials are available as repository secrets.
+    # On forks or PRs from external contributors the secrets are absent and the
+    # job is skipped cleanly — the runner exits 0 when TG_TEST_API_ID is unset.
+    if: ${{ secrets.TG_TEST_API_ID != '' }}
+    runs-on: ubuntu-24.04
+    # Integration tests are inherently network-dependent; allow failures while
+    # the suite is still being built out (TEST-89).
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake libssl-dev
+
+      - name: Run integration tests against Telegram test DC
+        env:
+          TG_TEST_API_ID:   ${{ secrets.TG_TEST_API_ID }}
+          TG_TEST_API_HASH: ${{ secrets.TG_TEST_API_HASH }}
+          TG_TEST_DC_HOST:  ${{ secrets.TG_TEST_DC_HOST }}
+          TG_TEST_DC_PORT:  ${{ secrets.TG_TEST_DC_PORT }}
+          TG_TEST_RSA_PEM:  ${{ secrets.TG_TEST_RSA_PEM }}
+          TG_TEST_PHONE:    ${{ secrets.TG_TEST_PHONE }}
+          TG_TEST_CODE:     ${{ secrets.TG_TEST_CODE }}
+        run: ./manage.sh integration
