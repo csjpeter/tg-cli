@@ -12,10 +12,6 @@
 # This target intentionally does NOT link tests/mocks/socket.c or
 # tests/mocks/crypto.c so that tests exercise the full production code path.
 
-include_directories(
-    ../common          # test_helpers.h
-)
-
 set(INTEGRATION_SOURCES
     test_runner.c
     test_integration_smoke.c
@@ -37,4 +33,5 @@ target_link_libraries(tg-integration-test-runner PRIVATE
 
 target_include_directories(tg-integration-test-runner PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../common
 )

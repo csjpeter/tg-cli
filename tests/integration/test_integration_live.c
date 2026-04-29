@@ -57,19 +57,26 @@ static void apply_test_dc_overrides(void)
     if (c->rsa_pem && c->rsa_pem[0]) {
         if (telegram_server_key_set_override(c->rsa_pem) != 0) {
             printf("  [WARN] RSA PEM override rejected — using built-in key\n");
+        } else {
+            printf("  [INFO] RSA override applied, fingerprint=0x%016llx\n",
+                   (unsigned long long)telegram_server_key_get_fingerprint());
         }
+    } else {
+        printf("  [INFO] No TG_TEST_RSA_PEM set — using built-in key\n");
     }
 
     if (c->dc_host && c->dc_host[0]) {
-        int port = 443;
-        if (c->dc_port && c->dc_port[0])
-            port = atoi(c->dc_port);
+        /* Strip optional ":port" suffix — dc_config_set_host_override takes
+         * only the hostname/IP, not the port. */
+        static char host_only[256];
+        strncpy(host_only, c->dc_host, sizeof(host_only) - 1);
+        host_only[sizeof(host_only) - 1] = '\0';
+        char *colon = strchr(host_only, ':');
+        if (colon) *colon = '\0';
 
         /* Override all five DC slots so migration never escapes to production. */
-        for (int id = 1; id <= 5; id++) {
-            dc_config_set_host_override(id, c->dc_host);
-        }
-        (void)port; /* port is embedded in the DC table; leave at the default */
+        for (int id = 1; id <= 5; id++)
+            dc_config_set_host_override(id, host_only);
     }
 }
 
@@ -405,6 +412,7 @@ static void test_get_history_smoke(void)
  * ---------------------------------------------------------------------- */
 
 /** Callback: supply second phone (for account B). */
+__attribute__((unused))
 static int cb_get_phone_b(void *user, char *out, size_t cap)
 {
     (void)user;
