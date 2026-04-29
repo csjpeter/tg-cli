@@ -36,6 +36,7 @@ integration_config_t g_integration_config;
 
 /* Suite declarations */
 void run_integration_smoke_tests(void);
+void run_integration_live_tests(void);
 
 /** Run suite_fn when no filter is active or filter is a substring of the name. */
 #define RUN_SUITE(suite_fn) do { \
@@ -86,6 +87,7 @@ int main(int argc, char *argv[])
     }
 
     RUN_SUITE(run_integration_smoke_tests);
+    RUN_SUITE(run_integration_live_tests);
 
     printf("\n--- Integration Test Results ---\n");
     printf("Tests Run:    %d\n", g_tests_run);

@@ -19,6 +19,7 @@ include_directories(
 set(INTEGRATION_SOURCES
     test_runner.c
     test_integration_smoke.c
+    test_integration_live.c
 )
 
 add_executable(tg-integration-test-runner EXCLUDE_FROM_ALL ${INTEGRATION_SOURCES})
