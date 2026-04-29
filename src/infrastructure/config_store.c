@@ -109,3 +109,4 @@ int config_save_to_store(const Config *cfg) {
     logger_log(LOG_INFO, "Config saved to %s", path);
     return 0;
 }
+

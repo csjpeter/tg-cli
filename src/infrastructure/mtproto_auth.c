@@ -327,7 +327,7 @@ int auth_step_req_pq(AuthKeyCtx *ctx) {
     int found_fp = 0;
     for (uint32_t i = 0; i < fp_count; i++) {
         uint64_t fp = tl_read_uint64(&r);
-        if (fp == TELEGRAM_RSA_FINGERPRINT) {
+        if (fp == telegram_server_key_get_fingerprint()) {
             found_fp = 1;
         }
     }
@@ -377,7 +377,7 @@ int auth_step_req_dh(AuthKeyCtx *ctx) {
     tl_write_int32(&inner, ctx->dc_id);
 
     /* RSA_PAD encrypt */
-    CryptoRsaKey *rsa_key = crypto_rsa_load_public(TELEGRAM_RSA_PEM);
+    CryptoRsaKey *rsa_key = crypto_rsa_load_public(telegram_server_key_get_pem());
     if (!rsa_key) {
         tl_writer_free(&inner);
         logger_log(LOG_ERROR, "auth: failed to load RSA key");
@@ -403,7 +403,7 @@ int auth_step_req_dh(AuthKeyCtx *ctx) {
     tl_write_int128(&w, ctx->server_nonce);
     tl_write_bytes(&w, p_be, p_be_len);
     tl_write_bytes(&w, q_be, q_be_len);
-    tl_write_uint64(&w, TELEGRAM_RSA_FINGERPRINT);
+    tl_write_uint64(&w, telegram_server_key_get_fingerprint());
     tl_write_bytes(&w, encrypted, enc_len);
 
     rc = rpc_send_unencrypted(ctx->session, ctx->transport, w.data, w.len);

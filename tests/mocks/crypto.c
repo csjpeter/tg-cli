@@ -328,3 +328,11 @@ int crypto_bn_ucmp(const unsigned char *a, size_t a_len,
     if (r == 0 && a_len != b_len) r = a_len < b_len ? -1 : 1;
     return r < 0 ? -1 : (r > 0 ? 1 : 0);
 }
+
+/* FEAT-38: fingerprint computation — not implemented in the mock;
+ * unit tests never call telegram_server_key_set_override() with real PEM. */
+int crypto_rsa_fingerprint(const char *pem, uint64_t *out) {
+    (void)pem;
+    (void)out;
+    return -1;
+}

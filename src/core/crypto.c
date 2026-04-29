@@ -15,6 +15,8 @@
 #include <openssl/rand.h>
 #include <openssl/bn.h>
 #include <openssl/pem.h>
+#include <openssl/core_names.h>
+#include <openssl/param_build.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -230,6 +232,81 @@ int crypto_rsa_public_encrypt(CryptoRsaKey *key, const unsigned char *data,
     }
 
     EVP_PKEY_CTX_free(ctx);
+    return 0;
+}
+
+/* ---- RSA fingerprint ---- */
+
+/*
+ * Telegram fingerprint: lower 64 bits (little-endian) of
+ *   SHA1( LE32(n_len) || n_BE || LE32(e_len) || e_BE )
+ *
+ * Supports both PKCS#1 ("BEGIN RSA PUBLIC KEY") and
+ * PKCS#8 ("BEGIN PUBLIC KEY") PEM formats.
+ * Uses the OpenSSL 3.0 EVP / OSSL_PARAM API throughout — no deprecated calls.
+ */
+int crypto_rsa_fingerprint(const char *pem, uint64_t *out) {
+    if (!pem || !out) return -1;
+
+    /* Load the public key via EVP (works for both PEM subtypes). */
+    BIO *bio = BIO_new_mem_buf(pem, (int)strlen(pem));
+    if (!bio) return -1;
+    EVP_PKEY *pkey = PEM_read_bio_PUBKEY(bio, NULL, NULL, NULL);
+    BIO_free(bio);
+    if (!pkey) return -1;
+
+    /* Extract n and e as BIGNUMs using the provider-neutral OSSL_PARAM API. */
+    BIGNUM *n = NULL, *e = NULL;
+    if (EVP_PKEY_get_bn_param(pkey, OSSL_PKEY_PARAM_RSA_N, &n) != 1 ||
+        EVP_PKEY_get_bn_param(pkey, OSSL_PKEY_PARAM_RSA_E, &e) != 1) {
+        BN_free(n);
+        BN_free(e);
+        EVP_PKEY_free(pkey);
+        return -1;
+    }
+    EVP_PKEY_free(pkey);
+
+    int n_len = BN_num_bytes(n);
+    int e_len = BN_num_bytes(e);
+    if (n_len <= 0 || e_len <= 0) {
+        BN_free(n); BN_free(e);
+        return -1;
+    }
+
+    /* Build TL-serialized blob: LE32(n_len) + n_BE + LE32(e_len) + e_BE */
+    size_t buf_len = 4 + (size_t)n_len + 4 + (size_t)e_len;
+    unsigned char *buf = malloc(buf_len);
+    if (!buf) { BN_free(n); BN_free(e); return -1; }
+
+    /* LE32 for n_len */
+    buf[0] = (unsigned char)(n_len & 0xFF);
+    buf[1] = (unsigned char)((n_len >> 8) & 0xFF);
+    buf[2] = (unsigned char)((n_len >> 16) & 0xFF);
+    buf[3] = (unsigned char)((n_len >> 24) & 0xFF);
+    BN_bn2bin(n, buf + 4);
+
+    /* LE32 for e_len */
+    size_t off = 4 + (size_t)n_len;
+    buf[off + 0] = (unsigned char)(e_len & 0xFF);
+    buf[off + 1] = (unsigned char)((e_len >> 8) & 0xFF);
+    buf[off + 2] = (unsigned char)((e_len >> 16) & 0xFF);
+    buf[off + 3] = (unsigned char)((e_len >> 24) & 0xFF);
+    BN_bn2bin(e, buf + off + 4);
+
+    BN_free(n);
+    BN_free(e);
+
+    /* SHA1 → take lower 64 bits (last 8 bytes of 20-byte digest). */
+    unsigned char sha1_out[20];
+    crypto_sha1(buf, buf_len, sha1_out);
+    free(buf);
+
+    /* Lower 64 bits = bytes [12..19] interpreted as little-endian. */
+    uint64_t fp = 0;
+    for (int i = 0; i < 8; i++) {
+        fp |= ((uint64_t)sha1_out[12 + i]) << (8 * i);
+    }
+    *out = fp;
     return 0;
 }
 

@@ -108,6 +108,22 @@ CryptoRsaKey *crypto_rsa_load_private(const char *pem);
 int crypto_rsa_private_decrypt(CryptoRsaKey *key, const unsigned char *data,
                                size_t data_len, unsigned char *out, size_t *out_len);
 
+/**
+ * @brief Compute the Telegram RSA fingerprint from a public-key PEM string.
+ *
+ * The fingerprint is defined as the lower 64 bits (little-endian) of
+ * SHA1(TL_bytes(n) || TL_bytes(e)), where TL_bytes(x) is a 4-byte LE length
+ * followed by the big-endian representation of x.
+ *
+ * Supports both PKCS#8 ("BEGIN PUBLIC KEY") and PKCS#1 ("BEGIN RSA PUBLIC KEY")
+ * PEM formats.
+ *
+ * @param pem   NULL-terminated PEM string.
+ * @param out   Receives the 64-bit fingerprint on success.
+ * @return 0 on success, -1 if the key cannot be parsed.
+ */
+int crypto_rsa_fingerprint(const char *pem, uint64_t *out);
+
 /* ---- Big Number Arithmetic (for DH) ---- */
 
 /** Big number context (opaque). */

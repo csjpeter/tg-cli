@@ -47,6 +47,7 @@ set(FUNCTIONAL_SOURCES
     test_handshake_cold_boot.c
     test_rich_media_types.c
     test_deep_pagination.c
+    test_config_dc_rsa_override.c
     # Real crypto implementation (not the mock used by unit tests).
     ../../src/core/crypto.c
     # Mock socket + in-process Telegram server emulator. Real crypto on
