@@ -1358,10 +1358,12 @@ static void handshake_on_req_dh_params(const uint8_t *body, size_t body_len) {
     free(enc_data);
 
     /* Parse p_q_inner_data_dc from inner_plain.
+     * RSA_PAD output: SHA256(data)[32] + data[...] + padding.
+     * The actual TL payload starts at offset 32 — skip the hash prefix.
      * TL: CRC(4) pq:bytes p:bytes q:bytes nonce(16) server_nonce(16) new_nonce(32) dc:int */
-    TlReader ir = tl_reader_init(inner_plain, sizeof(inner_plain));
+    TlReader ir = tl_reader_init(inner_plain + 32, sizeof(inner_plain) - 32);
     uint32_t inner_crc = tl_read_uint32(&ir);
-    if (inner_crc != 0xb936a01aU) {  /* CRC_p_q_inner_data_dc */
+    if (inner_crc != 0xa9f55f95U) {  /* CRC_p_q_inner_data_dc */
         fprintf(stderr, "mock: full DH: unexpected inner CRC 0x%08x\n", inner_crc);
         return;
     }

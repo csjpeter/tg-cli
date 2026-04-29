@@ -24,7 +24,7 @@
 /* ---- TL Constructor IDs ---- */
 #define CRC_req_pq_multi          0xbe7e8ef1
 #define CRC_resPQ                 0x05162463
-#define CRC_p_q_inner_data_dc     0xb936a01a
+#define CRC_p_q_inner_data_dc     0xa9f55f95
 #define CRC_req_DH_params         0xd712e4be
 #define CRC_server_DH_params_ok   0xd0e8075c
 #define CRC_server_DH_inner_data  0xb5890dba
@@ -85,14 +85,19 @@ static int rsa_pad_encrypt(CryptoRsaKey *rsa_key,
                            const uint8_t *data, size_t data_len,
                            uint8_t *out, size_t *out_len) {
     if (!rsa_key || !data || !out || !out_len) return -1;
-    if (data_len > 144) return -1;
+    /* 32 SHA256 + data + padding = 192; data must fit: ≤ 160 bytes. */
+    if (data_len > 160) return -1;
 
-    /* Step 1: Pad data to 192 bytes with random padding */
+    /* Step 1: Build 192-byte block: SHA256(data) + data + random_padding */
+    uint8_t sha256_data[32];
+    crypto_sha256(data, data_len, sha256_data);
+
     uint8_t padded[192];
-    memset(padded, 0, sizeof(padded));
-    memcpy(padded, data, data_len);
-    if (data_len < 192) {
-        crypto_rand_bytes(padded + data_len, 192 - data_len);
+    memcpy(padded, sha256_data, 32);
+    memcpy(padded + 32, data, data_len);
+    size_t pad_start = 32 + data_len;
+    if (pad_start < 192) {
+        crypto_rand_bytes(padded + pad_start, 192 - pad_start);
     }
 
     /* Step 2: Reverse */
@@ -352,7 +357,6 @@ int auth_step_req_dh(AuthKeyCtx *ctx) {
         logger_log(LOG_ERROR, "auth: PQ factorization failed");
         return -1;
     }
-
     /* Generate new_nonce */
     crypto_rand_bytes(ctx->new_nonce, 32);
 
@@ -394,8 +398,9 @@ int auth_step_req_dh(AuthKeyCtx *ctx) {
         logger_log(LOG_ERROR, "auth: RSA_PAD encrypt failed");
         return -1;
     }
-
     /* Build req_DH_params */
+    uint64_t fp_val = telegram_server_key_get_fingerprint();
+
     TlWriter w;
     tl_writer_init(&w);
     tl_write_uint32(&w, CRC_req_DH_params);
@@ -403,7 +408,7 @@ int auth_step_req_dh(AuthKeyCtx *ctx) {
     tl_write_int128(&w, ctx->server_nonce);
     tl_write_bytes(&w, p_be, p_be_len);
     tl_write_bytes(&w, q_be, q_be_len);
-    tl_write_uint64(&w, telegram_server_key_get_fingerprint());
+    tl_write_uint64(&w, fp_val);
     tl_write_bytes(&w, encrypted, enc_len);
 
     rc = rpc_send_unencrypted(ctx->session, ctx->transport, w.data, w.len);

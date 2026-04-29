@@ -239,7 +239,10 @@ int crypto_rsa_public_encrypt(CryptoRsaKey *key, const unsigned char *data,
 
 /*
  * Telegram fingerprint: lower 64 bits (little-endian) of
- *   SHA1( LE32(n_len) || n_BE || LE32(e_len) || e_BE )
+ *   SHA1( TL_bytes(n_BE) || TL_bytes(e_BE) )
+ *
+ * TL bytes encoding: short form (len < 254) = 1-byte-len + data + 4-byte-pad;
+ *                    long  form (len >= 254) = 0xFE + 3-byte-LE-len + data + pad.
  *
  * Supports both PKCS#1 ("BEGIN RSA PUBLIC KEY") and
  * PKCS#8 ("BEGIN PUBLIC KEY") PEM formats.
@@ -273,25 +276,49 @@ int crypto_rsa_fingerprint(const char *pem, uint64_t *out) {
         return -1;
     }
 
-    /* Build TL-serialized blob: LE32(n_len) + n_BE + LE32(e_len) + e_BE */
-    size_t buf_len = 4 + (size_t)n_len + 4 + (size_t)e_len;
-    unsigned char *buf = malloc(buf_len);
+    /*
+     * TL bytes encoding of RSAPublicKey { n:bytes, e:bytes }.
+     * Short form (len < 254): [1-byte len][data][pad to 4-byte boundary].
+     * Long form  (len >= 254): [0xFE][3-byte LE len][data][pad to 4 bytes].
+     */
+    /* n: long form (typically 256 bytes) — (4 + 256) = 260, already 4-aligned */
+    /* e: short form (typically 3 bytes)  — (1 + 3)   =   4, already 4-aligned */
+    size_t n_hdr = (n_len < 254) ? 1 : 4;
+    size_t e_hdr = (e_len < 254) ? 1 : 4;
+    size_t n_block = n_hdr + (size_t)n_len;
+    size_t e_block = e_hdr + (size_t)e_len;
+    /* Pad each block to a 4-byte boundary. */
+    n_block = (n_block + 3) & ~(size_t)3;
+    e_block = (e_block + 3) & ~(size_t)3;
+
+    size_t buf_len = n_block + e_block;
+    unsigned char *buf = calloc(1, buf_len);  /* calloc fills padding with 0 */
     if (!buf) { BN_free(n); BN_free(e); return -1; }
 
-    /* LE32 for n_len */
-    buf[0] = (unsigned char)(n_len & 0xFF);
-    buf[1] = (unsigned char)((n_len >> 8) & 0xFF);
-    buf[2] = (unsigned char)((n_len >> 16) & 0xFF);
-    buf[3] = (unsigned char)((n_len >> 24) & 0xFF);
-    BN_bn2bin(n, buf + 4);
+    /* Encode n */
+    if (n_len < 254) {
+        buf[0] = (unsigned char)n_len;
+        BN_bn2bin(n, buf + 1);
+    } else {
+        buf[0] = 0xFE;
+        buf[1] = (unsigned char)(n_len & 0xFF);
+        buf[2] = (unsigned char)((n_len >> 8) & 0xFF);
+        buf[3] = (unsigned char)((n_len >> 16) & 0xFF);
+        BN_bn2bin(n, buf + 4);
+    }
 
-    /* LE32 for e_len */
-    size_t off = 4 + (size_t)n_len;
-    buf[off + 0] = (unsigned char)(e_len & 0xFF);
-    buf[off + 1] = (unsigned char)((e_len >> 8) & 0xFF);
-    buf[off + 2] = (unsigned char)((e_len >> 16) & 0xFF);
-    buf[off + 3] = (unsigned char)((e_len >> 24) & 0xFF);
-    BN_bn2bin(e, buf + off + 4);
+    /* Encode e */
+    size_t off = n_block;
+    if (e_len < 254) {
+        buf[off] = (unsigned char)e_len;
+        BN_bn2bin(e, buf + off + 1);
+    } else {
+        buf[off]     = 0xFE;
+        buf[off + 1] = (unsigned char)(e_len & 0xFF);
+        buf[off + 2] = (unsigned char)((e_len >> 8) & 0xFF);
+        buf[off + 3] = (unsigned char)((e_len >> 16) & 0xFF);
+        BN_bn2bin(e, buf + off + 4);
+    }
 
     BN_free(n);
     BN_free(e);
