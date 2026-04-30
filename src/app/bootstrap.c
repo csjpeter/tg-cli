@@ -23,37 +23,39 @@
 
 /**
  * Read the value of @p key from INI file at @p path into @p out (cap @p cap).
- * Returns 0 if found and non-empty, -1 otherwise.
- * Respects comment lines (# and ;), trims whitespace, last occurrence wins.
- * Returns -2 if the value was truncated (longer than cap-1 bytes).
+ *
+ * Supports two value formats:
+ *   key = single line value          (unquoted, trailing whitespace stripped)
+ *   key = "multi                     (double-quoted: content spans until the
+ *           line                      next " on any line; newlines preserved)
+ *   line"
+ *
+ * Respects comment lines (# and ;).  Last occurrence of the key wins.
+ * Returns  0 on success, -1 if not found, -2 if value exceeds cap-1 bytes.
  */
 static int bootstrap_read_ini_key(const char *path, const char *key,
                                   char *out, size_t cap) {
     FILE *fp = fopen(path, "r");
     if (!fp) return -1;
 
-    /* 8 KiB — large enough for any RSA PEM value on a single line. */
     char line[8192];
     size_t klen = strlen(key);
-    int found = 0;
+    int result = -1;
 
     while (fgets(line, sizeof(line), fp)) {
-        /* Detect truncated line: buffer full and no newline at end. */
+        /* Detect truncated line. */
         size_t line_len = strlen(line);
         if (line_len == sizeof(line) - 1 && line[line_len - 1] != '\n') {
-            /* Drain the rest of the line so we stay in sync. */
             int c;
             while ((c = fgetc(fp)) != '\n' && c != EOF) {}
             fprintf(stderr,
-                    "bootstrap: config.ini line for key '%s' exceeds %zu bytes"
-                    " and was truncated — value may be incomplete\n",
-                    key, sizeof(line) - 1);
+                    "bootstrap: config.ini: line for key '%s' exceeds %zu bytes"
+                    " and was truncated\n", key, sizeof(line) - 1);
         }
 
         char *p = line;
         while (*p == ' ' || *p == '\t') p++;
-        if (*p == '\0' || *p == '\n' || *p == '\r' ||
-            *p == '#'  || *p == ';') continue;
+        if (!*p || *p == '\n' || *p == '\r' || *p == '#' || *p == ';') continue;
         if (strncmp(p, key, klen) != 0) continue;
         p += klen;
         while (*p == ' ' || *p == '\t') p++;
@@ -61,24 +63,52 @@ static int bootstrap_read_ini_key(const char *path, const char *key,
         p++;
         while (*p == ' ' || *p == '\t') p++;
 
-        size_t n = strlen(p);
-        int truncated = (n >= cap);
-        if (truncated) n = cap - 1;
-        memcpy(out, p, n);
-        out[n] = '\0';
-        /* rtrim */
-        while (n > 0 && (out[n-1] == '\n' || out[n-1] == '\r' ||
-                         out[n-1] == ' '  || out[n-1] == '\t')) {
-            out[--n] = '\0';
+        if (*p == '"') {
+            /* Quoted value — may span multiple lines until the next '"'. */
+            p++;  /* skip opening '"' */
+            size_t pos = 0;
+            for (;;) {
+                char *close = strchr(p, '"');
+                if (close) {
+                    /* Closing quote found on this line. */
+                    size_t chunk = (size_t)(close - p);
+                    if (pos + chunk >= cap) { fclose(fp); return -2; }
+                    memcpy(out + pos, p, chunk);
+                    pos += chunk;
+                    out[pos] = '\0';
+                    result = (pos > 0) ? 0 : -1;
+                    break;
+                }
+                /* No closing quote yet — copy line content + '\n', read next. */
+                size_t chunk = strlen(p);
+                /* Strip trailing CR/LF before appending '\n'. */
+                while (chunk > 0 && (p[chunk-1] == '\n' || p[chunk-1] == '\r'))
+                    chunk--;
+                if (pos + chunk + 1 >= cap) { fclose(fp); return -2; }
+                memcpy(out + pos, p, chunk);
+                pos += chunk;
+                out[pos++] = '\n';
+                out[pos] = '\0';
+                if (!fgets(line, sizeof(line), fp)) {
+                    result = (pos > 0) ? 0 : -1;
+                    break;
+                }
+                p = line;
+            }
+        } else {
+            /* Unquoted single-line value — rtrim whitespace. */
+            size_t n = strlen(p);
+            if (n >= cap) { fclose(fp); return -2; }
+            memcpy(out, p, n);
+            out[n] = '\0';
+            while (n > 0 && (out[n-1] == '\n' || out[n-1] == '\r' ||
+                             out[n-1] == ' '  || out[n-1] == '\t'))
+                out[--n] = '\0';
+            result = (n > 0) ? 0 : -1;
         }
-        if (truncated) {
-            fclose(fp);
-            return -2;
-        }
-        found = (n > 0);
     }
     fclose(fp);
-    return found ? 0 : -1;
+    return result;
 }
 
 /**
