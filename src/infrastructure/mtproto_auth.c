@@ -329,16 +329,23 @@ int auth_step_req_pq(AuthKeyCtx *ctx) {
         return -1;
     }
 
+    uint64_t our_fp = telegram_server_key_get_fingerprint();
     int found_fp = 0;
     for (uint32_t i = 0; i < fp_count; i++) {
         uint64_t fp = tl_read_uint64(&r);
-        if (fp == telegram_server_key_get_fingerprint()) {
+        logger_log(LOG_INFO, "auth: server fingerprint[%u] = 0x%016llx%s",
+                   i, (unsigned long long)fp,
+                   (fp == our_fp) ? " ← MATCH" : "");
+        if (fp == our_fp) {
             found_fp = 1;
         }
     }
 
     if (!found_fp) {
-        logger_log(LOG_ERROR, "auth: no matching RSA fingerprint");
+        logger_log(LOG_ERROR,
+                   "auth: no matching RSA fingerprint "
+                   "(our key fingerprint = 0x%016llx)",
+                   (unsigned long long)our_fp);
         return -1;
     }
 
@@ -379,6 +386,12 @@ int auth_step_req_dh(AuthKeyCtx *ctx) {
     tl_write_int128(&inner, ctx->server_nonce);
     tl_write_int256(&inner, ctx->new_nonce);
     tl_write_int32(&inner, ctx->dc_id);
+
+    logger_log(LOG_INFO,
+               "auth: p_q_inner_data_dc built (%zu bytes, dc=%d, "
+               "fingerprint=0x%016llx)",
+               inner.len, ctx->dc_id,
+               (unsigned long long)telegram_server_key_get_fingerprint());
 
     /* RSA_PAD encrypt */
     CryptoRsaKey *rsa_key = crypto_rsa_load_public(telegram_server_key_get_pem());
