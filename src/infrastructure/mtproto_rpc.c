@@ -60,7 +60,13 @@ int rpc_recv_unencrypted(MtProtoSession *s, Transport *t,
     if (transport_recv(t, buf, RPC_BUF_SIZE, &buf_len) != 0) return -1;
 
     /* Parse: auth_key_id(8) + msg_id(8) + len(4) + data */
-    if (buf_len < 20) return -1;
+    if (buf_len < 20) {
+        logger_log(LOG_ERROR,
+                   "rpc_recv_unencrypted: packet too short (%zu bytes, need ≥20)"
+                   " — likely a transport-level error from the server",
+                   buf_len);
+        return -1;
+    }
 
     TlReader r = tl_reader_init(buf, buf_len);
     uint64_t auth_key_id = tl_read_uint64(&r);

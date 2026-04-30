@@ -169,6 +169,19 @@ int transport_recv(Transport *t, uint8_t *out, size_t max_len, size_t *out_len) 
     }
 
     *out_len = payload_len;
+
+    /* Telegram encodes transport-level errors as a 4-byte negative int32. */
+    if (payload_len == 4) {
+        int32_t code;
+        memcpy(&code, out, 4);
+        if (code < 0) {
+            logger_log(LOG_ERROR,
+                       "transport: server returned error code %d "
+                       "(common codes: -404 unknown method, -429 flood, "
+                       "-444 invalid DC)",
+                       (int)code);
+        }
+    }
     return 0;
 }
 
