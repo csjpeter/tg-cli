@@ -21,8 +21,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* ---- Telegram RSA fingerprint (from telegram_server_key.h) ---- */
-#define TEST_RSA_FINGERPRINT 0xc3b42b026ce86b21ULL
+/* ---- RSA fingerprint from tests/mocks/telegram_server_key.c ---- */
+#define TEST_RSA_FINGERPRINT 0x8671de275f1cabc5ULL
 
 /* ---- Helper: wrap TL data in unencrypted MTProto + abridged encoding ---- */
 

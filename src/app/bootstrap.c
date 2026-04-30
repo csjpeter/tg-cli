@@ -78,8 +78,7 @@ static void apply_config_overrides(const char *config_dir) {
     if (bootstrap_read_ini_key(path, "rsa_pem", rsa_buf, sizeof(rsa_buf)) == 0) {
         if (telegram_server_key_set_override(rsa_buf) != 0) {
             logger_log(LOG_WARN,
-                       "bootstrap: rsa_pem in config.ini is invalid — "
-                       "using built-in key");
+                       "bootstrap: rsa_pem in config.ini is invalid");
         }
     }
 
@@ -117,9 +116,16 @@ int app_bootstrap(AppContext *ctx, const char *program_name) {
     logger_init(ctx->log_path, LOG_INFO);
     logger_log(LOG_INFO, "%s starting", program_name);
 
-    /* FEAT-38: Apply optional DC-host and RSA-key overrides from config.ini.
-     * Called after logger init so override decisions are always logged. */
+    /* Apply DC-host and RSA-key overrides from config.ini. */
     apply_config_overrides(ctx->config_dir);
+
+    if (!telegram_server_key_get_pem()) {
+        logger_log(LOG_ERROR,
+                   "No RSA public key configured. "
+                   "Add rsa_pem = <key> to ~/.config/tg-cli/config.ini "
+                   "(obtain your api_id, api_hash, and RSA key at https://my.telegram.org)");
+        return -1;
+    }
 
     return 0;
 }

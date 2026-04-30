@@ -28,12 +28,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* TEST_ONLY: 2048-bit RSA public key fingerprint.
- * Computed as lower 64 bits of SHA1(n_bytes_LE_len+n+e_bytes_LE_len+e). */
-const uint64_t TELEGRAM_RSA_FINGERPRINT = 0x8671de275f1cabc5ULL;
+/* TEST_ONLY: 2048-bit RSA public key fingerprint (file-local). */
+static const uint64_t TELEGRAM_RSA_FINGERPRINT = 0x8671de275f1cabc5ULL;
 
 /* TEST_ONLY: 2048-bit RSA public key (PKCS#8 SubjectPublicKeyInfo format). */
-const char * const TELEGRAM_RSA_PEM =
+static const char * const TELEGRAM_RSA_PEM =
     "-----BEGIN PUBLIC KEY-----\n"
     "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAmxv4/EXb0wAFr/O9GshQ\n"
     "mySO93xBAeN/5fzZ6HGHgIfS/2XL/R8GMBTl5rPaNnHL6fnv+BhOeb1M2PF6zNYe\n"

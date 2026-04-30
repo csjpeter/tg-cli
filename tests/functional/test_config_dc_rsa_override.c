@@ -315,10 +315,10 @@ static void test_no_override_fallback_to_builtin(void) {
     ASSERT(strncmp(pem, "-----BEGIN", 10) == 0,
            "FALLBACK: get_pem() starts with -----BEGIN");
 
-    /* Fingerprint must equal the test-mock compiled-in value. */
+    /* Fingerprint must equal the test-mock's compiled-in value. */
     uint64_t fp = telegram_server_key_get_fingerprint();
-    ASSERT(fp == TELEGRAM_RSA_FINGERPRINT,
-           "FALLBACK: fingerprint equals compiled-in default");
+    ASSERT(fp == 0x8671de275f1cabc5ULL,
+           "FALLBACK: fingerprint equals test-mock default");
 
     reset_overrides();
     rm_rf(home);

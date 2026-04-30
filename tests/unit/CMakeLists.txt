@@ -57,6 +57,7 @@ set(TEST_SOURCES
     test_tg_tui_argv.c
     ../../tests/mocks/crypto.c
     ../../tests/mocks/socket.c
+    ../../tests/mocks/telegram_server_key.c
 )
 
 add_executable(test-runner ${TEST_SOURCES})
