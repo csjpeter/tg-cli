@@ -15,6 +15,8 @@
 #include <openssl/rand.h>
 #include <openssl/bn.h>
 #include <openssl/pem.h>
+#include <openssl/err.h>
+#include <openssl/decoder.h>
 #include <openssl/core_names.h>
 #include <openssl/param_build.h>
 #include <limits.h>
@@ -140,15 +142,33 @@ struct CryptoRsaKey {
     EVP_PKEY *pkey;
 };
 
+/*
+ * Load an RSA public key from PEM, supporting both formats:
+ *   "-----BEGIN PUBLIC KEY-----"     (PKCS#8 SubjectPublicKeyInfo)
+ *   "-----BEGIN RSA PUBLIC KEY-----" (PKCS#1 RSAPublicKey)
+ * Uses OSSL_DECODER which handles both transparently (OpenSSL 3.0+).
+ * Returns NULL on failure; caller should check ERR queue for diagnostics.
+ */
+static EVP_PKEY *rsa_public_pkey_from_pem(const char *pem) {
+    EVP_PKEY *pkey = NULL;
+    OSSL_DECODER_CTX *dctx = OSSL_DECODER_CTX_new_for_pkey(
+        &pkey, "PEM", NULL, "RSA",
+        OSSL_KEYMGMT_SELECT_PUBLIC_KEY, NULL, NULL);
+    if (!dctx) return NULL;
+
+    BIO *bio = BIO_new_mem_buf(pem, (int)strlen(pem));
+    if (!bio) { OSSL_DECODER_CTX_free(dctx); return NULL; }
+
+    int ok = OSSL_DECODER_from_bio(dctx, bio);
+    OSSL_DECODER_CTX_free(dctx);
+    BIO_free(bio);
+    return ok ? pkey : NULL;
+}
+
 CryptoRsaKey *crypto_rsa_load_public(const char *pem) {
     if (!pem) return NULL;
 
-    BIO *bio = BIO_new_mem_buf(pem, (int)strlen(pem));
-    if (!bio) return NULL;
-
-    EVP_PKEY *pkey = PEM_read_bio_PUBKEY(bio, NULL, NULL, NULL);
-    BIO_free(bio);
-
+    EVP_PKEY *pkey = rsa_public_pkey_from_pem(pem);
     if (!pkey) return NULL;
 
     CryptoRsaKey *key = (CryptoRsaKey *)calloc(1, sizeof(CryptoRsaKey));
@@ -251,12 +271,18 @@ int crypto_rsa_public_encrypt(CryptoRsaKey *key, const unsigned char *data,
 int crypto_rsa_fingerprint(const char *pem, uint64_t *out) {
     if (!pem || !out) return -1;
 
-    /* Load the public key via EVP (works for both PEM subtypes). */
-    BIO *bio = BIO_new_mem_buf(pem, (int)strlen(pem));
-    if (!bio) return -1;
-    EVP_PKEY *pkey = PEM_read_bio_PUBKEY(bio, NULL, NULL, NULL);
-    BIO_free(bio);
-    if (!pkey) return -1;
+    ERR_clear_error();
+    EVP_PKEY *pkey = rsa_public_pkey_from_pem(pem);
+    if (!pkey) {
+        unsigned long e = ERR_peek_last_error();
+        fprintf(stderr,
+                "crypto_rsa_fingerprint: PEM parse failed%s%s\n"
+                "  Accepted formats: \"BEGIN PUBLIC KEY\" (PKCS#8) or "
+                "\"BEGIN RSA PUBLIC KEY\" (PKCS#1)\n",
+                e ? ": " : "",
+                e ? ERR_reason_error_string(e) : "");
+        return -1;
+    }
 
     /* Extract n and e as BIGNUMs using the provider-neutral OSSL_PARAM API. */
     BIGNUM *n = NULL, *e = NULL;

@@ -25,17 +25,31 @@
  * Read the value of @p key from INI file at @p path into @p out (cap @p cap).
  * Returns 0 if found and non-empty, -1 otherwise.
  * Respects comment lines (# and ;), trims whitespace, last occurrence wins.
+ * Returns -2 if the value was truncated (longer than cap-1 bytes).
  */
 static int bootstrap_read_ini_key(const char *path, const char *key,
                                   char *out, size_t cap) {
     FILE *fp = fopen(path, "r");
     if (!fp) return -1;
 
-    char line[2048]; /* long enough for a full PEM in a single key */
+    /* 8 KiB — large enough for any RSA PEM value on a single line. */
+    char line[8192];
     size_t klen = strlen(key);
     int found = 0;
 
     while (fgets(line, sizeof(line), fp)) {
+        /* Detect truncated line: buffer full and no newline at end. */
+        size_t line_len = strlen(line);
+        if (line_len == sizeof(line) - 1 && line[line_len - 1] != '\n') {
+            /* Drain the rest of the line so we stay in sync. */
+            int c;
+            while ((c = fgetc(fp)) != '\n' && c != EOF) {}
+            fprintf(stderr,
+                    "bootstrap: config.ini line for key '%s' exceeds %zu bytes"
+                    " and was truncated — value may be incomplete\n",
+                    key, sizeof(line) - 1);
+        }
+
         char *p = line;
         while (*p == ' ' || *p == '\t') p++;
         if (*p == '\0' || *p == '\n' || *p == '\r' ||
@@ -48,13 +62,18 @@ static int bootstrap_read_ini_key(const char *path, const char *key,
         while (*p == ' ' || *p == '\t') p++;
 
         size_t n = strlen(p);
-        if (n >= cap) n = cap - 1;
+        int truncated = (n >= cap);
+        if (truncated) n = cap - 1;
         memcpy(out, p, n);
         out[n] = '\0';
         /* rtrim */
         while (n > 0 && (out[n-1] == '\n' || out[n-1] == '\r' ||
                          out[n-1] == ' '  || out[n-1] == '\t')) {
             out[--n] = '\0';
+        }
+        if (truncated) {
+            fclose(fp);
+            return -2;
         }
         found = (n > 0);
     }
@@ -63,8 +82,7 @@ static int bootstrap_read_ini_key(const char *path, const char *key,
 }
 
 /**
- * Apply DC-host and RSA-key overrides from config.ini (FEAT-38).
- * Missing keys are silently ignored.
+ * Apply DC-host and RSA-key overrides from config.ini.
  */
 static void apply_config_overrides(const char *config_dir) {
     if (!config_dir) return;
@@ -73,13 +91,39 @@ static void apply_config_overrides(const char *config_dir) {
     snprintf(path, sizeof(path), "%s/%s/%s",
              config_dir, BOOTSTRAP_CONFIG_SUBDIR, BOOTSTRAP_CONFIG_FILE);
 
-    /* rsa_pem override. */
-    char rsa_buf[4096];
-    if (bootstrap_read_ini_key(path, "rsa_pem", rsa_buf, sizeof(rsa_buf)) == 0) {
-        if (telegram_server_key_set_override(rsa_buf) != 0) {
-            logger_log(LOG_WARN,
-                       "bootstrap: rsa_pem in config.ini is invalid");
+    logger_log(LOG_INFO, "bootstrap: reading config from %s", path);
+
+    /* rsa_pem */
+    char rsa_buf[8192];
+    int rc = bootstrap_read_ini_key(path, "rsa_pem", rsa_buf, sizeof(rsa_buf));
+    if (rc == 0) {
+        size_t pem_len = strlen(rsa_buf);
+        /* Log the first line of the PEM to confirm format, not the full key. */
+        char first_line[80];
+        size_t fl = 0;
+        while (fl < pem_len && fl < sizeof(first_line) - 1 &&
+               rsa_buf[fl] != '\n' && rsa_buf[fl] != '\\') {
+            first_line[fl] = rsa_buf[fl];
+            fl++;
         }
+        first_line[fl] = '\0';
+        logger_log(LOG_INFO,
+                   "bootstrap: rsa_pem found (%zu chars), first line: \"%s\"",
+                   pem_len, first_line);
+        if (telegram_server_key_set_override(rsa_buf) != 0) {
+            logger_log(LOG_ERROR,
+                       "bootstrap: rsa_pem could not be loaded as an RSA public key. "
+                       "Expected PEM starting with "
+                       "\"-----BEGIN PUBLIC KEY-----\" (PKCS#8) or "
+                       "\"-----BEGIN RSA PUBLIC KEY-----\" (PKCS#1)");
+        }
+    } else if (rc == -2) {
+        logger_log(LOG_ERROR,
+                   "bootstrap: rsa_pem value in config.ini was truncated "
+                   "(exceeds 8191 bytes) — key not loaded");
+    } else {
+        logger_log(LOG_WARN,
+                   "bootstrap: rsa_pem not found in %s", path);
     }
 
     /* dc_N_host overrides (1..5). */
