@@ -152,6 +152,10 @@ int integ_config_load(integration_config_t *cfg) {
     if (!cfg->code      && getenv("TG_TEST_CODE"))
         cfg->code      = strdup(getenv("TG_TEST_CODE"));
 
+    /* Telegram test DC: +9996XXXXXXXX numbers always accept code 12345. */
+    if (!cfg->code && cfg->phone && strncmp(cfg->phone, "+9996", 5) == 0)
+        cfg->code = strdup("12345");
+
     /* Apply defaults for fields not present anywhere. */
     if (!cfg->dc_port)
         cfg->dc_port = strdup("443");
