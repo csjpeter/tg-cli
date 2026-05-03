@@ -425,7 +425,8 @@ int auth_step_req_dh(AuthKeyCtx *ctx) {
         return -1;
     }
 
-    logger_log(LOG_INFO, "auth: req_DH_params sent, p=%u q=%u", ctx->p, ctx->q);
+    logger_log(LOG_INFO, "auth: req_DH_params sent, p=%u q=%u, enc_len=%zu",
+               ctx->p, ctx->q, enc_len);
     return 0;
 }
 

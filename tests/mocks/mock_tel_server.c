@@ -766,10 +766,11 @@ int mt_server_handshake_set_client_dh_count(void) {
 /* ================================================================ */
 
 static uint64_t derive_auth_key_id(const uint8_t *auth_key) {
-    uint8_t hash[32];
-    crypto_sha256(auth_key, MT_SERVER_AUTH_KEY_SIZE, hash);
+    /* MTProto spec: auth_key_id = last 8 bytes of SHA1(auth_key) = SHA1[12:20]. */
+    uint8_t hash[20];
+    crypto_sha1(auth_key, MT_SERVER_AUTH_KEY_SIZE, hash);
     uint64_t id = 0;
-    for (int i = 0; i < 8; ++i) id |= ((uint64_t)hash[24 + i]) << (i * 8);
+    for (int i = 0; i < 8; ++i) id |= ((uint64_t)hash[12 + i]) << (i * 8);
     return id;
 }
 

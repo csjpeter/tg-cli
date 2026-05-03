@@ -127,6 +127,24 @@ static int classify_service_frame(MtProtoSession *s,
         return SVC_SKIP;
     }
 
+    if (crc == TL_msg_container) {
+        /* Recurse into the container: process all service frames within it.
+         * If any non-service message exists (e.g. rpc_result), return
+         * SVC_RESULT so the caller extracts it; otherwise return SVC_SKIP. */
+        RpcContainerMsg msgs[16];
+        size_t msg_count = 0;
+        if (rpc_parse_container(resp, resp_len, msgs, 16, &msg_count) != 0)
+            return SVC_ERROR;
+        int has_result = 0;
+        for (size_t ci = 0; ci < msg_count; ci++) {
+            int sub = classify_service_frame(s, msgs[ci].body, msgs[ci].body_len);
+            if (sub == SVC_ERROR)    return SVC_ERROR;
+            if (sub == SVC_BAD_SALT) return SVC_BAD_SALT;
+            if (sub == SVC_RESULT)   has_result = 1;
+        }
+        return has_result ? SVC_RESULT : SVC_SKIP;
+    }
+
     return SVC_RESULT;
 }
 
@@ -187,12 +205,37 @@ static int api_call_once(const ApiConfig *cfg,
         return -1;
     }
 
+    const uint8_t *payload = raw_resp;
+    size_t payload_len = raw_len;
+
+    /* If the server sent a msg_container, find the rpc_result inside it. */
+    if (payload_len >= 4) {
+        uint32_t frame_crc;
+        memcpy(&frame_crc, payload, 4);
+        if (frame_crc == TL_msg_container) {
+            RpcContainerMsg msgs[16];
+            size_t msg_count = 0;
+            if (rpc_parse_container(payload, payload_len,
+                                    msgs, 16, &msg_count) == 0) {
+                for (size_t ci = 0; ci < msg_count; ci++) {
+                    if (msgs[ci].body_len >= 4) {
+                        uint32_t mcrc;
+                        memcpy(&mcrc, msgs[ci].body, 4);
+                        if (mcrc == TL_rpc_result) {
+                            payload     = msgs[ci].body;
+                            payload_len = msgs[ci].body_len;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     uint64_t req_msg_id;
     const uint8_t *inner;
     size_t inner_len;
-    const uint8_t *payload = raw_resp;
-    size_t payload_len = raw_len;
-    if (rpc_unwrap_result(raw_resp, raw_len, &req_msg_id,
+    if (rpc_unwrap_result(payload, payload_len, &req_msg_id,
                           &inner, &inner_len) == 0) {
         payload = inner;
         payload_len = inner_len;

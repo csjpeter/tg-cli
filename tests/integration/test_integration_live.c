@@ -135,7 +135,9 @@ static ApiConfig make_api_config(void)
     api_config_init(&cfg);
     if (g_integration_config.api_id)
         cfg.api_id = atoi(g_integration_config.api_id);
-    cfg.api_hash = g_integration_config.api_hash;
+    cfg.api_hash     = g_integration_config.api_hash;
+    cfg.start_dc     = g_integration_config.dc_id;
+    cfg.start_dc_set = 1;
     return cfg;
 }
 

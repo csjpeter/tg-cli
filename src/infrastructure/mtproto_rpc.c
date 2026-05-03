@@ -120,14 +120,13 @@ int rpc_send_encrypted(MtProtoSession *s, Transport *t,
     TlWriter wire;
     tl_writer_init(&wire);
 
-    /* auth_key_id = last 8 bytes of SHA256(auth_key). Use memcpy rather than
-     * a pointer cast to avoid strict-aliasing UB, and let tl_write_uint64
-     * handle little-endian encoding so we stay correct on big-endian hosts
-     * (QA-11). */
-    uint8_t key_hash[32];
-    crypto_sha256(s->auth_key, 256, key_hash);
+    /* auth_key_id = last 8 bytes of SHA1(auth_key) = SHA1[12:20].
+     * MTProto spec: "lower 64 bits of the SHA1 fingerprint" (big-endian number,
+     * so last 8 bytes). Use memcpy to avoid strict-aliasing UB (QA-11). */
+    uint8_t key_hash[20];
+    crypto_sha1(s->auth_key, 256, key_hash);
     uint64_t auth_key_id;
-    memcpy(&auth_key_id, key_hash + 24, 8);
+    memcpy(&auth_key_id, key_hash + 12, 8);
     tl_write_uint64(&wire, auth_key_id);
 
     tl_write_raw(&wire, msg_key, 16);
@@ -161,11 +160,11 @@ int rpc_recv_encrypted(MtProtoSession *s, Transport *t,
     size_t cipher_len = buf_len - 24;
     const uint8_t *cipher = buf + 24;
 
-    /* Verify auth_key_id: must equal SHA256(auth_key)[24:32]. */
-    uint8_t key_hash[32];
-    crypto_sha256(s->auth_key, 256, key_hash);
+    /* Verify auth_key_id: must equal SHA1(auth_key)[12:20]. */
+    uint8_t key_hash[20];
+    crypto_sha1(s->auth_key, 256, key_hash);
     uint64_t expected_auth_key_id;
-    memcpy(&expected_auth_key_id, key_hash + 24, 8);
+    memcpy(&expected_auth_key_id, key_hash + 12, 8);
     if (recv_auth_key_id != expected_auth_key_id) {
         logger_log(LOG_ERROR,
                    "rpc_recv_encrypted: auth_key_id mismatch "

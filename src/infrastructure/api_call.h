@@ -40,6 +40,8 @@ typedef struct {
     const char *system_lang_code;
     const char *lang_pack;
     const char *lang_code;
+    int         start_dc;      /**< DC id to start on; only used when start_dc_set=1. */
+    int         start_dc_set;  /**< 1 if start_dc was explicitly set, 0 = use DEFAULT_DC_ID. */
 } ApiConfig;
 
 /**

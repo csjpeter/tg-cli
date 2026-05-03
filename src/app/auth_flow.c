@@ -90,7 +90,7 @@ int auth_flow_login(const ApiConfig *cfg,
         }
     }
 
-    int current_dc = DEFAULT_DC_ID;
+    int current_dc = cfg->start_dc_set ? cfg->start_dc : DEFAULT_DC_ID;
     if (auth_flow_connect_dc(current_dc, t, s) != 0) return -1;
 
     char phone[64];

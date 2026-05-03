@@ -54,6 +54,15 @@ void dc_config_set_host_override(int dc_id, const char *host) {
 }
 
 const DcEndpoint *dc_lookup(int dc_id) {
+    /* Negative dc_id is used for Telegram test DCs: dc=-N maps to the same
+     * endpoint as dc=N for connection purposes.  The caller keeps the signed
+     * value to embed it in p_q_inner_data_dc.
+     * dc=0 is a wildcard accepted by Telegram test servers — connect to
+     * DEFAULT_DC_ID's endpoint so the transport works. */
+    int abs_id = (dc_id == 0) ? DEFAULT_DC_ID
+               : (dc_id < 0)  ? -dc_id
+               :                 dc_id;
+
     /* Environment redirect takes highest priority (used by integration tests). */
     const char *env_host = getenv("TG_CLI_DC_HOST");
     const char *env_port = getenv("TG_CLI_DC_PORT");
@@ -64,22 +73,27 @@ const DcEndpoint *dc_lookup(int dc_id) {
         return &g_env_override;
     }
 
-    /* config.ini override (FEAT-38) — applies only if the DC id is valid. */
-    if (dc_id >= 1 && dc_id <= DC_ID_MAX && g_host_overrides[dc_id - 1]) {
+    /* config.ini override (FEAT-38) — applies only if the absolute DC id is valid. */
+    if (abs_id >= 1 && abs_id <= DC_ID_MAX && g_host_overrides[abs_id - 1]) {
         /* Find the built-in entry to inherit the port. */
         for (size_t i = 0; i < ENDPOINT_COUNT; i++) {
-            if (ENDPOINTS[i].id == dc_id) {
+            if (ENDPOINTS[i].id == abs_id) {
                 g_config_override.id   = dc_id;
-                g_config_override.host = g_host_overrides[dc_id - 1];
+                g_config_override.host = g_host_overrides[abs_id - 1];
                 g_config_override.port = ENDPOINTS[i].port;
                 return &g_config_override;
             }
         }
     }
 
-    /* Fall back to compiled-in table. */
+    /* Fall back to compiled-in table (match on absolute id). */
     for (size_t i = 0; i < ENDPOINT_COUNT; i++) {
-        if (ENDPOINTS[i].id == dc_id) return &ENDPOINTS[i];
+        if (ENDPOINTS[i].id == abs_id) {
+            g_config_override.id   = dc_id;
+            g_config_override.host = ENDPOINTS[i].host;
+            g_config_override.port = ENDPOINTS[i].port;
+            return &g_config_override;
+        }
     }
     return NULL;
 }
