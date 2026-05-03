@@ -125,11 +125,14 @@ static void apply_dc_overrides(void)
  */
 static int write_tmp_config(const char *tmp_home, const char *rsa_pem)
 {
+    char dir[4096];
+    snprintf(dir, sizeof(dir), "%s/.config", tmp_home);
+    mkdir(dir, 0700);
+    snprintf(dir, sizeof(dir), "%s/.config/tg-cli", tmp_home);
+    mkdir(dir, 0700);
+
     char path[4096];
-    snprintf(path, sizeof(path), "%s/.config/tg-cli", tmp_home);
-    mkdir(path, 0700);
-    size_t base_len = strlen(path);
-    snprintf(path + base_len, sizeof(path) - base_len, "/config.ini");
+    snprintf(path, sizeof(path), "%s/.config/tg-cli/config.ini", tmp_home);
 
     FILE *f = fopen(path, "w");
     if (!f) { perror(path); return -1; }

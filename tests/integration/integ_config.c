@@ -99,8 +99,14 @@ int integ_config_load(integration_config_t *cfg) {
             rtrim(key);
             rtrim(val);
 
-            if      (strcmp(key, "dc_host")     == 0)
-                cfg->dc_host     = strdup(val);
+            if      (strcmp(key, "dc_host")     == 0) {
+                char *colon = strchr(val, ':');
+                if (colon && !cfg->dc_port) {
+                    cfg->dc_port = strdup(colon + 1);
+                    *colon = '\0';
+                }
+                cfg->dc_host = strdup(val);
+        }
             else if (strcmp(key, "dc_port")     == 0)
                 cfg->dc_port     = strdup(val);
             else if (strcmp(key, "dc_id")       == 0)
@@ -124,8 +130,17 @@ int integ_config_load(integration_config_t *cfg) {
 
     /* Fallback to legacy TG_TEST_* env vars for any field not set in the file.
      * This runs unconditionally so env vars work even without a config file. */
-    if (!cfg->dc_host   && getenv("TG_TEST_DC_HOST"))
-        cfg->dc_host   = strdup(getenv("TG_TEST_DC_HOST"));
+    if (!cfg->dc_host && getenv("TG_TEST_DC_HOST")) {
+        char *h = strdup(getenv("TG_TEST_DC_HOST"));
+        if (h) {
+            char *colon = strchr(h, ':');
+            if (colon && !cfg->dc_port) {
+                cfg->dc_port = strdup(colon + 1);
+                *colon = '\0';
+            }
+            cfg->dc_host = h;
+        }
+    }
     if (!cfg->api_id    && getenv("TG_TEST_API_ID"))
         cfg->api_id    = strdup(getenv("TG_TEST_API_ID"));
     if (!cfg->api_hash  && getenv("TG_TEST_API_HASH"))
