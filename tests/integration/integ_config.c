@@ -145,8 +145,6 @@ int integ_config_load(integration_config_t *cfg) {
         cfg->api_id    = strdup(getenv("TG_TEST_API_ID"));
     if (!cfg->api_hash  && getenv("TG_TEST_API_HASH"))
         cfg->api_hash  = strdup(getenv("TG_TEST_API_HASH"));
-    if (!cfg->phone     && getenv("TG_TEST_PHONE"))
-        cfg->phone     = strdup(getenv("TG_TEST_PHONE"));
     if (!cfg->rsa_pem   && getenv("TG_TEST_RSA_PEM"))
         cfg->rsa_pem   = unescape_nl(getenv("TG_TEST_RSA_PEM"));
     if (!cfg->code      && getenv("TG_TEST_CODE"))
