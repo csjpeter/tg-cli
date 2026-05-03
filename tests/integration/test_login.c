@@ -138,7 +138,12 @@ static int write_tmp_config(const char *tmp_home, const char *rsa_pem)
     if (!f) { perror(path); return -1; }
 
     fprintf(f, "[config]\n");
-    fprintf(f, "rsa_pem = %s\n", rsa_pem);
+    fprintf(f, "rsa_pem = ");
+    for (const char *p = rsa_pem; *p; p++) {
+        if (*p == '\n') fputs("\\n", f);
+        else            fputc(*p, f);
+    }
+    fputc('\n', f);
     fclose(f);
     chmod(path, 0600);
     return 0;
