@@ -62,7 +62,12 @@ static int cb_get_phone(void *user, char *out, size_t cap)
 static int cb_get_code(void *user, char *out, size_t cap)
 {
     (void)user;
-    /* Always prompt interactively — this is the one-time flow. */
+    const char *code = g_integration_config.code;
+    if (code && code[0]) {
+        snprintf(out, cap, "%s", code);
+        printf("Code: %s\n", out);
+        return 0;
+    }
     return prompt_string("SMS / Telegram code: ", out, cap);
 }
 

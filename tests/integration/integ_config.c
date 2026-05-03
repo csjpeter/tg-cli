@@ -149,6 +149,8 @@ int integ_config_load(integration_config_t *cfg) {
         cfg->phone     = strdup(getenv("TG_TEST_PHONE"));
     if (!cfg->rsa_pem   && getenv("TG_TEST_RSA_PEM"))
         cfg->rsa_pem   = unescape_nl(getenv("TG_TEST_RSA_PEM"));
+    if (!cfg->code      && getenv("TG_TEST_CODE"))
+        cfg->code      = strdup(getenv("TG_TEST_CODE"));
 
     /* Apply defaults for fields not present anywhere. */
     if (!cfg->dc_port)
