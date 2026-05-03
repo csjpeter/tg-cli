@@ -22,39 +22,50 @@
 /** Maximum redirects we follow before giving up. Telegram usually needs 1. */
 #define AUTH_MAX_MIGRATIONS 3
 
-int auth_flow_connect_dc(int dc_id, Transport *t, MtProtoSession *s) {
-    if (!t || !s) return -1;
-
-    const DcEndpoint *ep = dc_lookup(dc_id);
+/**
+ * Connect to the physical endpoint of @p phys_dc but use @p dh_dc in the
+ * DH p_q_inner_data_dc field.  Pass dh_dc=0 for the Telegram test-DC
+ * wildcard (the test server rejects any non-zero value there).
+ */
+static int connect_dc_ex(int phys_dc, int dh_dc,
+                         Transport *t, MtProtoSession *s) {
+    const DcEndpoint *ep = dc_lookup(phys_dc);
     if (!ep) {
-        logger_log(LOG_ERROR, "auth_flow: unknown DC id %d", dc_id);
+        logger_log(LOG_ERROR, "auth_flow: unknown DC id %d", phys_dc);
         return -1;
     }
 
     if (transport_connect(t, ep->host, ep->port) != 0) {
         logger_log(LOG_ERROR, "auth_flow: connect failed for DC%d (%s:%d)",
-                   dc_id, ep->host, ep->port);
+                   phys_dc, ep->host, ep->port);
         return -1;
     }
-    t->dc_id = dc_id;
+    t->dc_id = dh_dc;   /* DH uses this for p_q_inner_data_dc */
 
     if (mtproto_auth_key_gen(t, s) != 0) {
         logger_log(LOG_ERROR, "auth_flow: DH auth key gen failed on DC%d",
-                   dc_id);
+                   phys_dc);
         transport_close(t);
         return -1;
     }
-    logger_log(LOG_INFO, "auth_flow: connected to DC%d, auth key ready", dc_id);
+    t->dc_id = phys_dc; /* restore physical DC id after DH */
+    logger_log(LOG_INFO, "auth_flow: connected to DC%d, auth key ready", phys_dc);
     return 0;
 }
 
+int auth_flow_connect_dc(int dc_id, Transport *t, MtProtoSession *s) {
+    if (!t || !s) return -1;
+    return connect_dc_ex(dc_id, dc_id, t, s);
+}
+
 /** Tear down the current session/transport and reconnect to a new DC. */
-static int migrate(int new_dc, Transport *t, MtProtoSession *s) {
-    logger_log(LOG_INFO, "auth_flow: migrating to DC%d", new_dc);
+static int migrate(int new_dc, int dh_dc, Transport *t, MtProtoSession *s) {
+    logger_log(LOG_INFO, "auth_flow: migrating to DC%d (dh_dc=%d)",
+               new_dc, dh_dc);
     transport_close(t);
     /* Re-init session — auth key is DC-scoped. */
     mtproto_session_init(s);
-    return auth_flow_connect_dc(new_dc, t, s);
+    return connect_dc_ex(new_dc, dh_dc, t, s);
 }
 
 int auth_flow_login(const ApiConfig *cfg,
@@ -91,7 +102,12 @@ int auth_flow_login(const ApiConfig *cfg,
     }
 
     int current_dc = cfg->start_dc_set ? cfg->start_dc : DEFAULT_DC_ID;
-    if (auth_flow_connect_dc(current_dc, t, s) != 0) return -1;
+    /* dh_dc: dc_id used in DH p_q_inner_data_dc; fixed for the lifetime of
+     * this login attempt.  On the Telegram test DC start_dc=0 acts as a
+     * wildcard — the server rejects any other value, so we must keep it 0
+     * even when migrating to a different physical DC. */
+    int dh_dc = current_dc;
+    if (connect_dc_ex(current_dc, dh_dc, t, s) != 0) return -1;
 
     char phone[64];
     if (cb->get_phone(cb->user, phone, sizeof(phone)) != 0) {
@@ -109,7 +125,7 @@ int auth_flow_login(const ApiConfig *cfg,
         if (rc == 0) break;
         if (err.migrate_dc > 0 && migrations < AUTH_MAX_MIGRATIONS) {
             migrations++;
-            if (migrate(err.migrate_dc, t, s) != 0) return -1;
+            if (migrate(err.migrate_dc, dh_dc, t, s) != 0) return -1;
             current_dc = err.migrate_dc;
             continue;
         }
@@ -135,7 +151,7 @@ int auth_flow_login(const ApiConfig *cfg,
         if (rc == 0) break;
         if (err.migrate_dc > 0 && migrations < AUTH_MAX_MIGRATIONS) {
             migrations++;
-            if (migrate(err.migrate_dc, t, s) != 0) return -1;
+            if (migrate(err.migrate_dc, dh_dc, t, s) != 0) return -1;
             current_dc = err.migrate_dc;
             /* After migration we must re-send the code from scratch because
              * phone_code_hash is DC-scoped. Loop back via a recursive call
