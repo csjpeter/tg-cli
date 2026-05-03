@@ -121,6 +121,18 @@ int integ_config_load(integration_config_t *cfg) {
 
     fclose(fp);
 
+    /* Fallback to legacy TG_TEST_* env vars for fields not set in the file. */
+    if (!cfg->dc_host   && getenv("TG_TEST_DC_HOST"))
+        cfg->dc_host   = strdup(getenv("TG_TEST_DC_HOST"));
+    if (!cfg->api_id    && getenv("TG_TEST_API_ID"))
+        cfg->api_id    = strdup(getenv("TG_TEST_API_ID"));
+    if (!cfg->api_hash  && getenv("TG_TEST_API_HASH"))
+        cfg->api_hash  = strdup(getenv("TG_TEST_API_HASH"));
+    if (!cfg->phone     && getenv("TG_TEST_PHONE"))
+        cfg->phone     = strdup(getenv("TG_TEST_PHONE"));
+    if (!cfg->rsa_pem   && getenv("TG_TEST_RSA_PEM"))
+        cfg->rsa_pem   = unescape_nl(getenv("TG_TEST_RSA_PEM"));
+
     /* Apply defaults for fields not present in the file. */
     if (!cfg->dc_port)
         cfg->dc_port = strdup("443");

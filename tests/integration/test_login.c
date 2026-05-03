@@ -117,6 +117,30 @@ static void apply_dc_overrides(void)
     }
 }
 
+/* ---- Write minimal config.ini for app_bootstrap ---- */
+
+/**
+ * Write a minimal config.ini to <tmp_home>/.config/tg-cli/config.ini
+ * so that app_bootstrap finds the RSA key (required for DH handshake).
+ */
+static int write_tmp_config(const char *tmp_home, const char *rsa_pem)
+{
+    char path[4096];
+    snprintf(path, sizeof(path), "%s/.config/tg-cli", tmp_home);
+    mkdir(path, 0700);
+    size_t base_len = strlen(path);
+    snprintf(path + base_len, sizeof(path) - base_len, "/config.ini");
+
+    FILE *f = fopen(path, "w");
+    if (!f) { perror(path); return -1; }
+
+    fprintf(f, "[config]\n");
+    fprintf(f, "rsa_pem = %s\n", rsa_pem);
+    fclose(f);
+    chmod(path, 0600);
+    return 0;
+}
+
 /* ---- Ensure session_bin directory exists ---- */
 
 static void ensure_parent_dir(const char *path)
@@ -173,6 +197,32 @@ int main(void)
         g_integration_config.api_hash = buf_apihash;
     }
 
+    /* RSA PEM: read from a file if not supplied by config or env. */
+    char *rsa_pem_buf = NULL;
+    if (!g_integration_config.rsa_pem || !g_integration_config.rsa_pem[0]) {
+        char pem_path[4096] = {0};
+        if (prompt_string("Path to RSA PEM file (or press Enter to skip): ",
+                          pem_path, sizeof(pem_path)) == 0 && pem_path[0]) {
+            FILE *pf = fopen(pem_path, "r");
+            if (!pf) {
+                perror(pem_path);
+                return 1;
+            }
+            fseek(pf, 0, SEEK_END);
+            long sz = ftell(pf);
+            rewind(pf);
+            if (sz > 0 && sz < 8192) {
+                rsa_pem_buf = malloc((size_t)sz + 1);
+                if (rsa_pem_buf) {
+                    fread(rsa_pem_buf, 1, (size_t)sz, pf);
+                    rsa_pem_buf[sz] = '\0';
+                    g_integration_config.rsa_pem = rsa_pem_buf;
+                }
+            }
+            fclose(pf);
+        }
+    }
+
     /* session_bin default is set by integ_config_load; if config was absent
      * we fall back to the canonical default path. */
     char default_session[4096] = {0};
@@ -197,15 +247,26 @@ int main(void)
      * user's real config directory. */
     char tmpl[] = "/tmp/tg-test-login-XXXXXX";
     const char *tmp_home = mkdtemp(tmpl);
-    if (!tmp_home) { perror("mkdtemp"); return 1; }
+    if (!tmp_home) { perror("mkdtemp"); free(rsa_pem_buf); return 1; }
 
     setenv("HOME", tmp_home, 1);
     unsetenv("XDG_CONFIG_HOME");
     unsetenv("XDG_CACHE_HOME");
 
+    /* Write RSA key to tmp config.ini so app_bootstrap finds it. */
+    const char *rsa = g_integration_config.rsa_pem;
+    if (rsa && rsa[0]) {
+        if (write_tmp_config(tmp_home, rsa) != 0) {
+            fprintf(stderr, "ERROR: could not write tmp config.ini\n");
+            free(rsa_pem_buf);
+            return 1;
+        }
+    }
+
     AppContext ctx;
     if (app_bootstrap(&ctx, "tg-test-login") != 0) {
         fprintf(stderr, "ERROR: app_bootstrap failed\n");
+        free(rsa_pem_buf);
         return 1;
     }
 
@@ -257,5 +318,6 @@ int main(void)
     printf("  ./manage.sh integration\n");
 
     app_shutdown(&ctx);
+    free(rsa_pem_buf);
     return 0;
 }
