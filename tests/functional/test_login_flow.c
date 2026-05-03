@@ -116,7 +116,13 @@ static void on_sign_in_happy(MtRpcContext *ctx) {
 }
 
 static void on_sign_up_required(MtRpcContext *ctx) {
-    mt_server_reply_error(ctx, 401, "SIGN_UP_REQUIRED");
+    /* auth.authorizationSignUpRequired#44747e9a flags:# = auth.Authorization */
+    TlWriter w;
+    tl_writer_init(&w);
+    tl_write_uint32(&w, CRC_auth_authorizationSignUpRequired);
+    tl_write_uint32(&w, 0); /* flags = 0 */
+    mt_server_reply_result(ctx, w.data, w.len);
+    tl_writer_free(&w);
 }
 
 static void on_session_password_needed(MtRpcContext *ctx) {
@@ -272,10 +278,11 @@ static void test_sign_in_happy(void) {
     Transport t; connect_mock(&t);
 
     int64_t uid = 0;
+    int signup_req = 0;
     RpcError err = {0};
     ASSERT(auth_sign_in(&cfg, &s, &t,
                         "+15551234567", "abc123", "12345",
-                        &uid, &err) == 0, "signIn succeeds");
+                        &uid, &signup_req, &err) == 0, "signIn succeeds");
     ASSERT(uid == 77777LL, "user_id = 77777");
 
     transport_close(&t);
@@ -296,12 +303,11 @@ static void test_sign_in_sign_up_required(void) {
     Transport t; connect_mock(&t);
 
     int64_t uid = 0;
+    int signup_req = 0;
     RpcError err = {0};
     ASSERT(auth_sign_in(&cfg, &s, &t, "+15551234567", "abc123", "12345",
-                        &uid, &err) == -1, "signIn fails");
-    ASSERT(err.error_code == 401, "error_code 401");
-    ASSERT(strcmp(err.error_msg, "SIGN_UP_REQUIRED") == 0,
-           "error_msg SIGN_UP_REQUIRED");
+                        &uid, &signup_req, &err) == -1, "signIn fails");
+    ASSERT(signup_req == 1, "signup_required must be set");
 
     transport_close(&t);
     mt_server_reset();
@@ -321,9 +327,10 @@ static void test_sign_in_password_needed(void) {
     Transport t; connect_mock(&t);
 
     int64_t uid = 0;
+    int signup_req = 0;
     RpcError err = {0};
     ASSERT(auth_sign_in(&cfg, &s, &t, "+15551234567", "abc123", "12345",
-                        &uid, &err) == -1, "signIn fails");
+                        &uid, &signup_req, &err) == -1, "signIn fails");
     ASSERT(err.error_code == 401, "error_code 401");
     ASSERT(strcmp(err.error_msg, "SESSION_PASSWORD_NEEDED") == 0,
            "error_msg SESSION_PASSWORD_NEEDED");

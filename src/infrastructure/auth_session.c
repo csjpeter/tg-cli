@@ -51,13 +51,17 @@ static int skip_sent_code_type(TlReader *r) {
     if (!tl_reader_ok(r)) return -1;
     uint32_t type_crc = tl_read_uint32(r);
 
+    logger_log(LOG_INFO, "auth_send_code: sentCodeType=0x%08x", type_crc);
+
     switch (type_crc) {
     case CRC_auth_sentCodeTypeApp:
     case CRC_auth_sentCodeTypeSms:
-    case CRC_auth_sentCodeTypeCall:
-        /* length:int */
-        tl_read_int32(r);
+    case CRC_auth_sentCodeTypeCall: {
+        /* length:int — number of digits the code has */
+        int32_t code_len = tl_read_int32(r);
+        logger_log(LOG_INFO, "auth_send_code: sentCodeType code_length=%d", code_len);
         return 0;
+    }
 
     case CRC_auth_sentCodeTypeFlashCall: {
         /* pattern:string */
@@ -148,6 +152,9 @@ int auth_send_code(const ApiConfig *cfg,
     }
     memcpy(out->phone_code_hash, hash, hash_len + 1);
 
+    /* Skip next_type (flags.1) before reading timeout (flags.2) */
+    if (flags & (1u << 1)) tl_read_uint32(&r);
+
     /* timeout: flags.2 */
     out->timeout = 0;
     if (flags & (1u << 2)) {
@@ -184,6 +191,32 @@ static int build_sign_in(const char *phone, const char *hash, const char *code,
     return 0;
 }
 
+/* ---- Internal: parse auth.authorization and extract user id ---- */
+
+static int parse_authorization(const uint8_t *resp, size_t resp_len,
+                                int64_t *user_id_out, const char *caller) {
+    TlReader r = tl_reader_init(resp, resp_len);
+    tl_read_uint32(&r); /* skip constructor */
+    uint32_t flags = tl_read_uint32(&r);
+
+    if (flags & (1u << 1)) tl_read_int32(&r); /* otherwise_relogin_days */
+
+    uint32_t user_crc = tl_read_uint32(&r);
+    if (user_crc != TL_user && user_crc != TL_userFull) {
+        logger_log(LOG_WARN, "%s: unexpected user constructor 0x%08x",
+                   caller, user_crc);
+        if (user_id_out) *user_id_out = 0;
+        return 0;
+    }
+
+    tl_read_uint32(&r); /* user flags */
+    int64_t uid = tl_read_int64(&r);
+    if (user_id_out) *user_id_out = uid;
+    logger_log(LOG_INFO, "%s: authenticated as user_id=%lld",
+               caller, (long long)uid);
+    return 0;
+}
+
 /* ---- auth_sign_in ---- */
 
 int auth_sign_in(const ApiConfig *cfg,
@@ -192,8 +225,10 @@ int auth_sign_in(const ApiConfig *cfg,
                  const char *phone_code_hash,
                  const char *code,
                  int64_t *user_id_out,
+                 int *signup_required,
                  RpcError *err) {
     if (!cfg || !s || !t || !phone || !phone_code_hash || !code) return -1;
+    if (signup_required) *signup_required = 0;
     if (err) { err->error_code = 0; err->error_msg[0] = '\0';
                err->migrate_dc = -1; err->flood_wait_secs = 0; }
 
@@ -204,6 +239,9 @@ int auth_sign_in(const ApiConfig *cfg,
         logger_log(LOG_ERROR, "auth_sign_in: failed to build request");
         return -1;
     }
+
+    logger_log(LOG_INFO, "auth_sign_in: phone='%s' hash_len=%zu",
+               phone, strlen(phone_code_hash));
 
     RAII_STRING uint8_t *resp = (uint8_t *)malloc(65536);
     if (!resp) return -1;
@@ -231,40 +269,103 @@ int auth_sign_in(const ApiConfig *cfg,
         return -1;
     }
 
+    if (constructor == CRC_auth_authorizationSignUpRequired) {
+        logger_log(LOG_INFO, "auth_sign_in: sign-up required for this phone");
+        if (signup_required) *signup_required = 1;
+        return -1;
+    }
+
     if (constructor != CRC_auth_authorization) {
         logger_log(LOG_ERROR, "auth_sign_in: unexpected constructor 0x%08x",
                    constructor);
         return -1;
     }
 
-    /* Parse auth.authorization:
-     * flags:# setup_password_required:flags.0?true
-     *         otherwise_relogin_days:flags.1?int
-     *         tmp_sessions:flags.0?int
-     *         user:User */
-    TlReader r = tl_reader_init(resp, resp_len);
-    tl_read_uint32(&r); /* skip constructor */
-    uint32_t flags = tl_read_uint32(&r);
+    return parse_authorization(resp, resp_len, user_id_out, "auth_sign_in");
+}
 
-    /* skip optional fields */
-    if (flags & (1u << 1)) tl_read_int32(&r); /* otherwise_relogin_days */
+/* ---- Internal: build auth.signUp request ---- */
 
-    /* user starts with constructor + id */
-    uint32_t user_crc = tl_read_uint32(&r);
-    if (user_crc != TL_user && user_crc != TL_userFull) {
-        logger_log(LOG_WARN, "auth_sign_in: unexpected user constructor 0x%08x",
-                   user_crc);
-        /* still consider successful — we authenticated */
-        if (user_id_out) *user_id_out = 0;
-        return 0;
+static int build_sign_up(const char *phone, const char *hash,
+                          const char *first_name, const char *last_name,
+                          uint8_t *out, size_t max_len, size_t *out_len) {
+    TlWriter w;
+    tl_writer_init(&w);
+
+    /* auth.signUp#80eee427 phone_number:string phone_code_hash:string
+     *                      first_name:string last_name:string */
+    tl_write_uint32(&w, CRC_auth_signUp);
+    tl_write_string(&w, phone);
+    tl_write_string(&w, hash);
+    tl_write_string(&w, first_name);
+    tl_write_string(&w, last_name ? last_name : "");
+
+    if (w.len > max_len) {
+        tl_writer_free(&w);
+        return -1;
+    }
+    memcpy(out, w.data, w.len);
+    *out_len = w.len;
+    tl_writer_free(&w);
+    return 0;
+}
+
+/* ---- auth_sign_up ---- */
+
+int auth_sign_up(const ApiConfig *cfg,
+                 MtProtoSession *s, Transport *t,
+                 const char *phone,
+                 const char *phone_code_hash,
+                 const char *first_name,
+                 const char *last_name,
+                 int64_t *user_id_out,
+                 RpcError *err) {
+    if (!cfg || !s || !t || !phone || !phone_code_hash || !first_name) return -1;
+    if (err) { err->error_code = 0; err->error_msg[0] = '\0';
+               err->migrate_dc = -1; err->flood_wait_secs = 0; }
+
+    uint8_t query[4096];
+    size_t qlen = 0;
+    if (build_sign_up(phone, phone_code_hash, first_name, last_name,
+                      query, sizeof(query), &qlen) != 0) {
+        logger_log(LOG_ERROR, "auth_sign_up: failed to build request");
+        return -1;
     }
 
-    /* user#3ff6ecb0: flags:# self:... id:long ... */
-    tl_read_uint32(&r); /* flags */
-    int64_t uid = tl_read_int64(&r);
-    if (user_id_out) *user_id_out = uid;
+    logger_log(LOG_INFO, "auth_sign_up: phone='%s' first_name='%s'",
+               phone, first_name);
 
-    logger_log(LOG_INFO, "auth_sign_in: authenticated as user_id=%lld",
-               (long long)uid);
-    return 0;
+    RAII_STRING uint8_t *resp = (uint8_t *)malloc(65536);
+    if (!resp) return -1;
+    size_t resp_len = 0;
+
+    if (api_call(cfg, s, t, query, qlen, resp, 65536, &resp_len) != 0) {
+        logger_log(LOG_ERROR, "auth_sign_up: api_call failed");
+        return -1;
+    }
+
+    if (resp_len < 4) {
+        logger_log(LOG_ERROR, "auth_sign_up: response too short");
+        return -1;
+    }
+
+    uint32_t constructor;
+    memcpy(&constructor, resp, 4);
+
+    if (constructor == TL_rpc_error) {
+        RpcError perr;
+        rpc_parse_error(resp, resp_len, &perr);
+        logger_log(LOG_ERROR, "auth_sign_up: RPC error %d: %s",
+                   perr.error_code, perr.error_msg);
+        if (err) *err = perr;
+        return -1;
+    }
+
+    if (constructor != CRC_auth_authorization) {
+        logger_log(LOG_ERROR, "auth_sign_up: unexpected constructor 0x%08x",
+                   constructor);
+        return -1;
+    }
+
+    return parse_authorization(resp, resp_len, user_id_out, "auth_sign_up");
 }

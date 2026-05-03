@@ -30,9 +30,11 @@
 #define CRC_auth_sentCodeTypeCall      0x5353e5a7
 #define CRC_auth_sentCodeTypeFlashCall 0xab03c6d9
 
-/* ---- auth.signIn TL constructor IDs ---- */
-#define CRC_auth_signIn            0x8d52a951
-#define CRC_auth_authorization     0x2ea2c0d4
+/* ---- auth.signIn / auth.signUp TL constructor IDs ---- */
+#define CRC_auth_signIn                      0x8d52a951
+#define CRC_auth_signUp                      0x80eee427
+#define CRC_auth_authorization               0x2ea2c0d4
+#define CRC_auth_authorizationSignUpRequired 0x44747e9a
 
 /** Maximum length for phone_code_hash string. */
 #define AUTH_CODE_HASH_MAX 128
@@ -74,6 +76,7 @@ int auth_send_code(const ApiConfig *cfg,
  * @param phone_code_hash  Hash received in AuthSentCode.
  * @param code             Code entered by user.
  * @param user_id_out      Receives the authenticated user's ID on success.
+ * @param signup_required  Set to 1 if auth.authorizationSignUpRequired received.
  * @param err              Optional RPC error output (NULL ok).
  * @return 0 on success, -1 on error (wrong code, flood wait, etc.).
  */
@@ -82,6 +85,32 @@ int auth_sign_in(const ApiConfig *cfg,
                  const char *phone,
                  const char *phone_code_hash,
                  const char *code,
+                 int64_t *user_id_out,
+                 int *signup_required,
+                 RpcError *err);
+
+/**
+ * @brief Send auth.signUp to register a new account.
+ *
+ * Called after auth_sign_in returns signup_required=1.
+ *
+ * @param cfg              API configuration.
+ * @param s                MTProto session.
+ * @param t                Connected transport.
+ * @param phone            Phone number.
+ * @param phone_code_hash  Hash received in AuthSentCode.
+ * @param first_name       Account first name.
+ * @param last_name        Account last name (may be "").
+ * @param user_id_out      Receives the new user's ID on success.
+ * @param err              Optional RPC error output (NULL ok).
+ * @return 0 on success, -1 on error.
+ */
+int auth_sign_up(const ApiConfig *cfg,
+                 MtProtoSession *s, Transport *t,
+                 const char *phone,
+                 const char *phone_code_hash,
+                 const char *first_name,
+                 const char *last_name,
                  int64_t *user_id_out,
                  RpcError *err);
 

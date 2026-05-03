@@ -58,14 +58,36 @@ int auth_flow_connect_dc(int dc_id, Transport *t, MtProtoSession *s) {
     return connect_dc_ex(dc_id, dc_id, t, s);
 }
 
-/** Tear down the current session/transport and reconnect to a new DC. */
+/** Full migration: tear down session+transport, reconnect, redo DH. */
 static int migrate(int new_dc, int dh_dc, Transport *t, MtProtoSession *s) {
     logger_log(LOG_INFO, "auth_flow: migrating to DC%d (dh_dc=%d)",
                new_dc, dh_dc);
     transport_close(t);
-    /* Re-init session — auth key is DC-scoped. */
     mtproto_session_init(s);
     return connect_dc_ex(new_dc, dh_dc, t, s);
+}
+
+/**
+ * Soft migrate: reuse the existing auth key, just reconnect TCP to the
+ * target DC endpoint and update t->dc_id.  Used when the server accepts
+ * only dc=0 for DH (Telegram test DC) so a full re-DH would fail.
+ */
+static int migrate_soft(int new_dc, Transport *t) {
+    logger_log(LOG_INFO, "auth_flow: soft-migrating to DC%d (keep auth key)",
+               new_dc);
+    transport_close(t);
+    const DcEndpoint *ep = dc_lookup(new_dc);
+    if (!ep) {
+        logger_log(LOG_ERROR, "auth_flow: unknown DC id %d", new_dc);
+        return -1;
+    }
+    if (transport_connect(t, ep->host, ep->port) != 0) {
+        logger_log(LOG_ERROR, "auth_flow: connect failed for DC%d (%s:%d)",
+                   new_dc, ep->host, ep->port);
+        return -1;
+    }
+    t->dc_id = new_dc;
+    return 0;
 }
 
 int auth_flow_login(const ApiConfig *cfg,
@@ -120,8 +142,17 @@ int auth_flow_login(const ApiConfig *cfg,
         if (rc == 0) break;
         if (err.migrate_dc > 0 && migrations < AUTH_MAX_MIGRATIONS) {
             migrations++;
-            if (migrate(err.migrate_dc, err.migrate_dc, t, s) != 0) return -1;
-            current_dc = err.migrate_dc;
+            int target = (current_dc < 0) ? -err.migrate_dc : err.migrate_dc;
+            if (migrate(target, target, t, s) == 0) {
+                current_dc = target;
+                continue;
+            }
+            /* Full re-DH failed (e.g. test DC only accepts dc=0).
+             * Fall back: reuse existing auth key, just reconnect TCP. */
+            logger_log(LOG_WARN,
+                       "auth_flow: full migrate failed, trying soft migrate");
+            if (migrate_soft(target, t) != 0) return -1;
+            current_dc = target;
             continue;
         }
         logger_log(LOG_ERROR, "auth_flow: sendCode failed (%d: %s)",
@@ -136,22 +167,36 @@ int auth_flow_login(const ApiConfig *cfg,
         return -1;
     }
 
-    /* ---- auth.signIn (with migration; 2FA detected but unimplemented) ---- */
+    /* ---- auth.signIn (with migration; 2FA; sign-up for new accounts) ---- */
     int64_t uid = 0;
     for (;;) {
         RpcError err = {0};
         err.migrate_dc = -1;
+        int signup_required = 0;
         int rc = auth_sign_in(cfg, s, t, phone, sent.phone_code_hash, code,
-                              &uid, &err);
+                              &uid, &signup_required, &err);
         if (rc == 0) break;
+
+        /* New account: no existing record for this phone on this DC. */
+        if (signup_required) {
+            logger_log(LOG_INFO,
+                       "auth_flow: new account — registering with signUp");
+            RpcError su_err = {0};
+            if (auth_sign_up(cfg, s, t, phone, sent.phone_code_hash,
+                             "Test", "Account", &uid, &su_err) != 0) {
+                logger_log(LOG_ERROR,
+                           "auth_flow: signUp failed (%d: %s)",
+                           su_err.error_code, su_err.error_msg);
+                return -1;
+            }
+            break;
+        }
+
         if (err.migrate_dc > 0 && migrations < AUTH_MAX_MIGRATIONS) {
             migrations++;
-            if (migrate(err.migrate_dc, err.migrate_dc, t, s) != 0) return -1;
-            current_dc = err.migrate_dc;
-            /* After migration we must re-send the code from scratch because
-             * phone_code_hash is DC-scoped. Loop back via a recursive call
-             * after the outer caller handles the new state. For now we
-             * signal failure with a clear diagnostic. */
+            int target = (current_dc < 0) ? -err.migrate_dc : err.migrate_dc;
+            if (migrate(target, target, t, s) != 0) return -1;
+            current_dc = target;
             logger_log(LOG_ERROR,
                        "auth_flow: unexpected migration during signIn — "
                        "restart login flow");

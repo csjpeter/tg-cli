@@ -250,7 +250,7 @@ static void test_user_migrate_after_sign_in_switches_home_dc(void) {
     int64_t uid = 0;
     RpcError si_err = {0};
     int rc = auth_sign_in(&cfg, &s, &t, "+15551234567",
-                          sent.phone_code_hash, "12345", &uid, &si_err);
+                          sent.phone_code_hash, "12345", &uid, NULL, &si_err);
     ASSERT(rc == -1, "signIn fails with USER_MIGRATE");
     ASSERT(si_err.error_code == 303, "error_code 303");
     ASSERT(si_err.migrate_dc == 5,
@@ -265,7 +265,7 @@ static void test_user_migrate_after_sign_in_switches_home_dc(void) {
     int64_t uid2 = 0;
     RpcError si_err2 = {0};
     ASSERT(auth_sign_in(&cfg, &s, &t, "+15551234567",
-                        sent.phone_code_hash, "12345", &uid2, &si_err2) == 0,
+                        sent.phone_code_hash, "12345", &uid2, NULL, &si_err2) == 0,
            "signIn succeeds after migrate to DC5");
     ASSERT(uid2 == 55555LL, "authenticated user_id returned from migrated DC");
 
@@ -552,7 +552,7 @@ static void test_sign_in_rejects_unexpected_constructor(void) {
     int64_t uid = 0;
     RpcError err = {0};
     int rc = auth_sign_in(&cfg, &s, &t, "+15551234567", "hash", "12345",
-                          &uid, &err);
+                          &uid, NULL, &err);
     ASSERT(rc == -1,
            "auth_sign_in fails on unexpected (non-authorization, non-error) constructor");
 
@@ -664,7 +664,7 @@ static void test_sign_in_unknown_user_ctor_still_succeeds(void) {
     int64_t uid = 0xAAAAAAAAAAAAAAAALL; /* sentinel */
     RpcError err = {0};
     int rc = auth_sign_in(&cfg, &s, &t, "+15551234567", "hash", "12345",
-                          &uid, &err);
+                          &uid, NULL, &err);
     /* The parser treats an unknown user constructor as "authenticated but
      * we do not know the id" — rc == 0, uid reset to 0. */
     ASSERT(rc == 0,

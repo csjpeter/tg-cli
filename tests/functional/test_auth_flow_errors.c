@@ -290,7 +290,7 @@ static void drive_sign_in_error(const char *tag,
     int64_t uid = 0xDEADBEEFLL; /* sentinel — must remain untouched on failure */
     RpcError err = {0};
     ASSERT(auth_sign_in(&cfg, &s, &t, "+15551234567", "abc123", "12345",
-                        &uid, &err) == -1,
+                        &uid, NULL, &err) == -1,
            "auth_sign_in returns -1 on rpc_error");
     ASSERT(err.error_code == expected_code,
            "error_code matches server reply");

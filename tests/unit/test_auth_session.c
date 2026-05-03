@@ -222,7 +222,7 @@ static void test_sign_in_success(void) {
     int64_t user_id = 0;
     int rc = auth_sign_in(&cfg, &s, &t,
                           "+15551234567", "abc123hash456xyz", "12345",
-                          &user_id, NULL);
+                          &user_id, NULL, NULL);
 
     ASSERT(rc == 0,             "sign_in: must succeed");
     ASSERT(user_id == 987654321LL, "sign_in: user_id must be parsed correctly");
@@ -261,7 +261,7 @@ static void test_sign_in_rpc_error(void) {
     int64_t user_id = 0;
     int rc = auth_sign_in(&cfg, &s, &t,
                           "+15551234567", "abc123hash456xyz", "00000",
-                          &user_id, NULL);
+                          &user_id, NULL, NULL);
 
     ASSERT(rc != 0, "sign_in: must fail on RPC error");
 }
@@ -271,7 +271,7 @@ static void test_null_args_rejected(void) {
     AuthSentCode out;
     ASSERT(auth_send_code(NULL, NULL, NULL, NULL, &out, NULL) == -1,
            "send_code: null args must return -1");
-    ASSERT(auth_sign_in(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL) == -1,
+    ASSERT(auth_sign_in(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL) == -1,
            "sign_in: null args must return -1");
 }
 
@@ -407,7 +407,7 @@ static void test_sign_in_unexpected_constructor(void) {
     setup_session_and_transport(&s, &t, &cfg);
 
     int64_t uid = 0;
-    int rc = auth_sign_in(&cfg, &s, &t, "+1", "h", "12345", &uid, NULL);
+    int rc = auth_sign_in(&cfg, &s, &t, "+1", "h", "12345", &uid, NULL, NULL);
     ASSERT(rc != 0, "sign_in: unexpected constructor must fail");
 }
 
@@ -434,7 +434,7 @@ static void test_sign_in_unexpected_user_crc(void) {
     setup_session_and_transport(&s, &t, &cfg);
 
     int64_t uid = 77;
-    int rc = auth_sign_in(&cfg, &s, &t, "+1", "h", "12345", &uid, NULL);
+    int rc = auth_sign_in(&cfg, &s, &t, "+1", "h", "12345", &uid, NULL, NULL);
     ASSERT(rc == 0, "sign_in: unexpected user constructor still OK");
     ASSERT(uid == 0, "sign_in: uid must be reset to 0");
 }
@@ -449,7 +449,7 @@ static void test_sign_in_api_call_fails(void) {
     setup_session_and_transport(&s, &t, &cfg);
 
     int64_t uid = 0;
-    int rc = auth_sign_in(&cfg, &s, &t, "+1", "h", "12345", &uid, NULL);
+    int rc = auth_sign_in(&cfg, &s, &t, "+1", "h", "12345", &uid, NULL, NULL);
     ASSERT(rc != 0, "sign_in: api_call failure must propagate");
 }
 

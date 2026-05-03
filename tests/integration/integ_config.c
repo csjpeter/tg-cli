@@ -150,17 +150,11 @@ int integ_config_load(integration_config_t *cfg) {
     if (!cfg->code      && getenv("TG_TEST_CODE"))
         cfg->code      = strdup(getenv("TG_TEST_CODE"));
 
-    /* dc_id=0 is treated as "not set"; default to DC 2 (Telegram test DC). */
-    if (cfg->dc_id == 0)
-        cfg->dc_id = 2;
+    /* dc_id=0 means "wildcard" — the Telegram test DC accepts dc=0 in DH. */
 
-    /* Default test phone for Telegram test DC 2. */
-    if (!cfg->phone)
-        cfg->phone = strdup("+99962123456");
-
-    /* Telegram test DC: +9996XXXXXXXX numbers always accept code 12345. */
-    if (!cfg->code && cfg->phone && strncmp(cfg->phone, "+9996", 5) == 0)
-        cfg->code = strdup("12345");
+    /* No default phone — the user must supply one via test.ini or interactively.
+     * Telegram test DC phone numbers (+9996NXXXXX) do not have a universal
+     * magic code; the actual code must be received (SMS or app notification). */
 
     /* Apply defaults for fields not present anywhere. */
     if (!cfg->dc_port)
