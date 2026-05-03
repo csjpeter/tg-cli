@@ -69,59 +69,61 @@ int integ_config_load(integration_config_t *cfg) {
 
     FILE *fp = fopen(path, "r");
     free(path);
-    if (!fp) return -1;
+    int file_found = (fp != NULL);
 
-    char line[INTEG_LINE_MAX];
-    int  in_section = 0;
+    if (fp) {
+        char line[INTEG_LINE_MAX];
+        int  in_section = 0;
 
-    while (fgets(line, sizeof(line), fp)) {
-        /* Strip trailing CR/LF */
-        size_t len = strlen(line);
-        while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r'))
-            line[--len] = '\0';
+        while (fgets(line, sizeof(line), fp)) {
+            size_t len = strlen(line);
+            while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r'))
+                line[--len] = '\0';
 
-        char *p = ltrim(line);
-        if (!*p || *p == '#' || *p == ';') continue;
+            char *p = ltrim(line);
+            if (!*p || *p == '#' || *p == ';') continue;
 
-        if (*p == '[') {
-            char *end = strchr(p, ']');
-            if (end) *end = '\0';
-            in_section = (strcmp(p + 1, "integration") == 0);
-            continue;
+            if (*p == '[') {
+                char *end = strchr(p, ']');
+                if (end) *end = '\0';
+                in_section = (strcmp(p + 1, "integration") == 0);
+                continue;
+            }
+            if (!in_section) continue;
+
+            char *eq = strchr(p, '=');
+            if (!eq) continue;
+            *eq = '\0';
+            char *key = p;
+            char *val = ltrim(eq + 1);
+            rtrim(key);
+            rtrim(val);
+
+            if      (strcmp(key, "dc_host")     == 0)
+                cfg->dc_host     = strdup(val);
+            else if (strcmp(key, "dc_port")     == 0)
+                cfg->dc_port     = strdup(val);
+            else if (strcmp(key, "dc_id")       == 0)
+                cfg->dc_id       = atoi(val);
+            else if (strcmp(key, "api_id")      == 0)
+                cfg->api_id      = strdup(val);
+            else if (strcmp(key, "api_hash")    == 0)
+                cfg->api_hash    = strdup(val);
+            else if (strcmp(key, "phone")       == 0)
+                cfg->phone       = strdup(val);
+            else if (strcmp(key, "code")        == 0)
+                cfg->code        = strdup(val);
+            else if (strcmp(key, "rsa_pem")     == 0)
+                cfg->rsa_pem     = unescape_nl(val);
+            else if (strcmp(key, "session_bin") == 0)
+                cfg->session_bin = expand_home(val);
         }
-        if (!in_section) continue;
 
-        char *eq = strchr(p, '=');
-        if (!eq) continue;
-        *eq = '\0';
-        char *key = p;
-        char *val = ltrim(eq + 1);
-        rtrim(key);
-        rtrim(val);
-
-        if      (strcmp(key, "dc_host")     == 0)
-            cfg->dc_host     = strdup(val);
-        else if (strcmp(key, "dc_port")     == 0)
-            cfg->dc_port     = strdup(val);
-        else if (strcmp(key, "dc_id")       == 0)
-            cfg->dc_id       = atoi(val);
-        else if (strcmp(key, "api_id")      == 0)
-            cfg->api_id      = strdup(val);
-        else if (strcmp(key, "api_hash")    == 0)
-            cfg->api_hash    = strdup(val);
-        else if (strcmp(key, "phone")       == 0)
-            cfg->phone       = strdup(val);
-        else if (strcmp(key, "code")        == 0)
-            cfg->code        = strdup(val);
-        else if (strcmp(key, "rsa_pem")     == 0)
-            cfg->rsa_pem     = unescape_nl(val);
-        else if (strcmp(key, "session_bin") == 0)
-            cfg->session_bin = expand_home(val);
+        fclose(fp);
     }
 
-    fclose(fp);
-
-    /* Fallback to legacy TG_TEST_* env vars for fields not set in the file. */
+    /* Fallback to legacy TG_TEST_* env vars for any field not set in the file.
+     * This runs unconditionally so env vars work even without a config file. */
     if (!cfg->dc_host   && getenv("TG_TEST_DC_HOST"))
         cfg->dc_host   = strdup(getenv("TG_TEST_DC_HOST"));
     if (!cfg->api_id    && getenv("TG_TEST_API_ID"))
@@ -133,11 +135,10 @@ int integ_config_load(integration_config_t *cfg) {
     if (!cfg->rsa_pem   && getenv("TG_TEST_RSA_PEM"))
         cfg->rsa_pem   = unescape_nl(getenv("TG_TEST_RSA_PEM"));
 
-    /* Apply defaults for fields not present in the file. */
+    /* Apply defaults for fields not present anywhere. */
     if (!cfg->dc_port)
         cfg->dc_port = strdup("443");
 
-    /* Default session_bin: ~/.config/tg-cli/test-session.bin */
     if (!cfg->session_bin) {
         const char *home = getenv("HOME");
         if (home)
@@ -145,5 +146,5 @@ int integ_config_load(integration_config_t *cfg) {
                      "%s/.config/tg-cli/test-session.bin", home);
     }
 
-    return 0;
+    return file_found ? 0 : -1;
 }
