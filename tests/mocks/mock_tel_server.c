@@ -1277,21 +1277,21 @@ static int rsa_pad_decrypt(const uint8_t *ciphertext, size_t cipher_len,
     uint8_t data_with_hash[224];
     aes_ige_decrypt(aes_encrypted, 224, temp_key, zero_iv, data_with_hash);
 
-    /* Step 6: data_with_hash = reversed(192) + hash(32)
-     * Verify SHA256(temp_key + reversed) == hash */
+    /* Step 6: data_with_hash = data_pad_reversed(192) + hash(32).
+     * Un-reverse first to get data_with_padding. */
+    for (int i = 0; i < 192; i++) plain_out[i] = data_with_hash[191 - i];
+
+    /* Step 7: Verify SHA256(temp_key + data_with_padding) == hash.
+     * Per spec: hash is over the NON-reversed block (data_with_padding). */
     uint8_t verify_buf[32 + 192];
     memcpy(verify_buf, temp_key, 32);
-    memcpy(verify_buf + 32, data_with_hash, 192);
+    memcpy(verify_buf + 32, plain_out, 192);
     uint8_t expected_hash[32];
     crypto_sha256(verify_buf, sizeof(verify_buf), expected_hash);
     if (memcmp(expected_hash, data_with_hash + 192, 32) != 0) {
         fprintf(stderr, "mock: rsa_pad_decrypt: hash mismatch\n");
         return -1;
     }
-
-    /* Step 7: un-reverse to get the original padded data */
-    const uint8_t *reversed = data_with_hash;
-    for (int i = 0; i < 192; i++) plain_out[i] = reversed[191 - i];
 
     return 0;
 }
@@ -1358,10 +1358,9 @@ static void handshake_on_req_dh_params(const uint8_t *body, size_t body_len) {
     free(enc_data);
 
     /* Parse p_q_inner_data_dc from inner_plain.
-     * RSA_PAD output: SHA256(data)[32] + data[...] + padding.
-     * The actual TL payload starts at offset 32 — skip the hash prefix.
+     * RSA_PAD output: data[...] + padding (no hash prefix — per MTProto spec).
      * TL: CRC(4) pq:bytes p:bytes q:bytes nonce(16) server_nonce(16) new_nonce(32) dc:int */
-    TlReader ir = tl_reader_init(inner_plain + 32, sizeof(inner_plain) - 32);
+    TlReader ir = tl_reader_init(inner_plain, sizeof(inner_plain));
     uint32_t inner_crc = tl_read_uint32(&ir);
     if (inner_crc != 0xa9f55f95U) {  /* CRC_p_q_inner_data_dc */
         fprintf(stderr, "mock: full DH: unexpected inner CRC 0x%08x\n", inner_crc);

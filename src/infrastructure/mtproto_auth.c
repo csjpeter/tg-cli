@@ -79,55 +79,49 @@ static uint64_t be_to_uint64(const uint8_t *data, size_t len) {
     return val;
 }
 
-/* ---- RSA_PAD (OAEP variant for Telegram) ---- */
+/* ---- RSA_PAD (MTProto 2.0 spec, core.telegram.org/mtproto/auth_key) ---- */
 
 static int rsa_pad_encrypt(CryptoRsaKey *rsa_key,
                            const uint8_t *data, size_t data_len,
                            uint8_t *out, size_t *out_len) {
     if (!rsa_key || !data || !out || !out_len) return -1;
-    /* 32 SHA256 + data + padding = 192; data must fit: ≤ 160 bytes. */
-    if (data_len > 160) return -1;
+    /* data + padding = 192 bytes; data must fit. */
+    if (data_len > 192) return -1;
 
-    /* Step 1: Build 192-byte block: SHA256(data) + data + random_padding */
-    uint8_t sha256_data[32];
-    crypto_sha256(data, data_len, sha256_data);
-
-    uint8_t padded[192];
-    memcpy(padded, sha256_data, 32);
-    memcpy(padded + 32, data, data_len);
-    size_t pad_start = 32 + data_len;
-    if (pad_start < 192) {
-        crypto_rand_bytes(padded + pad_start, 192 - pad_start);
+    /* Step 1: data_with_padding = data + random_padding (192 bytes, no hash prefix) */
+    uint8_t data_with_padding[192];
+    memcpy(data_with_padding, data, data_len);
+    if (data_len < 192) {
+        crypto_rand_bytes(data_with_padding + data_len, 192 - data_len);
     }
 
-    /* Step 2: Reverse */
-    uint8_t reversed[192];
+    /* Step 2: data_pad_reversed = BYTE_REVERSE(data_with_padding) */
+    uint8_t data_pad_reversed[192];
     for (int i = 0; i < 192; i++) {
-        reversed[i] = padded[191 - i];
+        data_pad_reversed[i] = data_with_padding[191 - i];
     }
 
-    /* The resulting `rsa_input` must be numerically < RSA modulus to be
-     * a valid NO_PADDING input. Since temp_key (and hence the MSB of the
-     * 256-byte buffer) is random, ~half of calls would hit >= modulus
-     * and EVP_PKEY_encrypt would reject them. TDLib retries with fresh
-     * temp_key until the result is valid — mirror that here. Bounded to
-     * 32 attempts to guarantee forward progress in pathological cases
-     * (e.g. a mock key with a very low-high-bit modulus). */
+    /* The resulting rsa_input must be numerically < RSA modulus.
+     * For RSA-2048 the modulus MSB is set, so the 256-byte rsa_input
+     * whose MSB comes from temp_key_xor triggers ~50% rejection.
+     * Retry with a fresh temp_key (bounded to 32 attempts). */
     for (int attempt = 0; attempt < 32; ++attempt) {
         /* Step 3: Random temp_key (32 bytes) */
         uint8_t temp_key[32];
         crypto_rand_bytes(temp_key, 32);
 
-        /* Step 4: data_with_hash = reversed + SHA256(temp_key + reversed) */
-        uint8_t temp_key_and_reversed[32 + 192];
-        memcpy(temp_key_and_reversed, temp_key, 32);
-        memcpy(temp_key_and_reversed + 32, reversed, 192);
+        /* Step 4: data_with_hash = data_pad_reversed + SHA256(temp_key + data_with_padding)
+         * Per spec: the hash is over (temp_key || data_with_padding) — the NON-reversed
+         * 192-byte block — NOT over data_pad_reversed. */
+        uint8_t sha256_input[32 + 192];
+        memcpy(sha256_input, temp_key, 32);
+        memcpy(sha256_input + 32, data_with_padding, 192);
 
         uint8_t hash[32];
-        crypto_sha256(temp_key_and_reversed, sizeof(temp_key_and_reversed), hash);
+        crypto_sha256(sha256_input, sizeof(sha256_input), hash);
 
-        uint8_t data_with_hash[224]; /* 192 + 32 */
-        memcpy(data_with_hash, reversed, 192);
+        uint8_t data_with_hash[224];
+        memcpy(data_with_hash, data_pad_reversed, 192);
         memcpy(data_with_hash + 192, hash, 32);
 
         /* Step 5: AES-256-IGE encrypt data_with_hash with temp_key, zero IV */
@@ -155,8 +149,7 @@ static int rsa_pad_encrypt(CryptoRsaKey *rsa_key,
                                       out, out_len) == 0) {
             return 0;
         }
-        /* Retry: RSA_NO_PADDING rejects inputs >= modulus, which
-         * happens for roughly half of random 256-byte buffers. */
+        /* Retry: RSA_NO_PADDING rejects inputs >= modulus. */
     }
     logger_log(LOG_ERROR,
                "auth: rsa_pad_encrypt exhausted 32 retries — RSA key anomaly");
