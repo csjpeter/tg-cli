@@ -22,6 +22,7 @@
  */
 
 #include "test_helpers_integration.h"
+#include "app/dc_config.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -63,6 +64,12 @@ static void load_integration_config(void)
     /* Default port when the variable is absent */
     const char *port = getenv("TG_TEST_DC_PORT");
     g_integration_config.dc_port = (port && port[0]) ? port : "443";
+
+    /* DC ID to use (defaults to DEFAULT_DC_ID if not set) */
+    const char *dc_id_str = getenv("TG_TEST_DC_ID");
+    g_integration_config.dc_id = (dc_id_str && dc_id_str[0])
+                                 ? atoi(dc_id_str)
+                                 : DEFAULT_DC_ID;
 }
 
 int main(int argc, char *argv[])

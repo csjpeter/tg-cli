@@ -191,7 +191,7 @@ static void test_dh_handshake_completes(void)
     MtProtoSession s;
     mtproto_session_init(&s);
 
-    int dc_id = DEFAULT_DC_ID;
+    int dc_id = g_integration_config.dc_id;
     int rc = auth_flow_connect_dc(dc_id, &t, &s);
     ASSERT(rc == 0, "auth_flow_connect_dc failed — DH handshake did not complete");
 

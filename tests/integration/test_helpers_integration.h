@@ -21,6 +21,7 @@
 typedef struct {
     const char *dc_host;   /**< TG_TEST_DC_HOST  — test DC hostname or IP */
     const char *dc_port;   /**< TG_TEST_DC_PORT  — test DC port (default "443") */
+    int         dc_id;     /**< TG_TEST_DC_ID    — DC id to use (default: DEFAULT_DC_ID) */
     const char *rsa_pem;   /**< TG_TEST_RSA_PEM  — test DC RSA public key (PEM) */
     const char *api_id;    /**< TG_TEST_API_ID   — api_id from test app */
     const char *api_hash;  /**< TG_TEST_API_HASH — api_hash from test app */
