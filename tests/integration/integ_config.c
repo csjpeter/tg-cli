@@ -150,10 +150,7 @@ int integ_config_load(integration_config_t *cfg) {
     if (!cfg->code      && getenv("TG_TEST_CODE"))
         cfg->code      = strdup(getenv("TG_TEST_CODE"));
 
-    /* Default to Telegram test DC 2 (149.154.167.40) when not configured.
-     * dc_id=0 is treated as "not set" — the actual test DC is 2. */
-    if (!cfg->dc_host)
-        cfg->dc_host = strdup("149.154.167.40");
+    /* dc_id=0 is treated as "not set"; default to DC 2 (Telegram test DC). */
     if (cfg->dc_id == 0)
         cfg->dc_id = 2;
 
