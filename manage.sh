@@ -175,18 +175,6 @@ case "$1" in
         valgrind --leak-check=full --error-exitcode=1 "$BUILD_DIR/tests/functional/functional-test-runner"
         ;;
     test-login)
-        TEST_INI="$HOME/.config/tg-cli/test.ini"
-        if [ ! -f "$TEST_INI" ]; then
-            echo "ERROR: $TEST_INI not found"
-            echo "Create it with at least:"
-            echo "  [integration]"
-            echo "  dc_host  = 149.154.167.40"
-            echo "  dc_id    = 0"
-            echo "  api_id   = <your test api_id>"
-            echo "  api_hash = <your test api_hash>"
-            echo "  phone    = +99966XXXXXXX"
-            exit 1
-        fi
         build_debug
         cmake --build "$BUILD_DIR" --target tg-test-login
         "$BUILD_DIR/tests/integration/tg-test-login"

@@ -5,10 +5,11 @@
  * @file test_login.c
  * @brief One-shot interactive login helper for integration tests.
  *
- * Reads credentials from ~/.config/tg-cli/test.ini, performs a full
- * Telegram login (DH + auth.sendCode + auth.signIn) and saves the resulting
- * auth_key to the session_bin path configured in test.ini (default:
- * ~/.config/tg-cli/test-session.bin).
+ * Reads credentials from ~/.config/tg-cli/test.ini when available;
+ * prompts interactively for any missing fields.  After successful login
+ * the auth_key is saved to the session_bin path (default:
+ * ~/.config/tg-cli/test-session.bin) so that subsequent
+ * `./manage.sh integration` runs reuse the saved session.
  *
  * Run once before using `./manage.sh integration`:
  *   ./manage.sh test-login
@@ -32,6 +33,18 @@
 /* Global populated by integ_config_load() */
 integration_config_t g_integration_config;
 
+/* ---- Prompt helpers ---- */
+
+static int prompt_string(const char *prompt, char *out, size_t cap)
+{
+    printf("%s", prompt);
+    fflush(stdout);
+    if (!fgets(out, (int)cap, stdin)) return -1;
+    size_t len = strlen(out);
+    while (len > 0 && (out[len-1] == '\n' || out[len-1] == '\r')) out[--len] = '\0';
+    return out[0] ? 0 : -1;
+}
+
 /* ---- Callbacks ---- */
 
 static int cb_get_phone(void *user, char *out, size_t cap)
@@ -43,35 +56,20 @@ static int cb_get_phone(void *user, char *out, size_t cap)
         printf("Phone: %s\n", out);
         return 0;
     }
-    printf("Phone number: ");
-    fflush(stdout);
-    if (!fgets(out, (int)cap, stdin)) return -1;
-    size_t len = strlen(out);
-    while (len > 0 && (out[len-1] == '\n' || out[len-1] == '\r')) out[--len] = '\0';
-    return out[0] ? 0 : -1;
+    return prompt_string("Phone number: ", out, cap);
 }
 
 static int cb_get_code(void *user, char *out, size_t cap)
 {
     (void)user;
     /* Always prompt interactively — this is the one-time flow. */
-    printf("SMS / Telegram code: ");
-    fflush(stdout);
-    if (!fgets(out, (int)cap, stdin)) return -1;
-    size_t len = strlen(out);
-    while (len > 0 && (out[len-1] == '\n' || out[len-1] == '\r')) out[--len] = '\0';
-    return out[0] ? 0 : -1;
+    return prompt_string("SMS / Telegram code: ", out, cap);
 }
 
 static int cb_get_password(void *user, char *out, size_t cap)
 {
     (void)user;
-    printf("2FA password: ");
-    fflush(stdout);
-    if (!fgets(out, (int)cap, stdin)) return -1;
-    size_t len = strlen(out);
-    while (len > 0 && (out[len-1] == '\n' || out[len-1] == '\r')) out[--len] = '\0';
-    return out[0] ? 0 : -1;
+    return prompt_string("2FA password: ", out, cap);
 }
 
 /* ---- File copy ---- */
@@ -119,41 +117,79 @@ static void apply_dc_overrides(void)
     }
 }
 
+/* ---- Ensure session_bin directory exists ---- */
+
+static void ensure_parent_dir(const char *path)
+{
+    char tmp[4096];
+    snprintf(tmp, sizeof(tmp), "%s", path);
+    char *slash = strrchr(tmp, '/');
+    if (!slash) return;
+    *slash = '\0';
+    /* mkdir -p equivalent: walk from root */
+    for (char *p = tmp + 1; *p; p++) {
+        if (*p == '/') {
+            *p = '\0';
+            mkdir(tmp, 0700);
+            *p = '/';
+        }
+    }
+    mkdir(tmp, 0700);
+}
+
 /* ---- Main ---- */
 
 int main(void)
 {
     memset(&g_integration_config, 0, sizeof(g_integration_config));
 
-    if (integ_config_load(&g_integration_config) != 0) {
-        char *path = integ_config_path();
-        fprintf(stderr, "ERROR: config file not found: %s\n\n",
-                path ? path : "~/.config/tg-cli/test.ini");
-        fprintf(stderr, "Create it with at least:\n"
-                        "  [integration]\n"
-                        "  dc_host  = 149.154.167.40\n"
-                        "  dc_id    = 0\n"
-                        "  api_id   = <your test api_id>\n"
-                        "  api_hash = <your test api_hash>\n"
-                        "  phone    = +99966XXXXXXX\n");
-        free(path);
-        return 1;
+    /* Config file is optional — missing fields will be prompted below. */
+    integ_config_load(&g_integration_config);
+
+    /* Prompt for any mandatory fields not supplied by the config file. */
+    char buf_host[256]   = {0};
+    char buf_apiid[32]   = {0};
+    char buf_apihash[64] = {0};
+
+    if (!g_integration_config.dc_host || !g_integration_config.dc_host[0]) {
+        if (prompt_string("DC host [149.154.167.40]: ", buf_host, sizeof(buf_host)) != 0)
+            snprintf(buf_host, sizeof(buf_host), "149.154.167.40");
+        g_integration_config.dc_host = buf_host;
     }
 
     if (!g_integration_config.api_id || !g_integration_config.api_id[0]) {
-        fprintf(stderr, "ERROR: api_id not set in test.ini\n");
-        return 1;
+        if (prompt_string("API ID: ", buf_apiid, sizeof(buf_apiid)) != 0) {
+            fprintf(stderr, "ERROR: api_id is required\n");
+            return 1;
+        }
+        g_integration_config.api_id = buf_apiid;
+    }
+
+    if (!g_integration_config.api_hash || !g_integration_config.api_hash[0]) {
+        if (prompt_string("API hash: ", buf_apihash, sizeof(buf_apihash)) != 0) {
+            fprintf(stderr, "ERROR: api_hash is required\n");
+            return 1;
+        }
+        g_integration_config.api_hash = buf_apihash;
+    }
+
+    /* session_bin default is set by integ_config_load; if config was absent
+     * we fall back to the canonical default path. */
+    char default_session[4096] = {0};
+    if (!g_integration_config.session_bin || !g_integration_config.session_bin[0]) {
+        const char *home = getenv("HOME");
+        if (!home) home = "/tmp";
+        snprintf(default_session, sizeof(default_session),
+                 "%s/.config/tg-cli/test-session.bin", home);
+        g_integration_config.session_bin = default_session;
     }
 
     printf("=== tg-test-login ===\n");
     printf("DC: %s:%s  dc_id=%d\n",
-           g_integration_config.dc_host ? g_integration_config.dc_host : "(env)",
+           g_integration_config.dc_host,
            g_integration_config.dc_port ? g_integration_config.dc_port : "443",
            g_integration_config.dc_id);
-    printf("Session will be saved to: %s\n\n",
-           g_integration_config.session_bin
-               ? g_integration_config.session_bin
-               : "(default)");
+    printf("Session will be saved to: %s\n\n", g_integration_config.session_bin);
 
     apply_dc_overrides();
 
@@ -175,8 +211,7 @@ int main(void)
 
     ApiConfig cfg;
     api_config_init(&cfg);
-    if (g_integration_config.api_id)
-        cfg.api_id = atoi(g_integration_config.api_id);
+    cfg.api_id       = atoi(g_integration_config.api_id);
     cfg.api_hash     = g_integration_config.api_hash;
     cfg.start_dc     = g_integration_config.dc_id;
     cfg.start_dc_set = 1;
@@ -209,21 +244,15 @@ int main(void)
     snprintf(session_src, sizeof(session_src),
              "%s/.config/tg-cli/session.bin", tmp_home);
 
-    const char *dst = g_integration_config.session_bin;
-    if (!dst || !dst[0]) {
-        /* Should not happen — integ_config_load sets a default */
-        fprintf(stderr, "ERROR: session_bin path not set\n");
+    ensure_parent_dir(g_integration_config.session_bin);
+    if (copy_file(session_src, g_integration_config.session_bin) != 0) {
+        fprintf(stderr, "ERROR: failed to copy session to %s\n",
+                g_integration_config.session_bin);
         app_shutdown(&ctx);
         return 1;
     }
 
-    if (copy_file(session_src, dst) != 0) {
-        fprintf(stderr, "ERROR: failed to copy session to %s\n", dst);
-        app_shutdown(&ctx);
-        return 1;
-    }
-
-    printf("Session saved to: %s\n\n", dst);
+    printf("Session saved to: %s\n\n", g_integration_config.session_bin);
     printf("Integration tests can now be run without re-entering credentials:\n");
     printf("  ./manage.sh integration\n");
 
