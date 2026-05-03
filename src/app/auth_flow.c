@@ -102,12 +102,7 @@ int auth_flow_login(const ApiConfig *cfg,
     }
 
     int current_dc = cfg->start_dc_set ? cfg->start_dc : DEFAULT_DC_ID;
-    /* dh_dc: dc_id used in DH p_q_inner_data_dc; fixed for the lifetime of
-     * this login attempt.  On the Telegram test DC start_dc=0 acts as a
-     * wildcard — the server rejects any other value, so we must keep it 0
-     * even when migrating to a different physical DC. */
-    int dh_dc = current_dc;
-    if (connect_dc_ex(current_dc, dh_dc, t, s) != 0) return -1;
+    if (connect_dc_ex(current_dc, current_dc, t, s) != 0) return -1;
 
     char phone[64];
     if (cb->get_phone(cb->user, phone, sizeof(phone)) != 0) {
@@ -125,7 +120,7 @@ int auth_flow_login(const ApiConfig *cfg,
         if (rc == 0) break;
         if (err.migrate_dc > 0 && migrations < AUTH_MAX_MIGRATIONS) {
             migrations++;
-            if (migrate(err.migrate_dc, dh_dc, t, s) != 0) return -1;
+            if (migrate(err.migrate_dc, err.migrate_dc, t, s) != 0) return -1;
             current_dc = err.migrate_dc;
             continue;
         }
@@ -151,7 +146,7 @@ int auth_flow_login(const ApiConfig *cfg,
         if (rc == 0) break;
         if (err.migrate_dc > 0 && migrations < AUTH_MAX_MIGRATIONS) {
             migrations++;
-            if (migrate(err.migrate_dc, dh_dc, t, s) != 0) return -1;
+            if (migrate(err.migrate_dc, err.migrate_dc, t, s) != 0) return -1;
             current_dc = err.migrate_dc;
             /* After migration we must re-send the code from scratch because
              * phone_code_hash is DC-scoped. Loop back via a recursive call
