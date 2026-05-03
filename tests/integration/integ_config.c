@@ -150,9 +150,16 @@ int integ_config_load(integration_config_t *cfg) {
     if (!cfg->code      && getenv("TG_TEST_CODE"))
         cfg->code      = strdup(getenv("TG_TEST_CODE"));
 
-    /* Default test phone for Telegram test DC. */
+    /* Default to Telegram test DC 2 (149.154.167.40) when not configured.
+     * dc_id=0 is treated as "not set" — the actual test DC is 2. */
+    if (!cfg->dc_host)
+        cfg->dc_host = strdup("149.154.167.40");
+    if (cfg->dc_id == 0)
+        cfg->dc_id = 2;
+
+    /* Default test phone for Telegram test DC 2. */
     if (!cfg->phone)
-        cfg->phone = strdup("+99966123456");
+        cfg->phone = strdup("+99962123456");
 
     /* Telegram test DC: +9996XXXXXXXX numbers always accept code 12345. */
     if (!cfg->code && cfg->phone && strncmp(cfg->phone, "+9996", 5) == 0)
