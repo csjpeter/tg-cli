@@ -2,25 +2,20 @@
  * @file test_runner.c
  * @brief Entry point for the integration test suite.
  *
- * Integration tests run against the real Telegram test DC.  They require
- * credentials to be supplied via environment variables (TG_TEST_*).  When the
- * variables are absent the runner prints a clear skip message and exits 0 so
- * that CI pipelines without credentials do not fail.
+ * Integration tests run against the real Telegram test DC.  Credentials are
+ * loaded from ~/.config/tg-cli/test.ini.  When the file is absent the runner
+ * prints a clear skip message and exits 0 so that CI pipelines without
+ * credentials do not fail.
  *
  * Usage:
  *   tg-integration-test-runner              # run all suites
  *   tg-integration-test-runner <filter>     # run suites matching filter
  *
- * Required environment variables (when actually running tests):
- *   TG_TEST_API_ID    — api_id from my.telegram.org test app (gates the suite)
- *   TG_TEST_API_HASH  — api_hash
- *   TG_TEST_DC_HOST   — test DC hostname or IP (e.g. 149.154.175.10)
- *   TG_TEST_DC_PORT   — test DC port (default: 443)
- *   TG_TEST_RSA_PEM   — test DC RSA public key (PEM, \n-escaped single line)
- *   TG_TEST_PHONE     — pre-registered test phone number
- *   TG_TEST_CODE      — verification code, or "auto" for magic code 12345
+ * Configuration file: ~/.config/tg-cli/test.ini
+ * Run `./manage.sh test-login` once to set up credentials and save a session.
  */
 
+#include "integ_config.h"
 #include "test_helpers_integration.h"
 #include "app/dc_config.h"
 #include <stdio.h>
@@ -47,47 +42,34 @@ void run_integration_live_tests(void);
     } \
 } while (0)
 
-/**
- * @brief Load TG_TEST_* environment variables into g_integration_config.
- *
- * getenv() pointers remain valid for the lifetime of the process.
- */
-static void load_integration_config(void)
-{
-    g_integration_config.api_id   = getenv("TG_TEST_API_ID");
-    g_integration_config.api_hash = getenv("TG_TEST_API_HASH");
-    g_integration_config.dc_host  = getenv("TG_TEST_DC_HOST");
-    g_integration_config.rsa_pem  = getenv("TG_TEST_RSA_PEM");
-    g_integration_config.phone    = getenv("TG_TEST_PHONE");
-    g_integration_config.code     = getenv("TG_TEST_CODE");
-
-    /* Default port when the variable is absent */
-    const char *port = getenv("TG_TEST_DC_PORT");
-    g_integration_config.dc_port = (port && port[0]) ? port : "443";
-
-    /* DC ID to use (defaults to DEFAULT_DC_ID if not set) */
-    const char *dc_id_str = getenv("TG_TEST_DC_ID");
-    g_integration_config.dc_id = (dc_id_str && dc_id_str[0])
-                                 ? atoi(dc_id_str)
-                                 : DEFAULT_DC_ID;
-}
-
 int main(int argc, char *argv[])
 {
     if (argc > 1) {
         g_test_filter = argv[1];
     }
 
-    load_integration_config();
+    memset(&g_integration_config, 0, sizeof(g_integration_config));
+
+    if (integ_config_load(&g_integration_config) != 0) {
+        char *path = integ_config_path();
+        printf("integration tests skipped — %s not found\n"
+               "  Run: ./manage.sh test-login   to set up credentials\n",
+               path ? path : "~/.config/tg-cli/test.ini");
+        free(path);
+        return 0;
+    }
 
     if (!integration_creds_present()) {
-        printf("integration tests skipped — set TG_TEST_* env vars to run\n");
+        char *path = integ_config_path();
+        printf("integration tests skipped — api_id missing in %s\n",
+               path ? path : "~/.config/tg-cli/test.ini");
+        free(path);
         return 0;
     }
 
     printf("--- Integration Tests (Telegram test DC: %s:%s) ---\n\n",
            g_integration_config.dc_host ? g_integration_config.dc_host : "(unset)",
-           g_integration_config.dc_port);
+           g_integration_config.dc_port ? g_integration_config.dc_port : "443");
 
     if (g_test_filter) {
         printf("Filter: \"%s\"\n\n", g_test_filter);

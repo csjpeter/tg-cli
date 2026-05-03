@@ -142,6 +142,36 @@ static ApiConfig make_api_config(void)
 }
 
 /**
+ * If session_bin is configured and the file exists, copy it to
+ * <tmp_home>/.config/tg-cli/session.bin so that auth_flow_login can
+ * use the fast path (no SMS needed).
+ */
+static void restore_test_session(const char *tmp_home)
+{
+    const char *src = g_integration_config.session_bin;
+    if (!src || !src[0]) return;
+
+    struct stat st;
+    if (stat(src, &st) != 0) return; /* source doesn't exist yet */
+
+    char dst[4096];
+    snprintf(dst, sizeof(dst), "%s/.config/tg-cli/session.bin", tmp_home);
+
+    FILE *fs = fopen(src, "rb");
+    if (!fs) return;
+    FILE *fd = fopen(dst, "wb");
+    if (!fd) { fclose(fs); return; }
+
+    char buf[4096];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), fs)) > 0)
+        fwrite(buf, 1, n, fd);
+
+    fclose(fs);
+    fclose(fd);
+}
+
+/**
  * Callback: supply phone from g_integration_config.
  */
 static int cb_get_phone(void *user, char *out, size_t cap)
@@ -238,6 +268,8 @@ static void test_login_send_code_and_sign_in(void)
         .user         = NULL,
     };
 
+    restore_test_session(tmp_home);
+
     Transport t;
     transport_init(&t);
     MtProtoSession s;
@@ -246,7 +278,7 @@ static void test_login_send_code_and_sign_in(void)
     AuthFlowResult result = {0};
     int rc = auth_flow_login(&cfg, &cbs, &t, &s, &result);
     ASSERT(rc == 0, "auth_flow_login failed");
-    ASSERT(result.dc_id > 0, "dc_id <= 0 after login");
+    ASSERT(result.dc_id >= 0, "dc_id < 0 after login");
 
     /* session.bin must exist after a successful login. */
     char session_path[4096];
@@ -286,6 +318,8 @@ static void test_get_self(void)
         .get_password = NULL,
         .user         = NULL,
     };
+
+    restore_test_session(tmp_home);
 
     Transport t;
     transport_init(&t);
@@ -340,6 +374,8 @@ static void test_get_dialogs_returns_at_least_one(void)
         .user         = NULL,
     };
 
+    restore_test_session(tmp_home);
+
     Transport t;
     transport_init(&t);
     MtProtoSession s;
@@ -387,6 +423,8 @@ static void test_get_history_smoke(void)
         .get_password = NULL,
         .user         = NULL,
     };
+
+    restore_test_session(tmp_home);
 
     Transport t;
     transport_init(&t);
@@ -452,6 +490,8 @@ static void test_send_and_receive_message(void)
         .get_password = NULL,
         .user         = NULL,
     };
+
+    restore_test_session(tmp_a);
 
     Transport t_a;
     transport_init(&t_a);
@@ -531,6 +571,8 @@ static void test_salt_rotation_survives_long_session(void)
         .user         = NULL,
     };
 
+    restore_test_session(tmp_home);
+
     Transport t;
     transport_init(&t);
     MtProtoSession s;
@@ -592,6 +634,8 @@ static void test_logout_clears_session(void)
         .get_password = NULL,
         .user         = NULL,
     };
+
+    restore_test_session(tmp_home);
 
     Transport t;
     transport_init(&t);

@@ -23,8 +23,10 @@ show_help() {
     echo "  valgrind           Build and run unit + functional tests with Valgrind"
   echo "  valgrind-unit      Build and run unit tests only with Valgrind"
   echo "  valgrind-functional Build and run functional tests only with Valgrind"
+    echo "  test-login         One-shot interactive login; saves session to test.ini:session_bin"
+    echo "                     Reads credentials from ~/.config/tg-cli/test.ini"
     echo "  integration [flt]  Build and run integration tests against Telegram test DC"
-    echo "                     Requires TG_TEST_* env vars; skips gracefully when absent"
+    echo "                     Reads credentials from ~/.config/tg-cli/test.ini"
     echo "  coverage           Run tests and generate coverage report"
     echo "  tidy               Run clang-tidy static analysis on src/ (warn-only)"
     echo "  check-ro-isolation Verify tg-cli-ro contains no write-domain symbols (ADR-0005)"
@@ -172,9 +174,28 @@ case "$1" in
         build_functional_runner
         valgrind --leak-check=full --error-exitcode=1 "$BUILD_DIR/tests/functional/functional-test-runner"
         ;;
+    test-login)
+        TEST_INI="$HOME/.config/tg-cli/test.ini"
+        if [ ! -f "$TEST_INI" ]; then
+            echo "ERROR: $TEST_INI not found"
+            echo "Create it with at least:"
+            echo "  [integration]"
+            echo "  dc_host  = 149.154.167.40"
+            echo "  dc_id    = 0"
+            echo "  api_id   = <your test api_id>"
+            echo "  api_hash = <your test api_hash>"
+            echo "  phone    = +99966XXXXXXX"
+            exit 1
+        fi
+        build_debug
+        cmake --build "$BUILD_DIR" --target tg-test-login
+        "$BUILD_DIR/tests/integration/tg-test-login"
+        ;;
     integration)
-        if [ -z "${TG_TEST_API_ID:-}" ]; then
-            echo "integration tests skipped — set TG_TEST_* env vars to run"
+        TEST_INI="$HOME/.config/tg-cli/test.ini"
+        if [ ! -f "$TEST_INI" ]; then
+            echo "integration tests skipped — $TEST_INI not found"
+            echo "  Run: ./manage.sh test-login   to set up credentials"
             exit 0
         fi
         echo "Running integration tests with ASAN (Telegram test DC)..."
