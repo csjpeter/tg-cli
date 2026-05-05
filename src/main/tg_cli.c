@@ -374,11 +374,7 @@ static int cmd_history(const ArgResult *args) {
                 has_cache = (media_index_get(entries[i].media_id, cached_path, sizeof(cached_path)) == 1);
             char stext[HISTORY_TEXT_MAX];
             tty_sanitize(stext, sizeof(stext), entries[i].text);
-            if (entries[i].complex) {
-                printf("[%d] %s %lld (complex \xe2\x80\x94 text not parsed)\n",
-                       entries[i].id, entries[i].out ? ">" : "<", (long long)entries[i].date);
-                printed++;
-            } else if (ml[0] && args->no_media) {
+            if (ml[0] && args->no_media) {
                 if (entries[i].text[0] == '\0') continue;
                 printf("[%d] %s %lld %s\n",
                        entries[i].id, entries[i].out ? ">" : "<",

@@ -3251,6 +3251,115 @@ int tl_extract_user(TlReader *r, UserSummary *out) {
     return extract_user_inner(r, out);
 }
 
+/* Skip a MessageAction (cursor positioned after the action CRC).
+ * Returns 0 on success, -1 on unknown action or truncation. */
+static int skip_message_action(TlReader *r) {
+    if (r->len - r->pos < 4) return -1;
+    uint32_t acrc = tl_read_uint32(r);
+
+    /* CRC constants mirror those in domain/read/history.c */
+    switch (acrc) {
+    /* No-payload actions */
+    case 0xb6aef7b0u: /* messageActionEmpty */
+    case 0x95e3fbefu: /* messageActionChatDeletePhoto */
+    case 0x94bd38edu: /* messageActionPinMessage */
+    case 0x9fbab604u: /* messageActionHistoryClear */
+    case 0x4792929bu: /* messageActionScreenshotTaken */
+    case 0x9244c2adu: /* messageActionContactSignUp */
+    case 0xb4c38cb5u: /* messageActionChatJoinedByRequest */
+        return 0;
+
+    /* string-only actions */
+    case 0xb5a1ce5au: /* messageActionChatEditTitle */
+    case 0x95d2ac92u: /* messageActionChannelCreate */
+    case 0xfae69f56u: /* messageActionCustomAction */
+        return tl_skip_string(r);
+
+    /* long-only actions */
+    case 0xa43f30ccu: /* messageActionChatDeleteUser */
+    case 0xe1037f92u: /* messageActionChatMigrateTo */
+    case 0x031224c3u: /* messageActionChatJoinedByLink */
+        if (r->len - r->pos < 8) return -1;
+        tl_read_int64(r);
+        return 0;
+
+    /* messageActionChatCreate: title:string + users:Vector<long> */
+    case 0xbd47cbadu:
+        if (tl_skip_string(r) != 0) return -1;
+        /* FALLTHROUGH */
+    /* messageActionChatAddUser: users:Vector<long> */
+    /* cppcheck-suppress missingBreak */
+    case 0x15cefd00u: {
+        if (r->len - r->pos < 8) return -1;
+        uint32_t vcrc = tl_read_uint32(r);
+        if (vcrc != TL_vector) return -1;
+        uint32_t n = tl_read_uint32(r);
+        if (n > 4096) return -1;
+        if (r->len - r->pos < (size_t)n * 8) return -1;
+        for (uint32_t i = 0; i < n; i++) tl_read_int64(r);
+        return 0;
+    }
+
+    /* messageActionChannelMigrateFrom: title:string + chat_id:long */
+    case 0xea3948e9u: {
+        if (tl_skip_string(r) != 0) return -1;
+        if (r->len - r->pos < 8) return -1;
+        tl_read_int64(r);
+        return 0;
+    }
+
+    /* Photo */
+    case 0x7fcb13a8u: /* messageActionChatEditPhoto */
+        return tl_skip_photo(r);
+
+    /* flags + call_id:long + optional reason(uint32) + optional duration(int32) */
+    case 0x80e11a7fu: /* messageActionPhoneCall */ {
+        if (r->len - r->pos < 4 + 8) return -1;
+        uint32_t pflags = tl_read_uint32(r);
+        tl_read_int64(r); /* call_id */
+        if (pflags & 1u) {
+            if (r->len - r->pos < 4) return -1;
+            tl_read_uint32(r); /* PhoneCallDiscardReason */
+        }
+        if (pflags & (1u << 1)) {
+            if (r->len - r->pos < 4) return -1;
+            tl_read_int32(r); /* duration */
+        }
+        return 0;
+    }
+
+    /* InputGroupCall#d8aa840f (crc+id+access_hash) + optional flags */
+    case 0x7a0d7f42u: /* messageActionGroupCall */ {
+        if (r->len - r->pos < 4) return -1;
+        uint32_t gflags = tl_read_uint32(r);
+        if (r->len - r->pos < 4 + 16) return -1;
+        tl_read_uint32(r); tl_read_int64(r); tl_read_int64(r);
+        if (gflags & 1u) { if (r->len - r->pos < 4) return -1; tl_read_int32(r); }
+        return 0;
+    }
+    case 0xb3a07661u: /* messageActionGroupCallScheduled */
+        if (r->len - r->pos < 4 + 16 + 4) return -1;
+        tl_read_uint32(r); tl_read_int64(r); tl_read_int64(r);
+        tl_read_int32(r);
+        return 0;
+    case 0x502f92f7u: /* messageActionInviteToGroupCall */ {
+        if (r->len - r->pos < 4 + 16) return -1;
+        tl_read_uint32(r); tl_read_int64(r); tl_read_int64(r);
+        if (r->len - r->pos < 8) return -1;
+        uint32_t vcrc2 = tl_read_uint32(r);
+        if (vcrc2 != TL_vector) return -1;
+        uint32_t n2 = tl_read_uint32(r);
+        if (n2 > 4096) return -1;
+        if (r->len - r->pos < (size_t)n2 * 8) return -1;
+        for (uint32_t i = 0; i < n2; i++) tl_read_int64(r);
+        return 0;
+    }
+
+    default:
+        return -1; /* unknown action — cannot advance cursor safely */
+    }
+}
+
 /* ---- tl_skip_message ----
  * Mirrors the parser in domain/read/history.c but discards all output.
  * Returns 0 if the cursor is safely past the whole Message, -1 if we
@@ -3272,8 +3381,18 @@ int tl_skip_message(TlReader *r) {
     }
 
     if (crc == TL_messageService) {
-        /* action-heavy; we do not implement skipping yet. */
-        return -1;
+        if (r->len - r->pos < 8) return -1;
+        uint32_t flags = tl_read_uint32(r);
+        tl_read_int32(r); /* id — messageService has no flags2 */
+        if (flags & (1u << 8)) if (tl_skip_peer(r) != 0) return -1; /* from_id */
+        if (tl_skip_peer(r) != 0) return -1;                          /* peer_id */
+        if (flags & (1u << 3)) if (tl_skip_message_reply_header(r) != 0) return -1;
+        if (r->len - r->pos < 4) return -1;
+        tl_read_int32(r); /* date */
+        if (skip_message_action(r) != 0) return -1;
+        if (flags & (1u << 20)) if (tl_skip_message_reactions(r) != 0) return -1;
+        if (flags & (1u << 25)) { if (r->len - r->pos < 4) return -1; tl_read_int32(r); }
+        return 0;
     }
 
     if (crc != TL_message) {

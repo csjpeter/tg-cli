@@ -390,9 +390,7 @@ static int cmd_watch(const ArgResult *args) {
                 if (printf("[%d] %lld %s\n",
                            diff.new_messages[i].id,
                            (long long)diff.new_messages[i].date,
-                           diff.new_messages[i].complex
-                               ? "(complex \xe2\x80\x94 text not parsed)"
-                               : stext) < 0) {
+                           stext) < 0) {
                     if (errno == EPIPE) { g_stop = 1; break; }
                 }
                 printed++;
@@ -549,8 +547,7 @@ static int cmd_search(const ArgResult *args) {
                    entries[i].id,
                    entries[i].out ? "yes" : "no",
                    (long long)entries[i].date,
-                   entries[i].complex ? "(complex \xe2\x80\x94 text not parsed)"
-                                      : stext);
+                   stext);
         }
         if (count == 0) printf("(no matches)\n");
     }
@@ -731,12 +728,7 @@ static int cmd_history(const ArgResult *args) {
             }
             char stext[HISTORY_TEXT_MAX];
             tty_sanitize(stext, sizeof(stext), entries[i].text);
-            if (entries[i].complex) {
-                printf("[%d] %s %lld (complex \xe2\x80\x94 text not parsed)\n",
-                       entries[i].id, entries[i].out ? ">" : "<",
-                       (long long)entries[i].date);
-                printed++;
-            } else if (ml[0] && args->no_media) {
+            if (ml[0] && args->no_media) {
                 /* --no-media: pure-media (no caption) → skip entirely;
                  * mixed (caption present) → print caption only, no label. */
                 if (entries[i].text[0] == '\0') continue;
