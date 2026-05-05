@@ -328,18 +328,32 @@ int domain_get_dialogs(const ApiConfig *cfg,
      * Proceed only when every Dialog entry was fully consumed from the stream
      * (parsed == count); otherwise the cursor is mis-positioned and reading
      * the messages/chats/users vectors would produce garbage. */
-    if (parsed < (int)count) return 0;              /* partial parse — skip join */
+    if (parsed < (int)count) {
+        logger_log(LOG_WARN, "dialogs: partial parse (%d/%u) — skipping join",
+                   parsed, count);
+        return 0;
+    }
     if (!tl_reader_ok(&r))    return 0;
 
     uint32_t mvec = tl_read_uint32(&r);
-    if (mvec != TL_vector) return 0;
+    if (mvec != TL_vector) {
+        logger_log(LOG_WARN, "dialogs: expected messages Vector, got 0x%08x", mvec);
+        return 0;
+    }
     uint32_t mcount = tl_read_uint32(&r);
     for (uint32_t i = 0; i < mcount; i++) {
-        if (tl_skip_message(&r) != 0) return 0;
+        if (tl_skip_message(&r) != 0) {
+            logger_log(LOG_WARN, "dialogs: tl_skip_message failed at index %u "
+                       "(pos=%zu) — skipping join", i, r.pos);
+            return 0;
+        }
     }
 
     uint32_t cvec = tl_read_uint32(&r);
-    if (cvec != TL_vector) return 0;
+    if (cvec != TL_vector) {
+        logger_log(LOG_WARN, "dialogs: expected chats Vector, got 0x%08x", cvec);
+        return 0;
+    }
     uint32_t ccount = tl_read_uint32(&r);
     ChatSummary *chats = (ccount > 0)
         ? (ChatSummary *)calloc(ccount, sizeof(ChatSummary))
@@ -347,12 +361,18 @@ int domain_get_dialogs(const ApiConfig *cfg,
     uint32_t chats_written = 0;
     for (uint32_t i = 0; i < ccount; i++) {
         ChatSummary cs = {0};
-        if (tl_extract_chat(&r, &cs) != 0) { free(chats); chats = NULL; goto join_done; }
+        if (tl_extract_chat(&r, &cs) != 0) {
+            logger_log(LOG_WARN, "dialogs: tl_extract_chat failed at index %u", i);
+            free(chats); chats = NULL; goto join_done;
+        }
         if (chats) chats[chats_written++] = cs;
     }
 
     uint32_t uvec = tl_read_uint32(&r);
-    if (uvec != TL_vector) { free(chats); goto join_done; }
+    if (uvec != TL_vector) {
+        logger_log(LOG_WARN, "dialogs: expected users Vector, got 0x%08x", uvec);
+        free(chats); goto join_done;
+    }
     uint32_t ucount = tl_read_uint32(&r);
     UserSummary *users = (ucount > 0)
         ? (UserSummary *)calloc(ucount, sizeof(UserSummary))
@@ -360,7 +380,10 @@ int domain_get_dialogs(const ApiConfig *cfg,
     uint32_t users_written = 0;
     for (uint32_t i = 0; i < ucount; i++) {
         UserSummary us = {0};
-        if (tl_extract_user(&r, &us) != 0) { free(chats); free(users); goto join_done; }
+        if (tl_extract_user(&r, &us) != 0) {
+            logger_log(LOG_WARN, "dialogs: tl_extract_user failed at index %u", i);
+            free(chats); free(users); goto join_done;
+        }
         if (users) users[users_written++] = us;
     }
 

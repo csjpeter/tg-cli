@@ -45,10 +45,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 /* SEC-01: set once at startup; 1 when stdout is a real terminal. */
 static int g_stdout_is_tty = 0;
+
+static void fmt_date(char *buf, size_t cap, int64_t ts) {
+    time_t t = (time_t)ts;
+    struct tm tm;
+    localtime_r(&t, &tm);
+    strftime(buf, cap, "%Y-%m-%d %H:%M", &tm);
+}
 
 /**
  * @brief Sanitize @p src into @p dst for terminal display (SEC-01).
@@ -374,26 +382,26 @@ static int cmd_history(const ArgResult *args) {
                 has_cache = (media_index_get(entries[i].media_id, cached_path, sizeof(cached_path)) == 1);
             char stext[HISTORY_TEXT_MAX];
             tty_sanitize(stext, sizeof(stext), entries[i].text);
+            char dstr[20];
+            fmt_date(dstr, sizeof(dstr), entries[i].date);
             if (ml[0] && args->no_media) {
                 if (entries[i].text[0] == '\0') continue;
-                printf("[%d] %s %lld %s\n",
-                       entries[i].id, entries[i].out ? ">" : "<",
-                       (long long)entries[i].date, stext);
+                printf("[%d] %s %s %s\n",
+                       entries[i].id, entries[i].out ? ">" : "<", dstr, stext);
                 printed++;
             } else if (ml[0]) {
                 if (has_cache)
-                    printf("[%d] %s %lld [%s: %s] %s\n",
+                    printf("[%d] %s %s [%s: %s] %s\n",
                            entries[i].id, entries[i].out ? ">" : "<",
-                           (long long)entries[i].date, ml, cached_path, stext);
+                           dstr, ml, cached_path, stext);
                 else
-                    printf("[%d] %s %lld [%s] %s\n",
+                    printf("[%d] %s %s [%s] %s\n",
                            entries[i].id, entries[i].out ? ">" : "<",
-                           (long long)entries[i].date, ml, stext);
+                           dstr, ml, stext);
                 printed++;
             } else {
-                printf("[%d] %s %lld %s\n",
-                       entries[i].id, entries[i].out ? ">" : "<",
-                       (long long)entries[i].date, stext);
+                printf("[%d] %s %s %s\n",
+                       entries[i].id, entries[i].out ? ">" : "<", dstr, stext);
                 printed++;
             }
         }
@@ -441,14 +449,13 @@ static int cmd_search(const ArgResult *args) {
         }
         printf("]\n");
     } else {
-        printf("%-8s %-4s %-20s %s\n", "id", "out", "date", "text");
+        printf("%-8s %-4s %-17s %s\n", "id", "out", "date", "text");
         for (int i = 0; i < count; i++) {
             char stext[HISTORY_TEXT_MAX];
             tty_sanitize(stext, sizeof(stext), entries[i].text);
-            printf("%-8d %-4s %-20lld %s\n",
-                   entries[i].id, entries[i].out ? "yes" : "no",
-                   (long long)entries[i].date,
-                   entries[i].complex ? "(complex \xe2\x80\x94 text not parsed)" : stext);
+            char dstr[20]; fmt_date(dstr, sizeof(dstr), entries[i].date);
+            printf("%-8d %-4s %-17s %s\n",
+                   entries[i].id, entries[i].out ? "yes" : "no", dstr, stext);
         }
         if (count == 0) printf("(no matches)\n");
     }

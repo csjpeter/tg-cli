@@ -50,6 +50,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+
+static void fmt_date(char *buf, size_t cap, int64_t ts) {
+    time_t t = (time_t)ts;
+    struct tm tm;
+    localtime_r(&t, &tm);
+    strftime(buf, cap, "%Y-%m-%d %H:%M", &tm);
+}
 
 /* ---- Credential callbacks: batch values fall back to interactive prompts ---- */
 
@@ -218,11 +226,10 @@ static void do_history_any(const ApiConfig *cfg, MtProtoSession *s,
         return;
     }
     for (int i = 0; i < count; i++) {
-        printf("[%d] %s %lld %s\n",
-               entries[i].id,
-               entries[i].out ? ">" : "<",
-               (long long)entries[i].date,
-               entries[i].text);
+        char dstr[20]; fmt_date(dstr, sizeof(dstr), entries[i].date);
+        printf("[%d] %s %s %s\n",
+               entries[i].id, entries[i].out ? ">" : "<",
+               dstr, entries[i].text);
     }
     if (count == 0) puts("(no messages)");
 }
@@ -351,8 +358,8 @@ static void do_search(const ApiConfig *cfg, MtProtoSession *s, Transport *t,
     }
 
     for (int i = 0; i < n; i++) {
-        printf("%d  %lld  %s\n", e[i].id, (long long)e[i].date,
-               e[i].text);
+        char dstr[20]; fmt_date(dstr, sizeof(dstr), e[i].date);
+        printf("%d  %s  %s\n", e[i].id, dstr, e[i].text);
     }
     if (n == 0) puts("(no matches)");
 }

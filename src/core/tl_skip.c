@@ -3132,11 +3132,15 @@ static int extract_user_inner(TlReader *r, UserSummary *out) {
     if (r->len - r->pos < 8) return -1;
     uint32_t flags  = tl_read_uint32(r);
     uint32_t flags2 = tl_read_uint32(r);
-    /* Known flags2 bits go up to 13. Reject any bits above that. */
+    /* Unknown flags2 bits beyond what we handle may be pure boolean markers
+     * (no wire value). Log at DEBUG but do not reject — if they carry an
+     * unknown payload the stream will desync and a parse error will surface
+     * below.  Rejecting here would break the title join for every user that
+     * has a newer feature flag set. */
     if (flags2 & ~((1u << 14) - 1u)) {
-        logger_log(LOG_WARN,
-                   "tl_skip_user: unknown flags2 bits 0x%x", flags2);
-        return -1;
+        logger_log(LOG_DEBUG,
+                   "tl_skip_user: unknown flags2 bits 0x%x (continuing)",
+                   flags2 & ~((1u << 14) - 1u));
     }
     if (r->len - r->pos < 8) return -1;
     int64_t id = tl_read_int64(r);
