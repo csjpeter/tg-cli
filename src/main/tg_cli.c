@@ -199,6 +199,38 @@ static int resolve_peer_arg(const ApiConfig *cfg, MtProtoSession *s,
                              Transport *t, const char *peer_arg,
                              HistoryPeer *out);
 
+/* Returns 1 if s looks like a decimal integer (optionally negative). */
+static int is_numeric_id(const char *s) {
+    if (!s || !*s) return 0;
+    const char *p = (*s == '-') ? s + 1 : s;
+    if (!*p) return 0;
+    for (; *p; p++) if (*p < '0' || *p > '9') return 0;
+    return 1;
+}
+
+/* Resolve a numeric peer_id via the dialogs cache.
+ * If the cache is cold, fetches the inbox first to populate it. */
+static int resolve_numeric_peer(const ApiConfig *cfg, MtProtoSession *s,
+                                  Transport *t, int64_t peer_id,
+                                  HistoryPeer *out) {
+    DialogEntry de = {0};
+    if (domain_dialogs_find_by_id(peer_id, &de) != 0) {
+        DialogEntry tmp[200];
+        int tc = 0;
+        domain_get_dialogs(cfg, s, t, 200, 0, tmp, &tc, NULL);
+        if (domain_dialogs_find_by_id(peer_id, &de) != 0) return -1;
+    }
+    switch (de.kind) {
+    case DIALOG_PEER_USER:    out->kind = HISTORY_PEER_USER;    break;
+    case DIALOG_PEER_CHAT:    out->kind = HISTORY_PEER_CHAT;    break;
+    case DIALOG_PEER_CHANNEL: out->kind = HISTORY_PEER_CHANNEL; break;
+    default: return -1;
+    }
+    out->peer_id     = de.peer_id;
+    out->access_hash = de.access_hash;
+    return 0;
+}
+
 static int cmd_me(const ArgResult *args) {
     ApiConfig cfg; MtProtoSession s; Transport t;
     int brc = session_bringup(args, &cfg, &s, &t);
@@ -480,15 +512,17 @@ static int cmd_user_info(const ArgResult *args) {
     transport_close(&t);
     if (rc != 0) { fprintf(stderr, "tg-cli user-info: resolve failed\n"); return 1; }
     if (args->json) {
-        printf("{\"type\":\"%s\",\"id\":%lld,\"username\":\"%s\","
-               "\"access_hash\":\"%s\"}\n",
+        printf("{\"type\":\"%s\",\"id\":%lld,\"name\":\"%s\","
+               "\"username\":\"%s\",\"access_hash\":\"%s\"}\n",
                resolved_kind_name(r.kind), (long long)r.id,
-               r.username, r.have_hash ? "present" : "none");
+               r.title, r.username, r.have_hash ? "present" : "none");
     } else {
-        char su[64];
+        char su[64], st[128];
         tty_sanitize(su, sizeof(su), r.username);
+        tty_sanitize(st, sizeof(st), r.title);
         printf("type:         %s\n", resolved_kind_name(r.kind));
         printf("id:           %lld\n", (long long)r.id);
+        if (r.title[0])    printf("name:         %s\n", st);
         if (r.username[0]) printf("username:     @%s\n", su);
         printf("access_hash:  %s\n", r.have_hash ? "present" : "none");
     }
@@ -644,6 +678,10 @@ static int resolve_peer_arg(const ApiConfig *cfg, MtProtoSession *s,
     if (!peer_arg || strcmp(peer_arg, "self") == 0) {
         out->kind = HISTORY_PEER_SELF;
         return 0;
+    }
+    if (is_numeric_id(peer_arg)) {
+        int64_t pid = (int64_t)strtoll(peer_arg, NULL, 10);
+        return resolve_numeric_peer(cfg, s, t, pid, out);
     }
     ResolvedPeer rp = {0};
     if (domain_resolve_username(cfg, s, t, peer_arg, &rp) != 0) return -1;

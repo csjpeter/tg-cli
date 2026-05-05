@@ -419,6 +419,35 @@ static int resolve_peer_arg(const ApiConfig *cfg, MtProtoSession *s,
                              Transport *t, const char *peer_arg,
                              HistoryPeer *out);
 
+static int is_numeric_id(const char *s) {
+    if (!s || !*s) return 0;
+    const char *p = (*s == '-') ? s + 1 : s;
+    if (!*p) return 0;
+    for (; *p; p++) if (*p < '0' || *p > '9') return 0;
+    return 1;
+}
+
+static int resolve_numeric_peer(const ApiConfig *cfg, MtProtoSession *s,
+                                  Transport *t, int64_t peer_id,
+                                  HistoryPeer *out) {
+    DialogEntry de = {0};
+    if (domain_dialogs_find_by_id(peer_id, &de) != 0) {
+        DialogEntry tmp[200];
+        int tc = 0;
+        domain_get_dialogs(cfg, s, t, 200, 0, tmp, &tc, NULL);
+        if (domain_dialogs_find_by_id(peer_id, &de) != 0) return -1;
+    }
+    switch (de.kind) {
+    case DIALOG_PEER_USER:    out->kind = HISTORY_PEER_USER;    break;
+    case DIALOG_PEER_CHAT:    out->kind = HISTORY_PEER_CHAT;    break;
+    case DIALOG_PEER_CHANNEL: out->kind = HISTORY_PEER_CHANNEL; break;
+    default: return -1;
+    }
+    out->peer_id     = de.peer_id;
+    out->access_hash = de.access_hash;
+    return 0;
+}
+
 static int cmd_contacts(const ArgResult *args) {
     ApiConfig cfg; MtProtoSession s; Transport t;
     int brc = session_bringup(args, &cfg, &s, &t);
@@ -575,7 +604,7 @@ static int cmd_user_info(const ArgResult *args) {
     return 0;
 }
 
-/* Resolve @peer or "self" into a HistoryPeer while the transport is up. */
+/* Resolve @peer, numeric id, or "self" into a HistoryPeer. */
 static int resolve_peer_arg(const ApiConfig *cfg, MtProtoSession *s,
                              Transport *t, const char *peer_arg,
                              HistoryPeer *out) {
@@ -584,6 +613,10 @@ static int resolve_peer_arg(const ApiConfig *cfg, MtProtoSession *s,
         out->peer_id = 0;
         out->access_hash = 0;
         return 0;
+    }
+    if (is_numeric_id(peer_arg)) {
+        int64_t pid = (int64_t)strtoll(peer_arg, NULL, 10);
+        return resolve_numeric_peer(cfg, s, t, pid, out);
     }
     ResolvedPeer rp = {0};
     if (domain_resolve_username(cfg, s, t, peer_arg, &rp) != 0) return -1;

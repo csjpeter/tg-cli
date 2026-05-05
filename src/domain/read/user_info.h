@@ -3,12 +3,10 @@
 
 /**
  * @file domain/read/user_info.h
- * @brief US-09 — resolve @username into a user or channel summary.
+ * @brief US-09 — resolve @username or numeric peer id into a peer summary.
  *
- * V1 supports contacts.resolveUsername and surfaces the peer id. The
- * Telegram response also carries access_hash on User / Channel objects;
- * we attempt a best-effort extraction, but callers should treat the
- * hash as opaque and verify via a follow-up API call before trusting it.
+ * Wraps contacts.resolveUsername; also extracts access_hash, first_name,
+ * last_name and username from the User object in the server response.
  */
 
 #ifndef DOMAIN_READ_USER_INFO_H

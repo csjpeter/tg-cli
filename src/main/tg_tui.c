@@ -148,12 +148,45 @@ static const char *resolved_label(ResolvedKind k) {
     }
 }
 
+static int is_numeric_id(const char *s) {
+    if (!s || !*s) return 0;
+    const char *p = (*s == '-') ? s + 1 : s;
+    if (!*p) return 0;
+    for (; *p; p++) if (*p < '0' || *p > '9') return 0;
+    return 1;
+}
+
+static int resolve_numeric_peer(const ApiConfig *cfg, MtProtoSession *s,
+                                  Transport *t, int64_t peer_id,
+                                  HistoryPeer *out) {
+    DialogEntry de = {0};
+    if (domain_dialogs_find_by_id(peer_id, &de) != 0) {
+        DialogEntry tmp[200];
+        int tc = 0;
+        domain_get_dialogs(cfg, s, t, 200, 0, tmp, &tc, NULL);
+        if (domain_dialogs_find_by_id(peer_id, &de) != 0) return -1;
+    }
+    switch (de.kind) {
+    case DIALOG_PEER_USER:    out->kind = HISTORY_PEER_USER;    break;
+    case DIALOG_PEER_CHAT:    out->kind = HISTORY_PEER_CHAT;    break;
+    case DIALOG_PEER_CHANNEL: out->kind = HISTORY_PEER_CHANNEL; break;
+    default: return -1;
+    }
+    out->peer_id     = de.peer_id;
+    out->access_hash = de.access_hash;
+    return 0;
+}
+
 static int resolve_history_peer(const ApiConfig *cfg, MtProtoSession *s,
                                  Transport *t, const char *arg,
                                  HistoryPeer *out) {
     if (!arg || !*arg || !strcmp(arg, "self")) {
         out->kind = HISTORY_PEER_SELF; out->peer_id = 0; out->access_hash = 0;
         return 0;
+    }
+    if (is_numeric_id(arg)) {
+        int64_t pid = (int64_t)strtoll(arg, NULL, 10);
+        return resolve_numeric_peer(cfg, s, t, pid, out);
     }
     ResolvedPeer rp = {0};
     if (domain_resolve_username(cfg, s, t, arg, &rp) != 0) return -1;
@@ -217,18 +250,40 @@ static void do_contacts(const ApiConfig *cfg, MtProtoSession *s, Transport *t) {
 
 static void do_info(const ApiConfig *cfg, MtProtoSession *s, Transport *t,
                     const char *peer) {
-    if (!peer || !*peer) { puts("usage: info <@name>"); return; }
+    if (!peer || !*peer) { puts("usage: info <@name|numeric_id>"); return; }
     ResolvedPeer r = {0};
-    if (domain_resolve_username(cfg, s, t, peer, &r) != 0) {
-        puts("info: resolve failed");
-        return;
+    int rc;
+    if (is_numeric_id(peer)) {
+        int64_t pid = (int64_t)strtoll(peer, NULL, 10);
+        HistoryPeer hp = {0};
+        rc = resolve_numeric_peer(cfg, s, t, pid, &hp);
+        if (rc == 0) {
+            r.id   = hp.peer_id;
+            r.access_hash = hp.access_hash;
+            r.have_hash   = (hp.access_hash != 0) ? 1 : 0;
+            /* map kind */
+            switch (hp.kind) {
+            case HISTORY_PEER_USER:    r.kind = RESOLVED_KIND_USER;    break;
+            case HISTORY_PEER_CHAT:    r.kind = RESOLVED_KIND_CHAT;    break;
+            case HISTORY_PEER_CHANNEL: r.kind = RESOLVED_KIND_CHANNEL; break;
+            default: r.kind = RESOLVED_KIND_UNKNOWN; break;
+            }
+            /* Fill title/username from dialogs cache */
+            DialogEntry de = {0};
+            if (domain_dialogs_find_by_id(pid, &de) == 0) {
+                snprintf(r.title,    sizeof(r.title),    "%s", de.title);
+                snprintf(r.username, sizeof(r.username), "%s", de.username);
+            }
+        }
+    } else {
+        rc = domain_resolve_username(cfg, s, t, peer, &r);
     }
-    printf("type:         %s\nid:           %lld\nusername:     @%s\n"
-           "access_hash:  %s\n",
-           resolved_label(r.kind),
-           (long long)r.id,
-           r.username[0] ? r.username : "",
-           r.have_hash ? "present" : "none");
+    if (rc != 0) { puts("info: resolve failed"); return; }
+    printf("type:         %s\nid:           %lld\n",
+           resolved_label(r.kind), (long long)r.id);
+    if (r.title[0])    printf("name:         %s\n", r.title);
+    if (r.username[0]) printf("username:     @%s\n", r.username);
+    printf("access_hash:  %s\n", r.have_hash ? "present" : "none");
 }
 
 /* Returns 1 if the token looks like a peer specifier:

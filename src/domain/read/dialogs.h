@@ -5,10 +5,9 @@
  * @file domain/read/dialogs.h
  * @brief US-04 — list dialogs (DMs, groups, channels).
  *
- * Read-only. Wraps messages.getDialogs. The v1 parse extracts only the
- * peer id, type and unread count per dialog — title enrichment (joining
- * with the users/chats vectors in the same response) is a follow-up
- * task.
+ * Read-only. Wraps messages.getDialogs. The response is enriched with
+ * title/username/access_hash by joining the accompanying users and chats
+ * vectors.
  */
 
 #ifndef DOMAIN_READ_DIALOGS_H
@@ -57,6 +56,14 @@ void dialogs_cache_set_now_fn(time_t (*fn)(void));
  * so that cached state from a previous test does not mask a fresh RPC.
  */
 void dialogs_cache_flush(void);
+
+/**
+ * @brief Look up a dialog in the in-memory cache by peer id.
+ *
+ * Does NOT make an RPC call. Returns 0 and fills @p out when found,
+ * -1 when the cache is empty or the id is absent.
+ */
+int domain_dialogs_find_by_id(int64_t peer_id, DialogEntry *out);
 
 /**
  * @brief Fetch up to @p max_entries dialogs.

@@ -6,11 +6,7 @@
  * @brief US-10 — message search.
  *
  * Per-peer (messages.search) and global (messages.searchGlobal) queries.
- * The peer descriptor is reused from history.h so the CLI only has to
- * resolve a username once.
- *
- * V1 limitation: like domain_get_history, only the message id prefix
- * is parsed; full-text extraction is deferred.
+ * Returns full HistoryEntry results including message text, date, and media.
  */
 
 #ifndef DOMAIN_READ_SEARCH_H

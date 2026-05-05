@@ -163,11 +163,16 @@ static void parse_user_prefix(TlReader *r, ResolvedPeer *out) {
     uint32_t flags  = tl_read_uint32(r);
     (void)tl_read_uint32(r); /* flags2 */
     out->id = tl_read_int64(r);
-    if (flags & 1u) {
-        out->access_hash = tl_read_int64(r);
-        out->have_hash = 1;
-    }
-    /* Names/username not parsed here — too flag-sensitive. */
+    if (flags & (1u << 0)) { out->access_hash = tl_read_int64(r); out->have_hash = 1; }
+
+    char first[64] = {0}, last[64] = {0};
+    if (flags & (1u << 1)) { RAII_STRING char *s = tl_read_string(r); copy_small(first, sizeof(first), s); }
+    if (flags & (1u << 2)) { RAII_STRING char *s = tl_read_string(r); copy_small(last,  sizeof(last),  s); }
+    if (flags & (1u << 3)) { RAII_STRING char *s = tl_read_string(r); copy_small(out->username, sizeof(out->username), s); }
+
+    if (first[0] || last[0])
+        snprintf(out->title, sizeof(out->title), "%s%s%s",
+                 first, (first[0] && last[0]) ? " " : "", last);
 }
 
 static void parse_channel_prefix(TlReader *r, ResolvedPeer *out) {

@@ -128,6 +128,19 @@ static int build_request(int limit, int archived,
 #define CRC_dialog       0xd58a08c6u
 #define CRC_dialogFolder 0x71bd134cu
 
+/* Skip a dialogFolder entry after its CRC has been consumed.
+ * Layout: flags(uint32) peer:Peer top_message(int32) + 4×int32 counts.
+ * pinned:flags.2?true is a flag bit, not a wire field. */
+static int skip_dialog_folder(TlReader *r) {
+    tl_read_uint32(r); /* flags */
+    if (tl_skip_peer(r) != 0) return -1;
+    for (int k = 0; k < 5; k++) {
+        if (r->len - r->pos < 4) return -1;
+        tl_read_int32(r);
+    }
+    return 0;
+}
+
 static int parse_peer(TlReader *r, DialogEntry *out) {
     if (!tl_reader_ok(r)) return -1;
     uint32_t crc = tl_read_uint32(r);
@@ -235,14 +248,17 @@ int domain_get_dialogs(const ApiConfig *cfg,
     /* For the complete-list variant, total == the vector length. */
     if (top == TL_messages_dialogs && total_count) *total_count = (int)count;
     int written = 0;
+    int parsed  = 0; /* entries fully consumed from the stream */
     for (uint32_t i = 0; i < count && written < max_entries; i++) {
         if (!tl_reader_ok(&r)) break;
         uint32_t dcrc = tl_read_uint32(&r);
         if (dcrc == CRC_dialogFolder) {
-            /* dialogFolder has a separate layout — skipping support is a
-             * follow-up. Stop iteration cleanly. */
-            logger_log(LOG_DEBUG, "dialogs: folder entry — stopping parse");
-            break;
+            /* Skip the archive-folder summary entry; it is not a real dialog.
+             * Advance past it so the cursor stays aligned for the join. */
+            if (skip_dialog_folder(&r) != 0) break;
+            logger_log(LOG_DEBUG, "dialogs: skipped dialogFolder entry");
+            parsed++;
+            continue;
         }
         if (dcrc != CRC_dialog) {
             logger_log(LOG_WARN, "dialogs: unknown Dialog constructor 0x%08x",
@@ -264,6 +280,7 @@ int domain_get_dialogs(const ApiConfig *cfg,
             logger_log(LOG_WARN,
                        "dialogs: failed to skip PeerNotifySettings");
             out[written++] = e;
+            parsed++;
             break;
         }
 
@@ -274,6 +291,7 @@ int domain_get_dialogs(const ApiConfig *cfg,
                            "dialogs: complex draft — stopping after entry %u",
                            i);
                 out[written++] = e;
+                parsed++;
                 break;
             }
         }
@@ -281,6 +299,7 @@ int domain_get_dialogs(const ApiConfig *cfg,
         if (flags & (1u << 5)) tl_read_int32(&r); /* ttl_period */
 
         out[written++] = e;
+        parsed++;
     }
 
     *out_count = written;
@@ -306,15 +325,10 @@ int domain_get_dialogs(const ApiConfig *cfg,
      *   chats:Vector<Chat>
      *   users:Vector<User>
      *
-     * If we consumed every Dialog above, the cursor is positioned at the
-     * start of the messages vector. Walk it using tl_skip_message, then
-     * build id→title maps from the chats and users vectors and back-fill
-     * titles on the returned DialogEntry rows.
-     *
-     * If ANY step fails (unsupported flag etc.) we stop gracefully and
-     * leave whatever titles we collected so far — the caller already has
-     * ids and counts, so the feature degrades instead of failing. */
-    if (written < (int)count) return 0;              /* partial parse — skip join */
+     * Proceed only when every Dialog entry was fully consumed from the stream
+     * (parsed == count); otherwise the cursor is mis-positioned and reading
+     * the messages/chats/users vectors would produce garbage. */
+    if (parsed < (int)count) return 0;              /* partial parse — skip join */
     if (!tl_reader_ok(&r))    return 0;
 
     uint32_t mvec = tl_read_uint32(&r);
@@ -385,4 +399,18 @@ int domain_get_dialogs(const ApiConfig *cfg,
     }
 join_done:
     return 0;
+}
+
+int domain_dialogs_find_by_id(int64_t peer_id, DialogEntry *out) {
+    for (int slot = 0; slot < DIALOGS_CACHE_SLOTS; slot++) {
+        const DialogsCache *c = &s_cache[slot];
+        if (!c->valid) continue;
+        for (int i = 0; i < c->count; i++) {
+            if (c->entries[i].peer_id == peer_id) {
+                if (out) *out = c->entries[i];
+                return 0;
+            }
+        }
+    }
+    return -1;
 }

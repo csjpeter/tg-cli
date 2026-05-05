@@ -5,14 +5,9 @@
  * @file domain/read/history.h
  * @brief US-06 — fetch message history for a peer.
  *
- * V1 limitations: supports only inputPeerSelf (the user's "Saved Messages").
- * Message text extraction is deferred to v2 because the full Message TL
- * object has too many flag-conditional fields to parse reliably without
- * a schema-driven parser. V1 extracts id + date + outgoing flag.
- *
- * Supporting inputPeerUser/inputPeerChannel requires resolving
- * access_hash from contacts.resolveUsername or from the dialogs
- * response — that is US-09 scope.
+ * Supports all peer kinds (self, user, legacy chat, channel). Extracts
+ * id, date, outgoing flag, message text, media kind, and service-action
+ * strings. Peer resolution (access_hash) is the caller's responsibility.
  */
 
 #ifndef DOMAIN_READ_HISTORY_H
