@@ -384,7 +384,7 @@ int auth_2fa_check_password(const ApiConfig *cfg,
     if (flags & (1u << 1)) { if (r.len - r.pos < 4) return -1; tl_read_int32(&r); }
 
     uint32_t user_crc = tl_read_uint32(&r);
-    if (user_crc == TL_user || user_crc == TL_userFull) {
+    if (user_crc == TL_user || user_crc == TL_user2 || user_crc == TL_userFull) {
         tl_read_uint32(&r); /* user flags */
         if (r.len - r.pos >= 8) {
             int64_t uid = tl_read_int64(&r);

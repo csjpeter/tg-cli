@@ -24,7 +24,8 @@
 /* ---- TL Constructor IDs ---- */
 #define CRC_req_pq_multi          0xbe7e8ef1
 #define CRC_resPQ                 0x05162463
-#define CRC_p_q_inner_data_dc     0xa9f55f95
+#define CRC_p_q_inner_data        0x83c95aec  /* MTProto 1.0, no dc field */
+#define CRC_p_q_inner_data_dc     0xa9f55f95  /* MTProto 2.0, with dc field */
 #define CRC_req_DH_params         0xd712e4be
 #define CRC_server_DH_params_ok   0xd0e8075c
 #define CRC_server_DH_inner_data  0xb5890dba
@@ -81,79 +82,29 @@ static uint64_t be_to_uint64(const uint8_t *data, size_t len) {
 
 /* ---- RSA_PAD (MTProto 2.0 spec, core.telegram.org/mtproto/auth_key) ---- */
 
-static int rsa_pad_encrypt(CryptoRsaKey *rsa_key,
-                           const uint8_t *data, size_t data_len,
-                           uint8_t *out, size_t *out_len) {
+/*
+ * MTProto 1.0 RSA encryption: SHA1(data) || data || random_padding → 255 bytes,
+ * prepend zero byte → 256 bytes, then RSA_NO_PADDING encrypt.
+ * Used with p_q_inner_data (no dc field) — accepted by all production DCs.
+ */
+static int rsa_sha1_encrypt(CryptoRsaKey *rsa_key,
+                             const uint8_t *data, size_t data_len,
+                             uint8_t *out, size_t *out_len) {
     if (!rsa_key || !data || !out || !out_len) return -1;
-    /* data + padding = 192 bytes; data must fit. */
-    if (data_len > 192) return -1;
+    if (data_len > 235) return -1;  /* SHA1(20) + data + padding = 255 bytes max */
 
-    /* Step 1: data_with_padding = data + random_padding (192 bytes, no hash prefix) */
-    uint8_t data_with_padding[192];
-    memcpy(data_with_padding, data, data_len);
-    if (data_len < 192) {
-        crypto_rand_bytes(data_with_padding + data_len, 192 - data_len);
-    }
+    uint8_t to_encrypt[255];
+    crypto_sha1(data, data_len, to_encrypt);               /* 20 bytes SHA1 */
+    memcpy(to_encrypt + 20, data, data_len);                /* data */
+    crypto_rand_bytes(to_encrypt + 20 + data_len,
+                      235 - data_len);                      /* random padding */
 
-    /* Step 2: data_pad_reversed = BYTE_REVERSE(data_with_padding) */
-    uint8_t data_pad_reversed[192];
-    for (int i = 0; i < 192; i++) {
-        data_pad_reversed[i] = data_with_padding[191 - i];
-    }
+    /* Prepend one zero byte so input is 256 bytes (numerically < modulus). */
+    uint8_t rsa_input[256];
+    rsa_input[0] = 0;
+    memcpy(rsa_input + 1, to_encrypt, 255);
 
-    /* The resulting rsa_input must be numerically < RSA modulus.
-     * For RSA-2048 the modulus MSB is set, so the 256-byte rsa_input
-     * whose MSB comes from temp_key_xor triggers ~50% rejection.
-     * Retry with a fresh temp_key (bounded to 32 attempts). */
-    for (int attempt = 0; attempt < 32; ++attempt) {
-        /* Step 3: Random temp_key (32 bytes) */
-        uint8_t temp_key[32];
-        crypto_rand_bytes(temp_key, 32);
-
-        /* Step 4: data_with_hash = data_pad_reversed + SHA256(temp_key + data_with_padding)
-         * Per spec: the hash is over (temp_key || data_with_padding) — the NON-reversed
-         * 192-byte block — NOT over data_pad_reversed. */
-        uint8_t sha256_input[32 + 192];
-        memcpy(sha256_input, temp_key, 32);
-        memcpy(sha256_input + 32, data_with_padding, 192);
-
-        uint8_t hash[32];
-        crypto_sha256(sha256_input, sizeof(sha256_input), hash);
-
-        uint8_t data_with_hash[224];
-        memcpy(data_with_hash, data_pad_reversed, 192);
-        memcpy(data_with_hash + 192, hash, 32);
-
-        /* Step 5: AES-256-IGE encrypt data_with_hash with temp_key, zero IV */
-        uint8_t zero_iv[32];
-        memset(zero_iv, 0, 32);
-
-        uint8_t aes_encrypted[224];
-        aes_ige_encrypt(data_with_hash, 224, temp_key, zero_iv, aes_encrypted);
-
-        /* Step 6: temp_key_xor = temp_key XOR SHA256(aes_encrypted) */
-        uint8_t aes_hash[32];
-        crypto_sha256(aes_encrypted, 224, aes_hash);
-
-        uint8_t temp_key_xor[32];
-        for (int i = 0; i < 32; i++) {
-            temp_key_xor[i] = temp_key[i] ^ aes_hash[i];
-        }
-
-        /* Step 7: RSA(temp_key_xor + aes_encrypted) = 32 + 224 = 256 bytes */
-        uint8_t rsa_input[256];
-        memcpy(rsa_input, temp_key_xor, 32);
-        memcpy(rsa_input + 32, aes_encrypted, 224);
-
-        if (crypto_rsa_public_encrypt(rsa_key, rsa_input, 256,
-                                      out, out_len) == 0) {
-            return 0;
-        }
-        /* Retry: RSA_NO_PADDING rejects inputs >= modulus. */
-    }
-    logger_log(LOG_ERROR,
-               "auth: rsa_pad_encrypt exhausted 32 retries — RSA key anomaly");
-    return -1;
+    return crypto_rsa_public_encrypt(rsa_key, rsa_input, 256, out, out_len);
 }
 
 /* ---- DH temp key derivation ---- */
@@ -368,25 +319,25 @@ int auth_step_req_dh(AuthKeyCtx *ctx) {
     uint8_t q_be[4];
     size_t q_be_len = uint32_to_be(ctx->q, q_be);
 
-    /* Build p_q_inner_data_dc */
+    /* Build p_q_inner_data (MTProto 1.0, no dc field).
+     * Use the legacy SHA1 RSA scheme — accepted by all production DCs. */
     TlWriter inner;
     tl_writer_init(&inner);
-    tl_write_uint32(&inner, CRC_p_q_inner_data_dc);
+    tl_write_uint32(&inner, CRC_p_q_inner_data);
     tl_write_bytes(&inner, pq_be, pq_be_len);
     tl_write_bytes(&inner, p_be, p_be_len);
     tl_write_bytes(&inner, q_be, q_be_len);
     tl_write_int128(&inner, ctx->nonce);
     tl_write_int128(&inner, ctx->server_nonce);
     tl_write_int256(&inner, ctx->new_nonce);
-    tl_write_int32(&inner, ctx->dc_id);
 
     logger_log(LOG_INFO,
-               "auth: p_q_inner_data_dc built (%zu bytes, dc=%d, "
+               "auth: p_q_inner_data built (%zu bytes, "
                "fingerprint=0x%016llx)",
-               inner.len, ctx->dc_id,
+               inner.len,
                (unsigned long long)telegram_server_key_get_fingerprint());
 
-    /* RSA_PAD encrypt */
+    /* SHA1-based RSA encryption (MTProto 1.0 legacy scheme) */
     CryptoRsaKey *rsa_key = crypto_rsa_load_public(telegram_server_key_get_pem());
     if (!rsa_key) {
         tl_writer_free(&inner);
@@ -396,12 +347,12 @@ int auth_step_req_dh(AuthKeyCtx *ctx) {
 
     uint8_t encrypted[256];
     size_t enc_len = 0;
-    int rc = rsa_pad_encrypt(rsa_key, inner.data, inner.len, encrypted, &enc_len);
+    int rc = rsa_sha1_encrypt(rsa_key, inner.data, inner.len, encrypted, &enc_len);
     crypto_rsa_free(rsa_key);
     tl_writer_free(&inner);
 
     if (rc != 0) {
-        logger_log(LOG_ERROR, "auth: RSA_PAD encrypt failed");
+        logger_log(LOG_ERROR, "auth: RSA SHA1 encrypt failed");
         return -1;
     }
     /* Build req_DH_params */

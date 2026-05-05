@@ -45,10 +45,10 @@ static int build_send_code(const ApiConfig *cfg, const char *phone,
     return 0;
 }
 
-/* ---- Internal: skip a sentCodeType sub-object ---- */
+/* ---- Internal: read a sentCodeType sub-object, return its CRC ---- */
 
-static int skip_sent_code_type(TlReader *r) {
-    if (!tl_reader_ok(r)) return -1;
+static uint32_t read_sent_code_type(TlReader *r) {
+    if (!tl_reader_ok(r)) return 0;
     uint32_t type_crc = tl_read_uint32(r);
 
     logger_log(LOG_INFO, "auth_send_code: sentCodeType=0x%08x", type_crc);
@@ -57,22 +57,20 @@ static int skip_sent_code_type(TlReader *r) {
     case CRC_auth_sentCodeTypeApp:
     case CRC_auth_sentCodeTypeSms:
     case CRC_auth_sentCodeTypeCall: {
-        /* length:int — number of digits the code has */
         int32_t code_len = tl_read_int32(r);
         logger_log(LOG_INFO, "auth_send_code: sentCodeType code_length=%d", code_len);
-        return 0;
+        return type_crc;
     }
 
     case CRC_auth_sentCodeTypeFlashCall: {
-        /* pattern:string */
         RAII_STRING char *pattern = tl_read_string(r);
         (void)pattern;
-        return 0;
+        return type_crc;
     }
 
     default:
         logger_log(LOG_WARN, "auth_send_code: unknown sentCodeType 0x%08x", type_crc);
-        return -1;
+        return 0;
     }
 }
 
@@ -134,7 +132,8 @@ int auth_send_code(const ApiConfig *cfg,
 
     uint32_t flags = tl_read_uint32(&r);
 
-    if (skip_sent_code_type(&r) != 0) {
+    out->code_type = read_sent_code_type(&r);
+    if (out->code_type == 0) {
         logger_log(LOG_ERROR, "auth_send_code: failed to parse sentCodeType");
         return -1;
     }
@@ -152,17 +151,19 @@ int auth_send_code(const ApiConfig *cfg,
     }
     memcpy(out->phone_code_hash, hash, hash_len + 1);
 
-    /* Skip next_type (flags.1) before reading timeout (flags.2) */
-    if (flags & (1u << 1)) tl_read_uint32(&r);
+    /* next_type: flags.1 */
+    out->next_type = 0;
+    if (flags & (1u << 1)) out->next_type = tl_read_uint32(&r);
 
     /* timeout: flags.2 */
     out->timeout = 0;
-    if (flags & (1u << 2)) {
-        out->timeout = tl_read_int32(&r);
-    }
+    if (flags & (1u << 2)) out->timeout = tl_read_int32(&r);
 
-    logger_log(LOG_INFO, "auth_send_code: code sent (hash_len=%zu), timeout=%d",
-               strlen(out->phone_code_hash), out->timeout);
+    logger_log(LOG_INFO,
+               "auth_send_code: code sent (hash_len=%zu, code_type=0x%08x, "
+               "next_type=0x%08x, timeout=%d)",
+               strlen(out->phone_code_hash), out->code_type,
+               out->next_type, out->timeout);
     return 0;
 }
 
@@ -202,7 +203,7 @@ static int parse_authorization(const uint8_t *resp, size_t resp_len,
     if (flags & (1u << 1)) tl_read_int32(&r); /* otherwise_relogin_days */
 
     uint32_t user_crc = tl_read_uint32(&r);
-    if (user_crc != TL_user && user_crc != TL_userFull) {
+    if (user_crc != TL_user && user_crc != TL_user2 && user_crc != TL_userFull) {
         logger_log(LOG_WARN, "%s: unexpected user constructor 0x%08x",
                    caller, user_crc);
         if (user_id_out) *user_id_out = 0;
@@ -240,8 +241,7 @@ int auth_sign_in(const ApiConfig *cfg,
         return -1;
     }
 
-    logger_log(LOG_INFO, "auth_sign_in: phone='%s' hash_len=%zu",
-               phone, strlen(phone_code_hash));
+    logger_log(LOG_INFO, "auth_sign_in: sending request");
 
     RAII_STRING uint8_t *resp = (uint8_t *)malloc(65536);
     if (!resp) return -1;
@@ -368,4 +368,85 @@ int auth_sign_up(const ApiConfig *cfg,
     }
 
     return parse_authorization(resp, resp_len, user_id_out, "auth_sign_up");
+}
+
+/* ---- auth_resend_code ---- */
+
+int auth_resend_code(const ApiConfig *cfg,
+                     MtProtoSession *s, Transport *t,
+                     const char *phone,
+                     AuthSentCode *sent,
+                     RpcError *err) {
+    if (!cfg || !s || !t || !phone || !sent) return -1;
+    if (err) { err->error_code = 0; err->error_msg[0] = '\0';
+               err->migrate_dc = -1; err->flood_wait_secs = 0; }
+
+    TlWriter w;
+    tl_writer_init(&w);
+
+    /* auth.resendCode#3ef1a9bf flags:# phone_number:string phone_code_hash:string
+     *                          reason:flags.0?string */
+    tl_write_uint32(&w, CRC_auth_resendCode);
+    tl_write_uint32(&w, 0);  /* flags = 0 (no reason) */
+    tl_write_string(&w, phone);
+    tl_write_string(&w, sent->phone_code_hash);
+
+    uint8_t query[1024];
+    size_t qlen = 0;
+    if (w.len > sizeof(query)) { tl_writer_free(&w); return -1; }
+    memcpy(query, w.data, w.len);
+    qlen = w.len;
+    tl_writer_free(&w);
+
+    RAII_STRING uint8_t *resp = (uint8_t *)malloc(65536);
+    if (!resp) return -1;
+    size_t resp_len = 0;
+
+    if (api_call(cfg, s, t, query, qlen, resp, 65536, &resp_len) != 0) {
+        logger_log(LOG_ERROR, "auth_resend_code: api_call failed");
+        return -1;
+    }
+
+    if (resp_len < 4) {
+        logger_log(LOG_ERROR, "auth_resend_code: response too short");
+        return -1;
+    }
+
+    uint32_t constructor;
+    memcpy(&constructor, resp, 4);
+
+    if (constructor == TL_rpc_error) {
+        RpcError perr;
+        rpc_parse_error(resp, resp_len, &perr);
+        logger_log(LOG_ERROR, "auth_resend_code: RPC error %d: %s",
+                   perr.error_code, perr.error_msg);
+        if (err) *err = perr;
+        return -1;
+    }
+
+    if (constructor != CRC_auth_sentCode) {
+        logger_log(LOG_ERROR, "auth_resend_code: unexpected constructor 0x%08x",
+                   constructor);
+        return -1;
+    }
+
+    /* Parse the new sentCode to update code_type. */
+    TlReader r = tl_reader_init(resp, resp_len);
+    tl_read_uint32(&r); /* skip constructor */
+    uint32_t flags = tl_read_uint32(&r);
+
+    sent->code_type = read_sent_code_type(&r);
+
+    /* skip phone_code_hash — must not change */
+    RAII_STRING char *new_hash = tl_read_string(&r);
+    (void)new_hash;
+
+    sent->next_type = 0;
+    if (flags & (1u << 1)) sent->next_type = tl_read_uint32(&r);
+    if (flags & (1u << 2)) sent->timeout   = tl_read_int32(&r);
+
+    logger_log(LOG_INFO,
+               "auth_resend_code: new code_type=0x%08x, next_type=0x%08x",
+               sent->code_type, sent->next_type);
+    return 0;
 }

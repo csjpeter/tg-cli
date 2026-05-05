@@ -70,7 +70,7 @@ static int parse_user(TlReader *r, SelfInfo *out) {
         out->id = tl_read_int64(r);
         return 0;
     }
-    if (crc != TL_user && crc != TL_userFull) {
+    if (crc != TL_user && crc != TL_user2 && crc != TL_userFull) {
         logger_log(LOG_WARN,
                    "domain_get_self: unexpected user constructor 0x%08x", crc);
         return -1;

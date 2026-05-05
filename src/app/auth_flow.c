@@ -107,6 +107,8 @@ int auth_flow_login(const ApiConfig *cfg,
         int saved_dc = 0;
         mtproto_session_init(s);
         if (session_store_load(s, &saved_dc) == 0 && s->has_auth_key) {
+            /* New session_id per TCP connection; server resets seqno tracking. */
+            mtproto_session_renew_id(s);
             const DcEndpoint *ep = dc_lookup(saved_dc);
             if (ep && transport_connect(t, ep->host, ep->port) == 0) {
                 t->dc_id = saved_dc;
@@ -158,6 +160,26 @@ int auth_flow_login(const ApiConfig *cfg,
         logger_log(LOG_ERROR, "auth_flow: sendCode failed (%d: %s)",
                    err.error_code, err.error_msg);
         return -1;
+    }
+
+    /* If the code was routed to a Telegram app session (sentCodeTypeApp) but the
+     * next delivery method is SMS, request a resend so the code arrives via SMS.
+     * This is the standard path for real phone numbers that have no active
+     * test-DC client to receive the app notification. */
+    if (sent.code_type == CRC_auth_sentCodeTypeApp
+            && sent.next_type == CRC_codeTypeSms) {
+        logger_log(LOG_INFO,
+                   "auth_flow: sentCodeTypeApp with SMS fallback — resending via SMS");
+        RpcError rerr = {0};
+        rerr.migrate_dc = -1;
+        if (auth_resend_code(cfg, s, t, phone, &sent, &rerr) == 0) {
+            logger_log(LOG_INFO, "auth_flow: code resent via SMS");
+        } else {
+            logger_log(LOG_WARN,
+                       "auth_flow: resend failed (%d: %s); "
+                       "code may still arrive in Telegram app",
+                       rerr.error_code, rerr.error_msg);
+        }
     }
 
     /* ---- user enters code ---- */

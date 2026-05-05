@@ -148,8 +148,10 @@ static int classify_service_frame(MtProtoSession *s,
     return SVC_RESULT;
 }
 
-/** Maximum number of service frames we'll drain before giving up. */
-#define SERVICE_FRAME_LIMIT 8
+/** Maximum number of service frames we'll drain before giving up.
+ *  Must be larger than the number of pong/ack frames that can accumulate
+ *  during a long-lived session (e.g. 90 s of pings every 10 s = ~9 pongs). */
+#define SERVICE_FRAME_LIMIT 64
 
 static int api_call_once(const ApiConfig *cfg,
                           MtProtoSession *s, Transport *t,

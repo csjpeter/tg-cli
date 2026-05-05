@@ -278,7 +278,7 @@ int domain_resolve_username(const ApiConfig *cfg,
     uint32_t nusers = tl_read_uint32(&r);
     for (uint32_t i = 0; i < nusers; i++) {
         uint32_t ucrc = tl_read_uint32(&r);
-        if (ucrc == TL_user) {
+        if (ucrc == TL_user || ucrc == TL_user2) {
             ResolvedPeer tmp = {0};
             parse_user_prefix(&r, &tmp);
             if (tmp.id == peer_id_raw) {

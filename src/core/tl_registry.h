@@ -57,7 +57,8 @@
 #define TL_securePasswordKdfAlgoUnknown  0x004a8537a5
 
 /* User */
-#define TL_user                 0x3ff6ecb0
+#define TL_user                 0x3ff6ecb0  /* layer ≤ 175 */
+#define TL_user2                0x83314fcau /* layer 176+ */
 #define TL_userEmpty            0xd3bc4b7a
 #define TL_userFull             0x93eadb53
 

@@ -145,16 +145,21 @@ int integ_config_load(integration_config_t *cfg) {
         cfg->api_id    = strdup(getenv("TG_TEST_API_ID"));
     if (!cfg->api_hash  && getenv("TG_TEST_API_HASH"))
         cfg->api_hash  = strdup(getenv("TG_TEST_API_HASH"));
-    if (!cfg->rsa_pem   && getenv("TG_TEST_RSA_PEM"))
+    /* TG_TEST_RSA_PEM is typically the test-DC RSA key.  Load it as a fallback
+     * only when rsa_pem was not already set by the config file. */
+    if (!cfg->rsa_pem && getenv("TG_TEST_RSA_PEM"))
         cfg->rsa_pem   = unescape_nl(getenv("TG_TEST_RSA_PEM"));
+    if (!cfg->phone     && getenv("TG_TEST_PHONE"))
+        cfg->phone     = strdup(getenv("TG_TEST_PHONE"));
     if (!cfg->code      && getenv("TG_TEST_CODE"))
         cfg->code      = strdup(getenv("TG_TEST_CODE"));
 
     /* dc_id=0 means "wildcard" — the Telegram test DC accepts dc=0 in DH. */
 
-    /* No default phone — the user must supply one via test.ini or interactively.
-     * Telegram test DC phone numbers (+9996NXXXXX) do not have a universal
-     * magic code; the actual code must be received (SMS or app notification). */
+    /* NOTE: Telegram test DC no longer accepts deterministic codes for test
+     * phone numbers (+99966XYYYY / XXXXX) as of 2026-05.  A real phone
+     * number (or a pre-saved session in session_bin) is required.
+     * See ~/.config/tg-cli/test.ini for setup instructions. */
 
     /* Apply defaults for fields not present anywhere. */
     if (!cfg->dc_port)

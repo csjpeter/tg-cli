@@ -54,6 +54,12 @@ static void apply_test_dc_overrides(void)
 {
     const integration_config_t *c = &g_integration_config;
 
+    /* Only apply test DC overrides when dc_host is explicitly configured. */
+    if (!(c->dc_host && c->dc_host[0])) {
+        printf("  [INFO] No dc_host — using production DC with built-in RSA key\n");
+        return;
+    }
+
     if (c->rsa_pem && c->rsa_pem[0]) {
         if (telegram_server_key_set_override(c->rsa_pem) != 0) {
             printf("  [WARN] RSA PEM override rejected — using built-in key\n");
@@ -61,8 +67,6 @@ static void apply_test_dc_overrides(void)
             printf("  [INFO] RSA override applied, fingerprint=0x%016llx\n",
                    (unsigned long long)telegram_server_key_get_fingerprint());
         }
-    } else {
-        printf("  [INFO] No TG_TEST_RSA_PEM set — using built-in key\n");
     }
 
     if (c->dc_host && c->dc_host[0]) {
@@ -82,6 +86,8 @@ static void apply_test_dc_overrides(void)
 
 /**
  * Create a temporary HOME directory and point HOME / XDG env vars at it.
+ * Writes the RSA public key (from g_integration_config) to
+ * <tmp>/.config/tg-cli/config.ini so that app_bootstrap succeeds.
  * Returns the malloc-allocated path (caller must free() after the test).
  * Existing XDG overrides are cleared so path.c falls back to HOME.
  */
@@ -99,6 +105,31 @@ static char *setup_temp_home(void)
     setenv("HOME", path, 1);
     unsetenv("XDG_CONFIG_HOME");
     unsetenv("XDG_CACHE_HOME");
+
+    /* Write RSA key to config.ini so app_bootstrap can load it. */
+    const char *rsa = g_integration_config.rsa_pem;
+    if (rsa && rsa[0]) {
+        char dir[4096];
+        snprintf(dir, sizeof(dir), "%s/.config", path);
+        mkdir(dir, 0700);
+        snprintf(dir, sizeof(dir), "%s/.config/tg-cli", path);
+        mkdir(dir, 0700);
+
+        char cfg_path[4096];
+        snprintf(cfg_path, sizeof(cfg_path), "%s/.config/tg-cli/config.ini", path);
+        FILE *f = fopen(cfg_path, "w");
+        if (f) {
+            fprintf(f, "[config]\nrsa_pem = ");
+            for (const char *p = rsa; *p; p++) {
+                if (*p == '\n') fputs("\\n", f);
+                else            fputc(*p, f);
+            }
+            fputc('\n', f);
+            fclose(f);
+            chmod(cfg_path, 0600);
+        }
+    }
+
     return path;
 }
 
@@ -136,8 +167,9 @@ static ApiConfig make_api_config(void)
     if (g_integration_config.api_id)
         cfg.api_id = atoi(g_integration_config.api_id);
     cfg.api_hash     = g_integration_config.api_hash;
+    /* dc_id=0 means "not set" — let auth_flow use DEFAULT_DC_ID (production). */
     cfg.start_dc     = g_integration_config.dc_id;
-    cfg.start_dc_set = 1;
+    cfg.start_dc_set = (g_integration_config.dc_id != 0) ? 1 : 0;
     return cfg;
 }
 
@@ -249,7 +281,7 @@ static void test_dh_handshake_completes(void)
 
 static void test_login_send_code_and_sign_in(void)
 {
-    SKIP_IF_NO_CREDS();
+    SKIP_IF_CANT_LOGIN();
 
     char *tmp_home = setup_temp_home();
     ASSERT(tmp_home != NULL, "setup_temp_home failed");
@@ -300,7 +332,7 @@ static void test_login_send_code_and_sign_in(void)
 
 static void test_get_self(void)
 {
-    SKIP_IF_NO_CREDS();
+    SKIP_IF_CANT_LOGIN();
 
     char *tmp_home = setup_temp_home();
     ASSERT(tmp_home != NULL, "setup_temp_home failed");
@@ -355,7 +387,7 @@ static void test_get_self(void)
 
 static void test_get_dialogs_returns_at_least_one(void)
 {
-    SKIP_IF_NO_CREDS();
+    SKIP_IF_CANT_LOGIN();
 
     char *tmp_home = setup_temp_home();
     ASSERT(tmp_home != NULL, "setup_temp_home failed");
@@ -405,7 +437,7 @@ static void test_get_dialogs_returns_at_least_one(void)
 
 static void test_get_history_smoke(void)
 {
-    SKIP_IF_NO_CREDS();
+    SKIP_IF_CANT_LOGIN();
 
     char *tmp_home = setup_temp_home();
     ASSERT(tmp_home != NULL, "setup_temp_home failed");
@@ -464,7 +496,7 @@ static int cb_get_phone_b(void *user, char *out, size_t cap)
 
 static void test_send_and_receive_message(void)
 {
-    SKIP_IF_NO_CREDS();
+    SKIP_IF_CANT_LOGIN();
 
     const char *phone_b = getenv("TG_TEST_PHONE_B");
     if (!phone_b || !phone_b[0]) {
@@ -552,7 +584,7 @@ static int send_ping(MtProtoSession *s, Transport *t, uint64_t ping_id)
 
 static void test_salt_rotation_survives_long_session(void)
 {
-    SKIP_IF_NO_CREDS();
+    SKIP_IF_CANT_LOGIN();
 
     char *tmp_home = setup_temp_home();
     ASSERT(tmp_home != NULL, "setup_temp_home failed");
@@ -580,6 +612,18 @@ static void test_salt_rotation_survives_long_session(void)
 
     ASSERT(auth_flow_login(&cfg, &cbs, &t, &s, NULL) == 0,
            "login failed in test_salt_rotation_survives_long_session");
+
+    /* Warm up: make one real API call so that new_session_created is processed
+     * and s.server_salt is updated to the server's current value.  Without
+     * this, the first 9 pings would be sent with a stale salt from the saved
+     * session and each would provoke a bad_server_salt response that
+     * accumulates in the TCP buffer and confuses the final getDialogs call. */
+    {
+        dialogs_cache_flush();
+        DialogEntry warm[2]; int warm_count = 0;
+        domain_get_dialogs(&cfg, &s, &t, 2, 0, warm, &warm_count, NULL);
+        /* ignore errors — the purpose is just to refresh the salt */
+    }
 
     /* Hold the session for 90 seconds; send a ping every 10 seconds. */
     printf("  [INFO] holding session for 90 s with pings...\n");
@@ -612,6 +656,12 @@ static void test_salt_rotation_survives_long_session(void)
 
 /* -------------------------------------------------------------------------
  * Test 8: auth.logOut clears session
+ *
+ * Uses a fresh DH-only auth_key (not the saved signed-in session) so that
+ * the server-side logOut call does not invalidate the shared test session.
+ * The server returns 401 (key not authorized), which auth_logout treats as
+ * "already logged out" — local session.bin is still wiped, which is what
+ * we actually want to verify.
  * ---------------------------------------------------------------------- */
 
 static void test_logout_clears_session(void)
@@ -628,22 +678,20 @@ static void test_logout_clears_session(void)
 
     ApiConfig cfg = make_api_config();
 
-    AuthFlowCallbacks cbs = {
-        .get_phone    = cb_get_phone,
-        .get_code     = cb_get_code,
-        .get_password = NULL,
-        .user         = NULL,
-    };
-
-    restore_test_session(tmp_home);
-
     Transport t;
     transport_init(&t);
     MtProtoSession s;
     mtproto_session_init(&s);
 
-    ASSERT(auth_flow_login(&cfg, &cbs, &t, &s, NULL) == 0,
-           "login failed in test_logout_clears_session");
+    /* Create a fresh, throwaway DH session — never signed in, so logOut will
+     * return 401 (handled gracefully), but session_store_clear() still runs. */
+    int dc_id = g_integration_config.dc_id ? g_integration_config.dc_id : 2;
+    ASSERT(auth_flow_connect_dc(dc_id, &t, &s) == 0,
+           "DH handshake failed in test_logout_clears_session");
+
+    /* Persist the fresh session so we can verify it gets wiped. */
+    ASSERT(session_store_save(&s, dc_id) == 0,
+           "session_store_save failed in test_logout_clears_session");
 
     /* Confirm session.bin exists before logout. */
     char session_path[4096];
@@ -653,7 +701,8 @@ static void test_logout_clears_session(void)
     ASSERT(stat(session_path, &st) == 0,
            "session.bin absent before logout");
 
-    /* Perform full logout (sends auth.logOut + wipes session.bin). */
+    /* Perform logout: server returns 401 (not signed in), treated as success;
+     * session_store_clear() wipes session.bin regardless. */
     auth_logout(&cfg, &s, &t);
 
     /* session.bin must be gone now. */

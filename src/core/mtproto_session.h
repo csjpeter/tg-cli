@@ -26,6 +26,11 @@ typedef struct {
 /** Initialize session with random session_id. */
 void mtproto_session_init(MtProtoSession *s);
 
+/** Assign a new random session_id and reset seqno counters.
+ *  Keeps auth_key and server_salt intact.  Call after restoring a saved
+ *  session before reconnecting so the server starts fresh seqno tracking. */
+void mtproto_session_renew_id(MtProtoSession *s);
+
 /** Generate next msg_id (monotonically increasing, even). */
 uint64_t mtproto_session_next_msg_id(MtProtoSession *s);
 

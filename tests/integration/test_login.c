@@ -68,7 +68,7 @@ static int cb_get_code(void *user, char *out, size_t cap)
         printf("Code: %s\n", out);
         return 0;
     }
-    return prompt_string("SMS / Telegram code: ", out, cap);
+    return prompt_string("Code (check Telegram app OR SMS): ", out, cap);
 }
 
 static int cb_get_password(void *user, char *out, size_t cap)
@@ -103,6 +103,14 @@ static void apply_dc_overrides(void)
 {
     const integration_config_t *c = &g_integration_config;
 
+    /* Only apply test DC overrides when dc_host is explicitly configured.
+     * Without dc_host we are using the production DC — do not override the
+     * built-in RSA key or DC addresses. */
+    if (!(c->dc_host && c->dc_host[0])) {
+        printf("[INFO] No dc_host configured — using production DC\n");
+        return;
+    }
+
     if (c->rsa_pem && c->rsa_pem[0]) {
         if (telegram_server_key_set_override(c->rsa_pem) != 0)
             fprintf(stderr, "[WARN] RSA PEM override rejected — using built-in key\n");
@@ -111,15 +119,13 @@ static void apply_dc_overrides(void)
                    (unsigned long long)telegram_server_key_get_fingerprint());
     }
 
-    if (c->dc_host && c->dc_host[0]) {
-        char host[256];
-        strncpy(host, c->dc_host, sizeof(host) - 1);
-        host[sizeof(host) - 1] = '\0';
-        char *colon = strchr(host, ':');
-        if (colon) *colon = '\0';
-        for (int id = 1; id <= 5; id++)
-            dc_config_set_host_override(id, host);
-    }
+    char host[256];
+    strncpy(host, c->dc_host, sizeof(host) - 1);
+    host[sizeof(host) - 1] = '\0';
+    char *colon = strchr(host, ':');
+    if (colon) *colon = '\0';
+    for (int id = 1; id <= 5; id++)
+        dc_config_set_host_override(id, host);
 }
 
 /* ---- Write minimal config.ini for app_bootstrap ---- */
@@ -188,10 +194,12 @@ int main(void)
     char buf_apiid[32]   = {0};
     char buf_apihash[64] = {0};
 
-    if (!g_integration_config.dc_host || !g_integration_config.dc_host[0]) {
-        if (prompt_string("DC host [149.154.167.40]: ", buf_host, sizeof(buf_host)) != 0)
-            snprintf(buf_host, sizeof(buf_host), "149.154.167.40");
-        g_integration_config.dc_host = buf_host;
+    /* Only prompt for dc_host when it was never set (NULL).
+     * An empty string ("") means "production DC" — no prompt, no default. */
+    if (!g_integration_config.dc_host) {
+        if (prompt_string("DC host (empty = production DC): ",
+                          buf_host, sizeof(buf_host)) == 0 && buf_host[0])
+            g_integration_config.dc_host = buf_host;
     }
 
     if (!g_integration_config.api_id || !g_integration_config.api_id[0]) {
@@ -266,13 +274,37 @@ int main(void)
     unsetenv("XDG_CONFIG_HOME");
     unsetenv("XDG_CACHE_HOME");
 
-    /* Write RSA key to tmp config.ini so app_bootstrap finds it. */
+    /* Write RSA key to tmp config.ini so app_bootstrap can load it.
+     * The key is used for both test and production DCs (same Telegram public
+     * key for all DCs). */
     const char *rsa = g_integration_config.rsa_pem;
     if (rsa && rsa[0]) {
         if (write_tmp_config(tmp_home, rsa) != 0) {
             fprintf(stderr, "ERROR: could not write tmp config.ini\n");
             free(rsa_pem_buf);
             return 1;
+        }
+    } else {
+        /* No RSA key: just create directories so session restore can write. */
+        char dir[4096];
+        snprintf(dir, sizeof(dir), "%s/.config", tmp_home);
+        mkdir(dir, 0700);
+        snprintf(dir, sizeof(dir), "%s/.config/tg-cli", tmp_home);
+        mkdir(dir, 0700);
+    }
+
+    /* Fast path: if a session was saved by a previous run, restore it so
+     * auth_flow_login can reuse it without phone / SMS verification. */
+    if (g_integration_config.session_bin && g_integration_config.session_bin[0]) {
+        struct stat st;
+        if (stat(g_integration_config.session_bin, &st) == 0) {
+            char session_dst[4096];
+            snprintf(session_dst, sizeof(session_dst),
+                     "%s/.config/tg-cli/session.bin", tmp_home);
+            if (copy_file(g_integration_config.session_bin, session_dst) == 0) {
+                printf("Restoring saved session from: %s\n",
+                       g_integration_config.session_bin);
+            }
         }
     }
 
@@ -287,8 +319,9 @@ int main(void)
     api_config_init(&cfg);
     cfg.api_id       = atoi(g_integration_config.api_id);
     cfg.api_hash     = g_integration_config.api_hash;
+    /* dc_id=0 means "not set" — let auth_flow use DEFAULT_DC_ID (production). */
     cfg.start_dc     = g_integration_config.dc_id;
-    cfg.start_dc_set = 1;
+    cfg.start_dc_set = (g_integration_config.dc_id != 0) ? 1 : 0;
 
     AuthFlowCallbacks cbs = {
         .get_phone    = cb_get_phone,

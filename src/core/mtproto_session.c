@@ -30,6 +30,14 @@ void mtproto_session_init(MtProtoSession *s) {
     if (s->session_id == 0) s->session_id = 1;
 }
 
+void mtproto_session_renew_id(MtProtoSession *s) {
+    if (!s) return;
+    crypto_rand_bytes((unsigned char *)&s->session_id, sizeof(s->session_id));
+    if (s->session_id == 0) s->session_id = 1;
+    s->seq_no     = 0;
+    s->last_msg_id = 0;
+}
+
 /**
  * @brief Generate the next monotonically increasing message ID.
  *

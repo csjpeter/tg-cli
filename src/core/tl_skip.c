@@ -15,7 +15,8 @@
 
 /* ---- CRCs not yet in tl_registry.h ---- */
 
-#define CRC_peerNotifySettings          0xa83b0426u
+#define CRC_peerNotifySettings          0xa83b0426u  /* layer ≤ 175 */
+#define CRC_peerNotifySettings2         0x99622c0cu  /* layer 176+ */
 #define CRC_notificationSoundDefault    0x97e8bebeu
 #define CRC_notificationSoundNone       0x6f0c34dfu
 #define CRC_notificationSoundLocal      0x830b9ae4u
@@ -363,7 +364,7 @@ int tl_skip_notification_sound(TlReader *r) {
 int tl_skip_peer_notify_settings(TlReader *r) {
     if (!tl_reader_ok(r) || r->len - r->pos < 8) return -1;
     uint32_t crc = tl_read_uint32(r);
-    if (crc != CRC_peerNotifySettings) {
+    if (crc != CRC_peerNotifySettings && crc != CRC_peerNotifySettings2) {
         logger_log(LOG_WARN,
                    "tl_skip_peer_notify_settings: unexpected 0x%08x", crc);
         return -1;
@@ -3123,7 +3124,7 @@ static int extract_user_inner(TlReader *r, UserSummary *out) {
         return 0;
     }
 
-    if (crc != TL_user) {
+    if (crc != TL_user && crc != TL_user2) {
         logger_log(LOG_WARN, "tl_skip_user: unknown User variant 0x%08x", crc);
         return -1;
     }

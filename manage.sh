@@ -92,8 +92,10 @@ cmake_configure() {
     local extra_flags="${2:-}"
     mkdir -p "$BUILD_DIR" "$BIN_DIR"
     cd "$BUILD_DIR"
-    cmake -DCMAKE_BUILD_TYPE="$build_type" $extra_flags ..
+    cmake -DCMAKE_BUILD_TYPE="$build_type" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON $extra_flags ..
     cd ..
+    # Symlink compile_commands.json to the project root so clangd finds it.
+    ln -sf "$BUILD_DIR/compile_commands.json" compile_commands.json
 }
 
 cmake_build() {

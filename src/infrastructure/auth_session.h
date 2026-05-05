@@ -30,6 +30,14 @@
 #define CRC_auth_sentCodeTypeCall      0x5353e5a7
 #define CRC_auth_sentCodeTypeFlashCall 0xab03c6d9
 
+/* ---- auth.resendCode ---- */
+#define CRC_auth_resendCode        0x3ef1a9bf
+/* auth.CodeType values (for next_type field of auth.sentCode) */
+#define CRC_codeTypeSms            0x72a3158c
+#define CRC_codeTypeCall           0x741cd3e3
+#define CRC_codeTypeFlashCall      0x226ccefb
+#define CRC_codeTypeMissedCall     0xd61ad6ee
+
 /* ---- auth.signIn / auth.signUp TL constructor IDs ---- */
 #define CRC_auth_signIn                      0x8d52a951
 #define CRC_auth_signUp                      0x80eee427
@@ -43,8 +51,10 @@
  * @brief Result of auth.sendCode — carries the phone_code_hash for signIn.
  */
 typedef struct {
-    char phone_code_hash[AUTH_CODE_HASH_MAX]; /**< Required for auth.signIn. */
-    int  timeout;                             /**< Code expiry seconds, or 0. */
+    char     phone_code_hash[AUTH_CODE_HASH_MAX]; /**< Required for auth.signIn. */
+    int      timeout;   /**< Code expiry in seconds, or 0. */
+    uint32_t code_type; /**< How the code was sent (CRC_auth_sentCodeType*). */
+    uint32_t next_type; /**< Fallback type CRC (CRC_codeType*), or 0 if absent. */
 } AuthSentCode;
 
 /**
@@ -88,6 +98,27 @@ int auth_sign_in(const ApiConfig *cfg,
                  int64_t *user_id_out,
                  int *signup_required,
                  RpcError *err);
+
+/**
+ * @brief Resend the auth code via the fallback method (auth.resendCode).
+ *
+ * Call when auth_send_code() returns code_type == CRC_auth_sentCodeTypeApp
+ * and next_type == CRC_codeTypeSms to force SMS delivery.
+ * On success, sent->code_type is updated to reflect the new delivery method.
+ *
+ * @param cfg    API configuration.
+ * @param s      MTProto session (must have auth_key).
+ * @param t      Connected transport.
+ * @param phone  Phone number (same as passed to auth_send_code).
+ * @param sent   In/out: phone_code_hash from sendCode; code_type updated.
+ * @param err    Optional RPC error output (NULL ok).
+ * @return 0 on success, -1 on error.
+ */
+int auth_resend_code(const ApiConfig *cfg,
+                     MtProtoSession *s, Transport *t,
+                     const char *phone,
+                     AuthSentCode *sent,
+                     RpcError *err);
 
 /**
  * @brief Send auth.signUp to register a new account.

@@ -48,7 +48,7 @@
 #define MT_MAX_UPDATES       32
 #define MT_FRAME_MAX         (256 * 1024)
 #define MT_CRC_RING_SIZE     256
-#define MT_MAX_PENDING_SVC   16   /* stacked service frames ahead of next reply */
+#define MT_MAX_PENDING_SVC   70   /* must exceed SERVICE_FRAME_LIMIT (64) + 1 for storm test */
 
 /* TL CRCs for the service frames TEST-88 exercises. Keep these local so
  * the mock server does not have to link against src/core/tl_registry.h. */
@@ -1204,12 +1204,15 @@ static void handshake_on_req_pq_multi(const uint8_t *body, size_t body_len) {
 
 /* ---- TEST-72: RSA-PAD decrypt (inverse of rsa_pad_encrypt in mtproto_auth.c) ----
  *
- * Reverses the RSA_PAD scheme used by the client to encrypt p_q_inner_data_dc.
- * Returns 0 on success and writes the decrypted payload into @p plain_out[192].
+ * Reverses the MTProto 1.0 SHA1 RSA scheme: RSA_NO_PADDING decrypt → 256 bytes,
+ * skip leading zero byte, strip 20-byte SHA1 hash prefix → plain data.
+ * Returns 0 and writes data into @p plain_out (max @p plain_max bytes) and
+ * sets *plain_len to the actual data length.
  *
  * TEST_ONLY — only called from handshake_on_req_dh_params in mode 3. */
-static int rsa_pad_decrypt(const uint8_t *ciphertext, size_t cipher_len,
-                           uint8_t *plain_out  /* must be >= 192 bytes */) {
+static int rsa_sha1_decrypt(const uint8_t *ciphertext, size_t cipher_len,
+                             uint8_t *plain_out, size_t plain_max,
+                             size_t *plain_len) {
     if (cipher_len != 256) return -1;
 
     /* TEST_ONLY private key — matches tests/mocks/telegram_server_key.c pubkey. */
@@ -1243,58 +1246,45 @@ static int rsa_pad_decrypt(const uint8_t *ciphertext, size_t cipher_len,
         "bAd3PHlfEWOhiWzBj/dVjUY=\n"
         "-----END PRIVATE KEY-----\n";
 
+    (void)plain_max;
+
     CryptoRsaKey *priv = crypto_rsa_load_private(TEST_PRIVATE_KEY_PEM);
     if (!priv) {
-        fprintf(stderr, "mock: rsa_pad_decrypt: failed to load private key\n");
+        fprintf(stderr, "mock: rsa_sha1_decrypt: failed to load private key\n");
         return -1;
     }
 
-    /* Step 1: RSA decrypt (NO_PADDING) → rsa_output[256] */
+    /* RSA_NO_PADDING decrypt → 256 bytes */
     uint8_t rsa_output[256];
     size_t rsa_out_len = sizeof(rsa_output);
     if (crypto_rsa_private_decrypt(priv, ciphertext, cipher_len,
                                    rsa_output, &rsa_out_len) != 0) {
         crypto_rsa_free(priv);
-        fprintf(stderr, "mock: rsa_pad_decrypt: RSA decrypt failed\n");
+        fprintf(stderr, "mock: rsa_sha1_decrypt: RSA decrypt failed\n");
         return -1;
     }
     crypto_rsa_free(priv);
 
-    /* Step 2: Split into temp_key_xor(32) + aes_encrypted(224) */
-    const uint8_t *temp_key_xor = rsa_output;
-    const uint8_t *aes_encrypted = rsa_output + 32;
+    /* rsa_output[0] = 0x00 (zero prefix added by client)
+     * rsa_output[1..20]  = SHA1(data)
+     * rsa_output[21..255] = data + random padding */
+    const uint8_t *sha1_prefix = rsa_output + 1;   /* 20 bytes */
+    const uint8_t *data_start  = rsa_output + 21;  /* up to 235 bytes */
+    size_t max_data = 255 - 20;
 
-    /* Step 3: SHA256(aes_encrypted) → aes_hash */
-    uint8_t aes_hash[32];
-    crypto_sha256(aes_encrypted, 224, aes_hash);
-
-    /* Step 4: temp_key = temp_key_xor XOR aes_hash */
-    uint8_t temp_key[32];
-    for (int i = 0; i < 32; i++) temp_key[i] = temp_key_xor[i] ^ aes_hash[i];
-
-    /* Step 5: AES-IGE decrypt(aes_encrypted, key=temp_key, IV=zeros) → data_with_hash */
-    uint8_t zero_iv[32];
-    memset(zero_iv, 0, 32);
-    uint8_t data_with_hash[224];
-    aes_ige_decrypt(aes_encrypted, 224, temp_key, zero_iv, data_with_hash);
-
-    /* Step 6: data_with_hash = data_pad_reversed(192) + hash(32).
-     * Un-reverse first to get data_with_padding. */
-    for (int i = 0; i < 192; i++) plain_out[i] = data_with_hash[191 - i];
-
-    /* Step 7: Verify SHA256(temp_key + data_with_padding) == hash.
-     * Per spec: hash is over the NON-reversed block (data_with_padding). */
-    uint8_t verify_buf[32 + 192];
-    memcpy(verify_buf, temp_key, 32);
-    memcpy(verify_buf + 32, plain_out, 192);
-    uint8_t expected_hash[32];
-    crypto_sha256(verify_buf, sizeof(verify_buf), expected_hash);
-    if (memcmp(expected_hash, data_with_hash + 192, 32) != 0) {
-        fprintf(stderr, "mock: rsa_pad_decrypt: hash mismatch\n");
-        return -1;
+    /* The data starts with a 4-byte TL CRC.  Find the actual data length by
+     * verifying SHA1.  We try lengths starting at 4 (minimum TL object). */
+    for (size_t dlen = 4; dlen <= max_data; dlen++) {
+        uint8_t sha1_check[20];
+        crypto_sha1(data_start, dlen, sha1_check);
+        if (memcmp(sha1_check, sha1_prefix, 20) == 0) {
+            memcpy(plain_out, data_start, dlen);
+            *plain_len = dlen;
+            return 0;
+        }
     }
-
-    return 0;
+    fprintf(stderr, "mock: rsa_sha1_decrypt: SHA1 verification failed\n");
+    return -1;
 }
 
 /** Handle an incoming req_DH_params frame.
@@ -1349,21 +1339,27 @@ static void handshake_on_req_dh_params(const uint8_t *body, size_t body_len) {
         return;
     }
 
-    /* RSA-PAD decrypt to get padded p_q_inner_data_dc (192 bytes) */
-    uint8_t inner_plain[192];
-    if (rsa_pad_decrypt(enc_data, enc_len, inner_plain) != 0) {
+    /* SHA1-based RSA decrypt to get p_q_inner_data (MTProto 1.0 legacy) */
+    uint8_t inner_plain[256];
+    size_t inner_plain_len = 0;
+    if (rsa_sha1_decrypt(enc_data, enc_len, inner_plain, sizeof(inner_plain),
+                         &inner_plain_len) != 0) {
         free(enc_data);
-        fprintf(stderr, "mock: full DH: RSA_PAD decrypt failed\n");
+        fprintf(stderr, "mock: full DH: RSA SHA1 decrypt failed\n");
         return;
     }
     free(enc_data);
 
-    /* Parse p_q_inner_data_dc from inner_plain.
-     * RSA_PAD output: data[...] + padding (no hash prefix — per MTProto spec).
-     * TL: CRC(4) pq:bytes p:bytes q:bytes nonce(16) server_nonce(16) new_nonce(32) dc:int */
-    TlReader ir = tl_reader_init(inner_plain, sizeof(inner_plain));
+    /* Parse p_q_inner_data (legacy, no dc field) or p_q_inner_data_dc.
+     * TL: CRC(4) pq:bytes p:bytes q:bytes nonce(16) server_nonce(16) new_nonce(32) [dc:int] */
+    TlReader ir = tl_reader_init(inner_plain, inner_plain_len);
     uint32_t inner_crc = tl_read_uint32(&ir);
-    if (inner_crc != 0xa9f55f95U) {  /* CRC_p_q_inner_data_dc */
+    int has_dc = 0;
+    if (inner_crc == 0xa9f55f95U) {       /* p_q_inner_data_dc */
+        has_dc = 1;
+    } else if (inner_crc == 0x83c95aecU) { /* p_q_inner_data (legacy) */
+        has_dc = 0;
+    } else {
         fprintf(stderr, "mock: full DH: unexpected inner CRC 0x%08x\n", inner_crc);
         return;
     }
@@ -1377,6 +1373,7 @@ static void handshake_on_req_dh_params(const uint8_t *body, size_t body_len) {
     tl_read_int128(&ir, extracted_nonce);
     tl_read_int128(&ir, extracted_snonce);
     tl_read_int256(&ir, new_nonce);
+    (void)has_dc; /* dc_id field skipped if present — not used by mock */
 
     /* Save DH state for set_client_DH_params */
     memcpy(g_srv.hs_new_nonce,    new_nonce,        32);

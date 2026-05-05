@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include "test_helpers.h"
 
 /**
@@ -52,6 +53,39 @@ static inline int integration_creds_present(void)
 #define SKIP_IF_NO_CREDS() do { \
     if (!integration_creds_present()) { \
         printf("  [SKIP] %s — no credentials in test.ini\n", __func__); \
+        return; \
+    } \
+} while (0)
+
+/**
+ * @brief Return true when a login is possible without interactive input.
+ *
+ * Login is possible if api_id is set AND either:
+ *   - a saved session file exists at session_bin, OR
+ *   - a phone number is configured (new login via sendCode/signIn).
+ */
+static inline int integration_can_login(void)
+{
+    if (!integration_creds_present()) return 0;
+    /* Only a saved session file allows automated (non-interactive) login.
+     * A phone number alone is insufficient — the code arrives interactively. */
+    if (g_integration_config.session_bin && g_integration_config.session_bin[0]) {
+        struct stat _st;
+        if (stat(g_integration_config.session_bin, &_st) == 0) return 1;
+    }
+    return 0;
+}
+
+/**
+ * Call at the top of every test that requires an authenticated session.
+ * Skips when no saved session and no phone are configured, printing a hint
+ * about the one-time setup step.
+ */
+#define SKIP_IF_CANT_LOGIN() do { \
+    if (!integration_can_login()) { \
+        printf("  [SKIP] %s — no session or phone configured\n" \
+               "         run: ./manage.sh test-login  (one-time setup)\n", \
+               __func__); \
         return; \
     } \
 } while (0)

@@ -291,7 +291,7 @@ static void test_bad_msg_notification_surfaces_error_without_dropping_session(vo
     mt_server_reset();
 }
 
-/* 6. Service-frame storm — 9 queued acks exceed SERVICE_FRAME_LIMIT (8).
+/* 6. Service-frame storm — 65 queued acks exceed SERVICE_FRAME_LIMIT (64).
  *    api_call returns -1 cleanly instead of looping forever. */
 static void test_service_frame_storm_bails_at_limit(void) {
     with_tmp_home("storm");
@@ -303,12 +303,12 @@ static void test_service_frame_storm_bails_at_limit(void) {
     MtProtoSession s; uint64_t original_salt = 0;
     load_session(&s, &original_salt);
 
-    /* Stack exactly 9 msgs_ack frames — one more than the client's
-     * 8-frame drain limit. The 9th classify iteration hits the loop
+    /* Stack exactly 65 msgs_ack frames — one more than the client's
+     * 64-frame drain limit. The 65th classify iteration hits the loop
      * cap and api_call_once falls out of the for-loop with whatever
      * happened to be in `raw_resp` (still a msgs_ack frame) — rpc_unwrap_gzip
      * refuses to decode that as a real payload, so api_call returns -1. */
-    mt_server_stack_service_frames(9);
+    mt_server_stack_service_frames(65);
 
     TlWriter q; build_get_config(&q);
     uint8_t resp[256];

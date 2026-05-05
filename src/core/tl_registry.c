@@ -47,6 +47,7 @@ static const TlRegistryEntry g_registry[] = {
 
     /* User */
     { TL_user,                  "user" },
+    { TL_user2,                 "user" },
     { TL_userEmpty,             "userEmpty" },
     { TL_userFull,              "userFull" },
 
