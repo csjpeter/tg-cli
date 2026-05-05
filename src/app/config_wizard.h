@@ -21,9 +21,10 @@
  * Aborts with an error message if stdin is not a TTY; use
  * config_wizard_run_batch() for non-interactive use.
  *
+ * @param force        If non-zero, overwrite an existing non-empty config.ini.
  * @return 0 on success, -1 on user abort or hard error.
  */
-int config_wizard_run_interactive(void);
+int config_wizard_run_interactive(int force);
 
 /**
  * @brief Batch (non-interactive) wizard mode.

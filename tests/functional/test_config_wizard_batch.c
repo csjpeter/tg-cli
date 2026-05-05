@@ -195,7 +195,7 @@ static void test_interactive_refuses_when_stdin_not_tty(void) {
     ASSERT(!isatty(STDIN_FILENO),
            "precondition: CTest gives us a non-TTY stdin");
     /* Must return -1 quickly — no read, no hang. */
-    ASSERT(config_wizard_run_interactive() == -1,
+    ASSERT(config_wizard_run_interactive(0) == -1,
            "interactive wizard: must refuse non-TTY stdin with rc=-1");
     /* Must NOT have created the config file on this error path. */
     struct stat st;

@@ -153,7 +153,7 @@ static int write_config(const char *dir, int api_id, const char *api_hash) {
 
 /* ---- Interactive wizard ---- */
 
-int config_wizard_run_interactive(void) {
+int config_wizard_run_interactive(int force) {
     if (!isatty(STDIN_FILENO)) {
         fprintf(stderr,
                 "login: stdin is not a TTY — use batch mode:\n"
@@ -170,7 +170,7 @@ int config_wizard_run_interactive(void) {
     char cfg_path[1040];
     snprintf(cfg_path, sizeof(cfg_path), "%s/config.ini", cfg_dir);
 
-    if (file_nonempty(cfg_path)) {
+    if (!force && file_nonempty(cfg_path)) {
         fprintf(stderr,
                 "login: %s already exists and is non-empty.\n"
                 "       Pass --force to overwrite, or edit it manually.\n",

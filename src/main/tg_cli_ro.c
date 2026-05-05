@@ -1021,7 +1021,7 @@ int main(int argc, char **argv) {
                                                      args.api_hash_str,
                                                      args.force) != 0 ? 1 : 0;
             } else {
-                exit_code = config_wizard_run_interactive() != 0 ? 1 : 0;
+                exit_code = config_wizard_run_interactive(args.force) != 0 ? 1 : 0;
             }
             app_shutdown(&ctx);
             return exit_code;

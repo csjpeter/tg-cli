@@ -933,7 +933,7 @@ int main(int argc, char **argv) {
             if (api_id_str || api_hash_str)
                 wrc = config_wizard_run_batch(api_id_str, api_hash_str, force);
             else
-                wrc = config_wizard_run_interactive();
+                wrc = config_wizard_run_interactive(force);
             app_shutdown(&ctx);
             return wrc != 0 ? 1 : 0;
         }
