@@ -478,22 +478,20 @@ static int cmd_contacts(const ArgResult *args) {
         for (int i = 0; i < count; i++) {
             if (i) printf(",");
             printf("{\"user_id\":%lld,\"mutual\":%s"
-                   ",\"first_name\":\"%s\",\"last_name\":\"%s\",\"username\":\"%s\"}",
+                   ",\"name\":\"%s\",\"username\":\"%s\"}",
                    (long long)entries[i].user_id,
                    entries[i].mutual ? "true" : "false",
-                   entries[i].first_name,
-                   entries[i].last_name,
+                   entries[i].name,
                    entries[i].username);
         }
         printf("]\n");
     } else {
-        printf("%-12s %-20s %-20s %-20s %s\n",
-               "user_id", "first_name", "last_name", "username", "mutual");
+        printf("%-12s %-30s %-20s %s\n",
+               "user_id", "name", "username", "mutual");
         for (int i = 0; i < count; i++)
-            printf("%-12lld %-20s %-20s %-20s %s\n",
+            printf("%-12lld %-30s %-20s %s\n",
                    (long long)entries[i].user_id,
-                   entries[i].first_name,
-                   entries[i].last_name,
+                   entries[i].name,
                    entries[i].username,
                    entries[i].mutual ? "yes" : "no");
         if (count == 0) printf("(no contacts)\n");

@@ -21,8 +21,7 @@ typedef struct {
     int64_t user_id;
     int64_t access_hash;
     int     mutual;
-    char    first_name[64];
-    char    last_name[64];
+    char    name[128];     /**< "First Last" joined; empty if server withholds. */
     char    username[64];
 } ContactEntry;
 

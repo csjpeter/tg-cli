@@ -9,6 +9,7 @@
 
 #include "tl_serial.h"
 #include "tl_registry.h"
+#include "tl_skip.h"
 #include "mtproto_rpc.h"
 #include "logger.h"
 #include "raii.h"
@@ -18,61 +19,6 @@
 
 #define CRC_contacts_getContacts 0x5dd69e12u
 #define CRC_contact              0x145ade0bu
-
-/* Copy at most dst_cap-1 bytes from src (NUL-terminates). */
-static void copy_str(char *dst, size_t dst_cap, const char *src) {
-    if (!dst || dst_cap == 0) return;
-    dst[0] = '\0';
-    if (!src) return;
-    size_t n = strlen(src);
-    if (n >= dst_cap) n = dst_cap - 1;
-    memcpy(dst, src, n);
-    dst[n] = '\0';
-}
-
-/* Parse one User/UserEmpty from @r; fill id + name fields on @e.
- * Unknown constructors are skipped via tl_skip_object. */
-static void parse_user_into(TlReader *r, ContactEntry *entries, int count) {
-    if (!tl_reader_ok(r)) return;
-    uint32_t crc = tl_read_uint32(r);
-
-    if (crc == TL_userEmpty) {
-        /* userEmpty#d3bc4b7a id:long */
-        int64_t id = tl_read_int64(r);
-        (void)id;
-        return;
-    }
-    if (crc != TL_user && crc != TL_user2) {
-        logger_log(LOG_WARN, "contacts: unknown User 0x%08x — skipping", crc);
-        return;
-    }
-
-    uint32_t flags  = tl_read_uint32(r);
-    (void)tl_read_uint32(r); /* flags2 */
-    int64_t id      = tl_read_int64(r);
-
-    int64_t access_hash = 0;
-    if (flags & (1u << 0)) access_hash = tl_read_int64(r);
-
-    char first_name[64] = {0};
-    char last_name[64]  = {0};
-    char username[64]   = {0};
-
-    if (flags & (1u << 1)) { RAII_STRING char *s = tl_read_string(r); copy_str(first_name, sizeof(first_name), s); }
-    if (flags & (1u << 2)) { RAII_STRING char *s = tl_read_string(r); copy_str(last_name,  sizeof(last_name),  s); }
-    if (flags & (1u << 3)) { RAII_STRING char *s = tl_read_string(r); copy_str(username,   sizeof(username),   s); }
-
-    /* Match by user_id and fill name fields. */
-    for (int i = 0; i < count; i++) {
-        if (entries[i].user_id == id) {
-            entries[i].access_hash = access_hash;
-            copy_str(entries[i].first_name, sizeof(entries[i].first_name), first_name);
-            copy_str(entries[i].last_name,  sizeof(entries[i].last_name),  last_name);
-            copy_str(entries[i].username,   sizeof(entries[i].username),   username);
-            break;
-        }
-    }
-}
 
 int domain_get_contacts(const ApiConfig *cfg,
                          MtProtoSession *s, Transport *t,
@@ -140,13 +86,32 @@ int domain_get_contacts(const ApiConfig *cfg,
     /* saved_count:int */
     tl_read_int32(&r);
 
-    /* users:Vector<User> — enriches the entries already written */
+    /* users:Vector<User> — tl_extract_user advances past the FULL object
+     * so the cursor is correctly positioned for the next user each iteration. */
     uint32_t uvec = tl_read_uint32(&r);
     if (uvec == TL_vector) {
         uint32_t ucount = tl_read_uint32(&r);
         for (uint32_t i = 0; i < ucount; i++) {
             if (!tl_reader_ok(&r)) break;
-            parse_user_into(&r, out, written);
+            UserSummary us = {0};
+            if (tl_extract_user(&r, &us) != 0) {
+                logger_log(LOG_WARN, "contacts: user parse failed at index %u", i);
+                break;
+            }
+            for (int j = 0; j < written; j++) {
+                if (out[j].user_id == us.id) {
+                    out[j].access_hash = us.access_hash;
+                    size_t n = strlen(us.name);
+                    if (n >= sizeof(out[j].name)) n = sizeof(out[j].name) - 1;
+                    memcpy(out[j].name, us.name, n);
+                    out[j].name[n] = '\0';
+                    n = strlen(us.username);
+                    if (n >= sizeof(out[j].username)) n = sizeof(out[j].username) - 1;
+                    memcpy(out[j].username, us.username, n);
+                    out[j].username[n] = '\0';
+                    break;
+                }
+            }
         }
     }
 
