@@ -202,10 +202,14 @@ static void do_contacts(const ApiConfig *cfg, MtProtoSession *s, Transport *t) {
         puts("contacts: request failed");
         return;
     }
-    printf("%-18s %s\n", "user_id", "mutual");
+    printf("%-12s %-20s %-20s %-20s %s\n",
+           "user_id", "first_name", "last_name", "username", "mutual");
     for (int i = 0; i < count; i++) {
-        printf("%-18lld %s\n",
+        printf("%-12lld %-20s %-20s %-20s %s\n",
                (long long)entries[i].user_id,
+               entries[i].first_name,
+               entries[i].last_name,
+               entries[i].username,
                entries[i].mutual ? "yes" : "no");
     }
     if (count == 0) puts("(no contacts)");

@@ -4,10 +4,6 @@
 /**
  * @file domain/read/contacts.h
  * @brief US-09 / P7-01 — list contacts.getContacts.
- *
- * V1 returns the user_ids and mutual flag only. Display names require
- * parsing the accompanying users vector which blocks on User skipper
- * work (tracked under P5-07 phase 3).
  */
 
 #ifndef DOMAIN_READ_CONTACTS_H
@@ -23,7 +19,11 @@
 
 typedef struct {
     int64_t user_id;
+    int64_t access_hash;
     int     mutual;
+    char    first_name[64];
+    char    last_name[64];
+    char    username[64];
 } ContactEntry;
 
 /**
