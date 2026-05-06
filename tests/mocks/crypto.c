@@ -329,10 +329,16 @@ int crypto_bn_ucmp(const unsigned char *a, size_t a_len,
     return r < 0 ? -1 : (r > 0 ? 1 : 0);
 }
 
-/* FEAT-38: fingerprint computation — not implemented in the mock;
- * unit tests never call telegram_server_key_set_override() with real PEM. */
+/* Deterministic fingerprint: FNV-1a over the PEM bytes.
+ * Produces a stable 64-bit value without requiring real RSA/OpenSSL in unit
+ * tests.  Not cryptographically meaningful — solely for test use. */
 int crypto_rsa_fingerprint(const char *pem, uint64_t *out) {
-    (void)pem;
-    (void)out;
-    return -1;
+    if (!pem || !out) return -1;
+    uint64_t h = UINT64_C(14695981039346656037);
+    for (const unsigned char *p = (const unsigned char *)pem; *p; p++) {
+        h ^= (uint64_t)*p;
+        h *= UINT64_C(1099511628211);
+    }
+    *out = h;
+    return 0;
 }

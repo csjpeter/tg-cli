@@ -82,8 +82,7 @@ static int write_input_peer(TlWriter *w, const HistoryPeer *p) {
 #define MSG_FLAG_OUT              (1u << 1)
 #define MSG_FLAG_HAS_FROM_ID      (1u << 8)
 
-/* All trailer flags now have skippers; only factcheck (flags2.3)
- * still halts iteration. */
+/* All trailer flags have skippers; complex=1 only on parse errors. */
 
 static int build_request(const HistoryPeer *peer, int32_t offset_id, int limit,
                           uint8_t *buf, size_t cap, size_t *out_len) {
@@ -437,7 +436,7 @@ static int parse_message(TlReader *r, HistoryEntry *out) {
 
     /* Skippable optionals after `message` — in schema order:
      *   flags.9  media
-     *   flags.6  reply_markup (BAIL — no skipper yet)
+     *   flags.6  reply_markup
      *   flags.7  entities
      *   flags.10 views + forwards
      *   ... (more scalars below)
@@ -460,8 +459,7 @@ static int parse_message(TlReader *r, HistoryEntry *out) {
 
     /* Per-layer order: media → reply_markup → entities → views/forwards
      * → replies → edit_date → post_author → grouped_id → reactions →
-     * restriction_reason → ttl_period → ... replies + restriction_reason
-     * still don't have skippers. */
+     * restriction_reason → ttl_period → flags2 fields */
     if (flags & (1u << 6)) { /* reply_markup */
         if (tl_skip_reply_markup(r) != 0) { out->complex = 1; return -1; }
     }

@@ -116,7 +116,17 @@ static int download_loop(const ApiConfig *cfg,
             return -1;
         }
         if (top == CRC_upload_fileCdnRedirect) {
-            logger_log(LOG_ERROR, "media: CDN redirect not supported");
+            /* upload.fileCdnRedirect#f18cda44 dc_id:int file_token:bytes
+             * encryption_key:bytes encryption_iv:bytes
+             * file_hashes:Vector<FileHash>
+             * CDN DCs use a separate auth key and AES-256-CTR per-chunk
+             * decryption — not yet implemented. */
+            TlReader cr = tl_reader_init(resp, resp_len);
+            tl_read_uint32(&cr);                    /* crc */
+            int32_t cdn_dc = tl_reader_ok(&cr) ? tl_read_int32(&cr) : 0;
+            logger_log(LOG_WARN,
+                       "media: CDN redirect to DC%d — CDN download not implemented",
+                       (int)cdn_dc);
             return -1;
         }
         if (top != CRC_upload_file) {

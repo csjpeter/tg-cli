@@ -45,8 +45,12 @@
 #define TL_dh_gen_fail          0xa69dae02
 
 /* auth.* */
-#define TL_auth_sentCode        0x5e002502
-#define TL_auth_authorization   0x2ea2c0d4
+#define TL_auth_sentCode                    0x5e002502
+#define TL_auth_authorization               0x2ea2c0d4
+#define TL_auth_authorizationSignUpRequired 0x44747e9a
+#define TL_auth_exportAuthorization         0xe5bfffcd
+#define TL_auth_exportedAuthorization       0xb434e2b8
+#define TL_auth_importAuthorization         0xa57a7dad
 
 /* account.* (2FA / SRP) */
 #define TL_account_password     0x957b50fb

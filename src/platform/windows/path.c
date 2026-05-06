@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright 2026 Peter Csaszar */
 
-/* Windows path implementation — to be implemented for MinGW-w64 */
-/* Uses %USERPROFILE%, %APPDATA%, %LOCALAPPDATA% */
+/* Windows path implementation for MinGW-w64.
+ * Uses %USERPROFILE% (home), %LOCALAPPDATA% (cache), %APPDATA% (config). */
 #include "../path.h"
 #include <stdlib.h>
 #include <stdio.h>

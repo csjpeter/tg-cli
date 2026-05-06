@@ -13,7 +13,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* ---- CRCs not yet in tl_registry.h ---- */
+/* ---- Layer-specific CRC constants (intentionally local to tl_skip.c) ----
+ * Not exported via tl_registry.h: some names (e.g. CRC_inputUser) have
+ * different values in domain/ files that target a different API layer.  */
 
 #define CRC_peerNotifySettings          0xa83b0426u  /* layer ≤ 175 */
 #define CRC_peerNotifySettings2         0x99622c0cu  /* layer 176+ */
@@ -300,6 +302,83 @@
 #define CRC_reactionCustomEmoji         0x8935fc73u
 #define CRC_reactionPaid                0x523da4ebu
 
+/* MessagePeerReaction + MessageReactor (recent/top reactors). */
+#define CRC_messagePeerReaction         0xb156fe9du
+#define CRC_messageReactor              0xedd1b4adu
+
+/* InputChannel variants (extract_chat migrated_to). */
+#define CRC_inputChannelEmpty           0xee8c1e86u
+#define CRC_inputChannel                0xf35aec28u
+#define CRC_inputChannelFromMessage     0x5b934f9du
+
+/* InputPeer variants (draft reply_to, inputMediaStory). */
+#define CRC_inputPeerEmpty              0x7f3b18eau
+#define CRC_inputPeerSelf               0x7da07ec9u
+#define CRC_inputPeerUser               0x7b8e7de6u
+#define CRC_inputPeerChat               0x35a95cb9u
+#define CRC_inputPeerChannel            0x27bcbbfcu
+#define CRC_inputPeerUserFromMessage    0xa87b0a1cu
+#define CRC_inputPeerChannelFromMessage 0xbd2a0840u
+
+/* InputReplyTo variants (draftMessage.reply_to). */
+#define CRC_inputReplyToMessage         0x3faad5f0u
+#define CRC_inputReplyToStory           0x7e2a9a7bu
+
+/* InputPhoto / InputDocument / InputGeoPoint (draftMessage.media). */
+#define CRC_inputPhotoEmpty             0x1cd7bf0du
+#define CRC_inputPhoto                  0x3bb3b94au
+#define CRC_inputDocumentEmpty          0x72f0eafau
+#define CRC_inputDocument               0x1abfb575u
+#define CRC_inputGeoPointEmpty          0xe4c123d6u
+#define CRC_inputGeoPoint               0xf3b7acc9u
+
+/* InputMedia variants (draftMessage.media). */
+#define CRC_inputMediaEmpty             0x9664f57fu
+#define CRC_inputMediaUploadedPhoto     0x1e287d04u
+#define CRC_inputMediaPhoto             0xb3ba0635u
+#define CRC_inputMediaGeoPoint          0xf9c44144u
+#define CRC_inputMediaContact           0xf8ab7dfbu
+#define CRC_inputMediaUploadedDocument  0x5b38c6c1u
+#define CRC_inputMediaDocument          0x33473058u
+#define CRC_inputMediaVenue             0xc13d1c11u
+#define CRC_inputMediaGeoLive           0x971fa843u
+#define CRC_inputMediaGame              0xd33f43f3u
+#define CRC_inputMediaInvoice           0x8eb5a6d5u
+#define CRC_inputMediaDice              0xe66fbf7bu
+#define CRC_inputMediaStory             0x89fdd778u
+#define CRC_inputMediaWebPage           0xc21b8849u
+#define CRC_inputMediaPoll              0x261e868fu
+#define CRC_inputMediaPaidMedia         0x6519cb78u
+#define CRC_inputMediaPhotoExternal     0xe5bbfe1au
+#define CRC_inputMediaDocumentExternal  0xfb52dc99u
+
+/* InputFile variants (inputMediaUploaded*). */
+#define CRC_inputFile                   0xf52ff27fu
+#define CRC_inputFileBig                0xfa4f0bb5u
+
+/* InputGame variants (inputMediaGame). */
+#define CRC_inputGameID                 0x032c3e77u
+#define CRC_inputGameShortName          0xc331e80au
+
+/* InputUser variants (inputGameShortName.bot_id). */
+#define CRC_inputUserEmpty              0xb98886cfu
+#define CRC_inputUserSelf               0xf7c1b13fu
+#define CRC_inputUser                   0xf21158c6u
+#define CRC_inputUserFromMessage        0x1da448e2u
+
+/* ThemeSettings (webPageAttributeTheme.settings). */
+#define CRC_themeSettings               0xfa58b6d4u
+#define CRC_baseThemeClassic            0xc3a12462u
+#define CRC_baseThemeDay                0xfbd81688u
+#define CRC_baseThemeDark               0xb7b31ea8u
+#define CRC_baseThemeTinted             0x6d5f77eeu
+#define CRC_baseThemeArctic             0x5b11125au
+
+/* WallPaper + WallPaperSettings (themeSettings.wallpaper). */
+#define CRC_wallPaper                   0xa437c3edu
+#define CRC_wallPaperNoFile             0xe0804116u
+#define CRC_wallPaperSettings           0x372efcd0u
+
 int tl_skip_bool(TlReader *r) {
     if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
     tl_read_uint32(r);
@@ -385,12 +464,293 @@ int tl_skip_peer_notify_settings(TlReader *r) {
     return 0;
 }
 
+/* ---- InputPeer / InputMedia / InputReplyTo helpers (draft parsing) ---- */
+
+static int skip_input_peer(TlReader *r);  /* forward decl for self-recursion */
+static int skip_input_media(TlReader *r); /* forward decl for inputMediaPaidMedia */
+
+static int skip_input_peer(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    switch (crc) {
+    case CRC_inputPeerEmpty:
+    case CRC_inputPeerSelf:
+        return 0;
+    case CRC_inputPeerUser:
+    case CRC_inputPeerChannel:
+        if (r->len - r->pos < 16) return -1;
+        tl_read_int64(r); tl_read_int64(r);
+        return 0;
+    case CRC_inputPeerChat:
+        if (r->len - r->pos < 8) return -1;
+        tl_read_int64(r);
+        return 0;
+    case CRC_inputPeerUserFromMessage:
+    case CRC_inputPeerChannelFromMessage:
+        if (skip_input_peer(r) != 0) return -1;
+        if (r->len - r->pos < 12) return -1;
+        tl_read_int32(r);                               /* msg_id */
+        tl_read_int64(r);                               /* user_id / channel_id */
+        return 0;
+    default:
+        logger_log(LOG_WARN, "skip_input_peer: unknown 0x%08x", crc);
+        return -1;
+    }
+}
+
+static int skip_input_geo_point(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    if (crc == CRC_inputGeoPointEmpty) return 0;
+    if (crc != CRC_inputGeoPoint) {
+        logger_log(LOG_WARN, "skip_input_geo_point: unknown 0x%08x", crc);
+        return -1;
+    }
+    /* flags:# lat:double long:double accuracy_radius:flags.0?int */
+    if (r->len - r->pos < 4) return -1;
+    uint32_t flags = tl_read_uint32(r);
+    if (r->len - r->pos < 16) return -1;
+    tl_read_double(r); tl_read_double(r);
+    if (flags & 1u) { if (r->len - r->pos < 4) return -1; tl_read_int32(r); }
+    return 0;
+}
+
+static int skip_input_photo(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    if (crc == CRC_inputPhotoEmpty) {
+        if (r->len - r->pos < 8) return -1;
+        tl_read_int64(r);
+        return 0;
+    }
+    if (crc != CRC_inputPhoto) {
+        logger_log(LOG_WARN, "skip_input_photo: unknown 0x%08x", crc);
+        return -1;
+    }
+    if (r->len - r->pos < 16) return -1;
+    tl_read_int64(r); tl_read_int64(r);            /* id, access_hash */
+    return tl_skip_string(r);                       /* file_reference:bytes */
+}
+
+static int skip_input_document(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    if (crc == CRC_inputDocumentEmpty) {
+        if (r->len - r->pos < 8) return -1;
+        tl_read_int64(r);
+        return 0;
+    }
+    if (crc != CRC_inputDocument) {
+        logger_log(LOG_WARN, "skip_input_document: unknown 0x%08x", crc);
+        return -1;
+    }
+    if (r->len - r->pos < 16) return -1;
+    tl_read_int64(r); tl_read_int64(r);            /* id, access_hash */
+    return tl_skip_string(r);                       /* file_reference:bytes */
+}
+
+static int skip_input_user(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    switch (crc) {
+    case CRC_inputUserEmpty:
+    case CRC_inputUserSelf:
+        return 0;
+    case CRC_inputUser:
+        if (r->len - r->pos < 16) return -1;
+        tl_read_int64(r); tl_read_int64(r);
+        return 0;
+    case CRC_inputUserFromMessage:
+        if (skip_input_peer(r) != 0) return -1;
+        if (r->len - r->pos < 12) return -1;
+        tl_read_int32(r); tl_read_int64(r);        /* msg_id, user_id */
+        return 0;
+    default:
+        logger_log(LOG_WARN, "skip_input_user: unknown 0x%08x", crc);
+        return -1;
+    }
+}
+
+static int skip_input_game(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    if (crc == CRC_inputGameID) {
+        if (r->len - r->pos < 16) return -1;
+        tl_read_int64(r); tl_read_int64(r);
+        return 0;
+    }
+    if (crc == CRC_inputGameShortName) {
+        if (skip_input_user(r) != 0) return -1;
+        return tl_skip_string(r);                   /* short_name */
+    }
+    logger_log(LOG_WARN, "skip_input_game: unknown 0x%08x", crc);
+    return -1;
+}
+
+static int skip_text_with_entities(TlReader *r); /* fwd — defined in poll section */
+static int skip_poll(TlReader *r);               /* fwd — defined in poll section */
+
+static int skip_input_media(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    switch (crc) {
+    case CRC_inputMediaEmpty:
+        return 0;
+    case CRC_inputMediaPhoto: {
+        /* flags:# id:InputPhoto ttl_seconds:flags.0?int */
+        if (r->len - r->pos < 4) return -1;
+        uint32_t flags = tl_read_uint32(r);
+        if (skip_input_photo(r) != 0) return -1;
+        if (flags & 1u) { if (r->len - r->pos < 4) return -1; tl_read_int32(r); }
+        return 0;
+    }
+    case CRC_inputMediaGeoPoint:
+        return skip_input_geo_point(r);
+    case CRC_inputMediaContact:
+        /* phone_number first_name last_name vcard */
+        for (int i = 0; i < 4; i++) { if (tl_skip_string(r) != 0) return -1; }
+        return 0;
+    case CRC_inputMediaDocument: {
+        /* flags:# id:InputDocument ttl_seconds:flags.0?int query:flags.1?string */
+        if (r->len - r->pos < 4) return -1;
+        uint32_t flags = tl_read_uint32(r);
+        if (skip_input_document(r) != 0) return -1;
+        if (flags & 1u) { if (r->len - r->pos < 4) return -1; tl_read_int32(r); }
+        if (flags & (1u << 1)) { if (tl_skip_string(r) != 0) return -1; }
+        return 0;
+    }
+    case CRC_inputMediaVenue:
+        /* geo_point title address provider venue_id venue_type */
+        if (skip_input_geo_point(r) != 0) return -1;
+        for (int i = 0; i < 5; i++) { if (tl_skip_string(r) != 0) return -1; }
+        return 0;
+    case CRC_inputMediaGeoLive: {
+        /* flags:# geo_point:InputGeoPoint heading:flags.2?int period:int
+         *   proximity_notification_radius:flags.3?int */
+        if (r->len - r->pos < 4) return -1;
+        uint32_t flags = tl_read_uint32(r);
+        if (skip_input_geo_point(r) != 0) return -1;
+        if (flags & (1u << 2)) { if (r->len - r->pos < 4) return -1; tl_read_int32(r); }
+        if (r->len - r->pos < 4) return -1;
+        tl_read_int32(r);                               /* period */
+        if (flags & (1u << 3)) { if (r->len - r->pos < 4) return -1; tl_read_int32(r); }
+        return 0;
+    }
+    case CRC_inputMediaGame:
+        return skip_input_game(r);
+    case CRC_inputMediaDice:
+        return tl_skip_string(r);                       /* emoticon */
+    case CRC_inputMediaStory:
+        /* peer:InputPeer id:int */
+        if (skip_input_peer(r) != 0) return -1;
+        if (r->len - r->pos < 4) return -1;
+        tl_read_int32(r);
+        return 0;
+    case CRC_inputMediaWebPage: {
+        /* flags:# url:string query:flags.4?string */
+        if (r->len - r->pos < 4) return -1;
+        uint32_t flags = tl_read_uint32(r);
+        if (tl_skip_string(r) != 0) return -1;         /* url */
+        if (flags & (1u << 4)) { if (tl_skip_string(r) != 0) return -1; }
+        return 0;
+    }
+    case CRC_inputMediaPoll: {
+        /* flags:# poll:Poll correct_answers:flags.0?Vector<bytes>
+         *   solution:flags.1?string solution_entities:flags.2?Vector<MessageEntity> */
+        if (r->len - r->pos < 4) return -1;
+        uint32_t flags = tl_read_uint32(r);
+        if (skip_poll(r) != 0) return -1;
+        if (flags & 1u) {
+            if (r->len - r->pos < 8) return -1;
+            uint32_t bvec = tl_read_uint32(r);
+            if (bvec != TL_vector) return -1;
+            uint32_t bn = tl_read_uint32(r);
+            for (uint32_t i = 0; i < bn; i++) {
+                if (tl_skip_string(r) != 0) return -1;
+            }
+        }
+        if (flags & (1u << 1)) { if (tl_skip_string(r) != 0) return -1; }
+        if (flags & (1u << 2)) {
+            if (tl_skip_message_entities_vector(r) != 0) return -1;
+        }
+        return 0;
+    }
+    case CRC_inputMediaPaidMedia: {
+        /* stars_amount:long extended_media:Vector<InputMedia> */
+        if (r->len - r->pos < 8) return -1;
+        tl_read_int64(r);
+        if (r->len - r->pos < 8) return -1;
+        uint32_t pvec = tl_read_uint32(r);
+        if (pvec != TL_vector) return -1;
+        uint32_t pn = tl_read_uint32(r);
+        for (uint32_t i = 0; i < pn; i++) {
+            if (skip_input_media(r) != 0) return -1;
+        }
+        return 0;
+    }
+    case CRC_inputMediaPhotoExternal: {
+        /* flags:# url:string ttl_seconds:flags.0?int */
+        if (r->len - r->pos < 4) return -1;
+        uint32_t flags = tl_read_uint32(r);
+        if (tl_skip_string(r) != 0) return -1;
+        if (flags & 1u) { if (r->len - r->pos < 4) return -1; tl_read_int32(r); }
+        return 0;
+    }
+    case CRC_inputMediaDocumentExternal: {
+        /* flags:# url:string ttl_seconds:flags.0?int */
+        if (r->len - r->pos < 4) return -1;
+        uint32_t flags = tl_read_uint32(r);
+        if (tl_skip_string(r) != 0) return -1;
+        if (flags & 1u) { if (r->len - r->pos < 4) return -1; tl_read_int32(r); }
+        return 0;
+    }
+    case CRC_inputMediaUploadedPhoto:
+    case CRC_inputMediaUploadedDocument:
+    case CRC_inputMediaInvoice:
+        logger_log(LOG_DEBUG,
+                   "skip_input_media: transient/complex variant 0x%08x in draft",
+                   crc);
+        return -1;
+    default:
+        logger_log(LOG_WARN, "skip_input_media: unknown 0x%08x", crc);
+        return -1;
+    }
+}
+
+/* inputReplyToMessage#3faad5f0 flags:# reply_to_msg_id:int top_msg_id:flags.0?int
+ *   reply_to_peer_id:flags.1?InputPeer quote_text:flags.2?string
+ *   quote_entities:flags.3?Vector<MessageEntity> quote_offset:flags.4?int
+ * inputReplyToStory#7e2a9a7b peer:InputPeer story_id:int */
+static int skip_input_reply_to(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    if (crc == CRC_inputReplyToMessage) {
+        if (r->len - r->pos < 8) return -1;
+        uint32_t flags = tl_read_uint32(r);
+        tl_read_int32(r);                               /* reply_to_msg_id */
+        if (flags & 1u) { if (r->len - r->pos < 4) return -1; tl_read_int32(r); }
+        if (flags & (1u << 1)) { if (skip_input_peer(r) != 0) return -1; }
+        if (flags & (1u << 2)) { if (tl_skip_string(r) != 0) return -1; }
+        if (flags & (1u << 3)) {
+            if (tl_skip_message_entities_vector(r) != 0) return -1;
+        }
+        if (flags & (1u << 4)) { if (r->len - r->pos < 4) return -1; tl_read_int32(r); }
+        return 0;
+    }
+    if (crc == CRC_inputReplyToStory) {
+        if (skip_input_peer(r) != 0) return -1;
+        if (r->len - r->pos < 4) return -1;
+        tl_read_int32(r);                               /* story_id */
+        return 0;
+    }
+    logger_log(LOG_WARN, "skip_input_reply_to: unknown 0x%08x", crc);
+    return -1;
+}
+
 /* draftMessageEmpty#1b0c841a flags:# date:flags.0?int
- * draftMessage#3fccf7ef      — we do NOT fully parse this (it contains
- * InputReplyTo, Vector<MessageEntity>, InputMedia which are deep nested).
- * Return -1 so the caller stops iteration; callers wrapping dialogs can
- * skip entries with draft by first checking Dialog.flags.1.
- */
+ * draftMessage#3fccf7ef flags:# no_webpage:flags.1?true invert_media:flags.6?true
+ *   reply_to:flags.4?InputReplyTo message:string
+ *   entities:flags.3?Vector<MessageEntity> media:flags.5?InputMedia date:int */
 int tl_skip_draft_message(TlReader *r) {
     if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
     uint32_t crc = tl_read_uint32(r);
@@ -404,9 +764,21 @@ int tl_skip_draft_message(TlReader *r) {
         return 0;
     }
     if (crc == CRC_draftMessage) {
-        logger_log(LOG_WARN,
-                   "tl_skip_draft_message: non-empty draft not parseable yet");
-        return -1;
+        if (r->len - r->pos < 4) return -1;
+        uint32_t flags = tl_read_uint32(r);
+        if (flags & (1u << 4)) {
+            if (skip_input_reply_to(r) != 0) return -1;
+        }
+        if (tl_skip_string(r) != 0) return -1;         /* message */
+        if (flags & (1u << 3)) {
+            if (tl_skip_message_entities_vector(r) != 0) return -1;
+        }
+        if (flags & (1u << 5)) {
+            if (skip_input_media(r) != 0) return -1;
+        }
+        if (r->len - r->pos < 4) return -1;
+        tl_read_int32(r);                               /* date */
+        return 0;
     }
     logger_log(LOG_WARN, "tl_skip_draft_message: unknown 0x%08x", crc);
     return -1;
@@ -490,6 +862,42 @@ int tl_skip_message_entities_vector(TlReader *r) {
 
 /* ---- ReplyMarkup skipper ---- */
 
+/* InlineQueryPeerType variants — all singleton objects (CRC only, no payload).
+ * inlineQueryPeerTypeSameBotPM#3081ed9d  inlineQueryPeerTypePM#833c0fac
+ * inlineQueryPeerTypeChat#d766c50a        inlineQueryPeerTypeMegagroup#5bc52d1a
+ * inlineQueryPeerTypeBroadcast#6d1ded88   inlineQueryPeerTypeBotPM#e3b2a56a   */
+#define CRC_inlineQueryPeerTypeSameBotPM  0x3081ed9du
+#define CRC_inlineQueryPeerTypePM         0x833c0facu
+#define CRC_inlineQueryPeerTypeChat       0xd766c50au
+#define CRC_inlineQueryPeerTypeMegagroup  0x5bc52d1au
+#define CRC_inlineQueryPeerTypeBroadcast  0x6d1ded88u
+#define CRC_inlineQueryPeerTypeBotPM      0xe3b2a56au
+
+static int skip_inline_query_peer_type_vector(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 8) return -1;
+    uint32_t vec = tl_read_uint32(r);
+    if (vec != TL_vector) return -1;
+    uint32_t n = tl_read_uint32(r);
+    for (uint32_t i = 0; i < n; i++) {
+        if (r->len - r->pos < 4) return -1;
+        uint32_t crc = tl_read_uint32(r);
+        switch (crc) {
+        case CRC_inlineQueryPeerTypeSameBotPM:
+        case CRC_inlineQueryPeerTypePM:
+        case CRC_inlineQueryPeerTypeChat:
+        case CRC_inlineQueryPeerTypeMegagroup:
+        case CRC_inlineQueryPeerTypeBroadcast:
+        case CRC_inlineQueryPeerTypeBotPM:
+            break; /* singleton — no payload */
+        default:
+            logger_log(LOG_WARN,
+                       "skip_inline_query_peer_type: unknown 0x%08x", crc);
+            return -1;
+        }
+    }
+    return 0;
+}
+
 /* Skip a KeyboardButton. Returns -1 on unknown variant. */
 static int skip_keyboard_button(TlReader *r) {
     if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
@@ -517,11 +925,7 @@ static int skip_keyboard_button(TlReader *r) {
         if (tl_skip_string(r) != 0) return -1;    /* text */
         if (tl_skip_string(r) != 0) return -1;    /* query */
         if (flags & (1u << 1)) {
-            /* peer_types:Vector<InlineQueryPeerType> — unknown nested
-             * variants; bail. */
-            logger_log(LOG_WARN,
-                       "skip_keyboard_button: peer_types on switchInline");
-            return -1;
+            if (skip_inline_query_peer_type_vector(r) != 0) return -1;
         }
         return 0;
     }
@@ -669,6 +1073,43 @@ static int skip_reaction_count(TlReader *r) {
     return 0;
 }
 
+/* messagePeerReaction#b156fe9d flags:# big:flags.0?true unread:flags.1?true
+ *   reaction:Reaction date:int peer_id:Peer */
+static int skip_message_peer_reaction(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    if (crc != CRC_messagePeerReaction) {
+        logger_log(LOG_WARN, "skip_message_peer_reaction: unknown 0x%08x", crc);
+        return -1;
+    }
+    if (r->len - r->pos < 4) return -1;
+    (void)tl_read_uint32(r);                        /* flags — big/unread are bools */
+    if (skip_reaction(r) != 0) return -1;
+    if (r->len - r->pos < 4) return -1;
+    tl_read_int32(r);                               /* date */
+    return tl_skip_peer(r);                         /* peer_id */
+}
+
+/* messageReactor#edd1b4ad flags:# top:flags.0?true my:flags.1?true
+ *   anonymous:flags.2?true peer_id:flags.3?Peer count:int date:int */
+static int skip_message_reactor(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    if (crc != CRC_messageReactor) {
+        logger_log(LOG_WARN, "skip_message_reactor: unknown 0x%08x", crc);
+        return -1;
+    }
+    if (r->len - r->pos < 4) return -1;
+    uint32_t flags = tl_read_uint32(r);
+    if (flags & (1u << 3)) {
+        if (tl_skip_peer(r) != 0) return -1;        /* peer_id */
+    }
+    if (r->len - r->pos < 8) return -1;
+    tl_read_int32(r);                               /* count */
+    tl_read_int32(r);                               /* date */
+    return 0;
+}
+
 int tl_skip_message_reactions(TlReader *r) {
     if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
     uint32_t crc = tl_read_uint32(r);
@@ -686,13 +1127,25 @@ int tl_skip_message_reactions(TlReader *r) {
     for (uint32_t i = 0; i < n; i++) {
         if (skip_reaction_count(r) != 0) return -1;
     }
-    /* recent_reactions:flags.1?Vector<MessagePeerReaction>  — BAIL */
-    /* top_reactors:flags.2?Vector<MessagePeerVote>           — BAIL */
-    if (flags & ((1u << 1) | (1u << 2))) {
-        logger_log(LOG_WARN,
-                   "tl_skip_message_reactions: recent/top reactors present "
-                   "(flags=0x%08x) — not supported", flags);
-        return -1;
+    if (flags & (1u << 1)) {
+        /* recent_reactions:Vector<MessagePeerReaction> */
+        if (r->len - r->pos < 8) return -1;
+        uint32_t rv = tl_read_uint32(r);
+        if (rv != TL_vector) return -1;
+        uint32_t rn = tl_read_uint32(r);
+        for (uint32_t i = 0; i < rn; i++) {
+            if (skip_message_peer_reaction(r) != 0) return -1;
+        }
+    }
+    if (flags & (1u << 2)) {
+        /* top_reactors:Vector<MessageReactor> */
+        if (r->len - r->pos < 8) return -1;
+        uint32_t tv = tl_read_uint32(r);
+        if (tv != TL_vector) return -1;
+        uint32_t tn = tl_read_uint32(r);
+        for (uint32_t i = 0; i < tn; i++) {
+            if (skip_message_reactor(r) != 0) return -1;
+        }
     }
     return 0;
 }
@@ -826,7 +1279,7 @@ int tl_skip_message_fwd_header(TlReader *r) {
  *   reply_to_msg_id:flags.4?int
  *   reply_to_peer_id:flags.0?Peer
  *   reply_from:flags.5?MessageFwdHeader
- *   reply_media:flags.8?MessageMedia           <- NOT IMPLEMENTED
+ *   reply_media:flags.8?MessageMedia
  *   reply_to_top_id:flags.1?int
  *   quote_text:flags.6?string
  *   quote_entities:flags.7?Vector<MessageEntity>
@@ -854,9 +1307,7 @@ int tl_skip_message_reply_header(TlReader *r) {
     if (flags & (1u << 0)) if (tl_skip_peer(r) != 0) return -1;
     if (flags & (1u << 5)) if (tl_skip_message_fwd_header(r) != 0) return -1;
     if (flags & (1u << 8)) {
-        logger_log(LOG_WARN,
-                   "tl_skip_message_reply_header: reply_media not implemented");
-        return -1;
+        if (tl_skip_message_media(r) != 0) return -1;
     }
     if (flags & (1u << 1)) { if (r->len - r->pos < 4) return -1; tl_read_int32(r); }
     if (flags & (1u << 6)) if (tl_skip_string(r) != 0) return -1;
@@ -929,7 +1380,7 @@ int tl_skip_photo_size_vector(TlReader *r) {
  * photo#fb197a65 flags:# has_stickers:flags.0?true id:long access_hash:long
  *                file_reference:bytes date:int
  *                sizes:Vector<PhotoSize>
- *                video_sizes:flags.1?Vector<VideoSize>     <- BAIL
+ *                video_sizes:flags.1?Vector<VideoSize>
  *                dc_id:int
  *
  * photo_full walks the full object and, when @p out is non-NULL, fills
@@ -937,6 +1388,9 @@ int tl_skip_photo_size_vector(TlReader *r) {
  * Used by tl_skip_message_media_ex for MEDIA_PHOTO + file-download
  * support. tl_skip_photo is a thin wrapper that passes NULL.
  */
+
+/* Forward declaration — defined later after skip_video_size. */
+static int skip_video_size_vector(TlReader *r);
 
 /* Walk a Vector<PhotoSize> and record the `type` of the largest entry
  * (by pixel dimensions for photoSize / photoSizeProgressive, by byte
@@ -1067,8 +1521,7 @@ static int photo_full(TlReader *r, MediaInfo *out) {
         return -1;
 
     if (flags & (1u << 1)) {
-        logger_log(LOG_WARN, "tl_skip_photo: video_sizes not implemented");
-        return -1;
+        if (skip_video_size_vector(r) != 0) return -1;
     }
     if (r->len - r->pos < 4) return -1;
     int32_t dc = tl_read_int32(r);
@@ -1082,10 +1535,11 @@ int tl_skip_photo(TlReader *r) {
 
 /* ---- Document skipper ----
  * documentEmpty#36f8c871 id:long
- * document — flag-heavy; bail out without implementing for now. The layer-
- * specific layout changes frequently, and ordinary chat messages that
- * reach us typically have Photo, not Document. Callers treating a
- * Document as complex+stop-iter is acceptable for v1.
+ * document#8fd4c4d8 flags:# id:long access_hash:long file_reference:bytes
+ *           date:int mime_type:string size:long
+ *           thumbs:flags.0?Vector<PhotoSize>
+ *           video_thumbs:flags.1?Vector<VideoSize>
+ *           dc_id:int attributes:Vector<DocumentAttribute>
  */
 /* DocumentAttribute CRCs we can skip without bailing. */
 #define CRC_documentAttributeImageSize   0x6c37c15cu
@@ -1306,8 +1760,7 @@ static int skip_document_attribute(TlReader *r,
 }
 
 /* Walk a Document. When @p out is non-NULL, fills id + access_hash +
- * file_reference + dc_id + size + mime_type + filename. Returns -1 on
- * thumbs / video_thumbs (flags.0 / flags.1) or an unknown attribute. */
+ * file_reference + dc_id + size + mime_type + filename. */
 static int document_inner(TlReader *r, MediaInfo *out) {
     if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
     uint32_t crc = tl_read_uint32(r);
@@ -1813,6 +2266,113 @@ static int skip_page(TlReader *r) {
     return 0;
 }
 
+/* wallPaperSettings#372efcd0 flags:# blur:flags.1?true motion:flags.2?true
+ *   background_color:flags.0?int second_background_color:flags.4?int
+ *   third_background_color:flags.5?int fourth_background_color:flags.6?int
+ *   intensity:flags.3?int rotation:flags.7?int emoticon:flags.8?string */
+static int skip_wallpaper_settings(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    if (crc != CRC_wallPaperSettings) {
+        logger_log(LOG_WARN, "skip_wallpaper_settings: unknown 0x%08x", crc);
+        return -1;
+    }
+    if (r->len - r->pos < 4) return -1;
+    uint32_t flags = tl_read_uint32(r);
+    if (flags & (1u << 0)) { if (r->len - r->pos < 4) return -1; tl_read_int32(r); }
+    if (flags & (1u << 4)) { if (r->len - r->pos < 4) return -1; tl_read_int32(r); }
+    if (flags & (1u << 5)) { if (r->len - r->pos < 4) return -1; tl_read_int32(r); }
+    if (flags & (1u << 6)) { if (r->len - r->pos < 4) return -1; tl_read_int32(r); }
+    if (flags & (1u << 3)) { if (r->len - r->pos < 4) return -1; tl_read_int32(r); }
+    if (flags & (1u << 7)) { if (r->len - r->pos < 4) return -1; tl_read_int32(r); }
+    if (flags & (1u << 8)) { if (tl_skip_string(r) != 0) return -1; }
+    return 0;
+}
+
+/* wallPaper#a437c3ed id:long access_hash:long file_reference:bytes slug:string
+ *   type:WallPaperSettings document:flags.0?Document
+ * wallPaperNoFile#e0804116 id:long flags:# default:flags.2?true dark:flags.4?true
+ *   settings:flags.2?WallPaperSettings (note: flag bit 2 on flags, not a separate field) */
+static int skip_wallpaper(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    if (crc == CRC_wallPaper) {
+        if (r->len - r->pos < 16) return -1;
+        tl_read_int64(r);                           /* id */
+        tl_read_int64(r);                           /* access_hash */
+        if (tl_skip_string(r) != 0) return -1;     /* file_reference:bytes */
+        if (tl_skip_string(r) != 0) return -1;     /* slug */
+        if (skip_wallpaper_settings(r) != 0) return -1; /* type */
+        if (r->len - r->pos < 4) return -1;
+        uint32_t doc_flags = tl_read_uint32(r);
+        /* doc_flags is actually a separate flags field for wallPaper:
+         * creator:flags.0?true default:flags.1?true pattern:flags.3?true dark:flags.4?true
+         * document:flags.2?Document */
+        if (doc_flags & (1u << 2)) {
+            if (tl_skip_document(r) != 0) return -1;
+        }
+        return 0;
+    }
+    if (crc == CRC_wallPaperNoFile) {
+        if (r->len - r->pos < 12) return -1;
+        tl_read_int64(r);                           /* id */
+        uint32_t flags = tl_read_uint32(r);
+        if (flags & (1u << 2)) {
+            if (skip_wallpaper_settings(r) != 0) return -1;
+        }
+        return 0;
+    }
+    logger_log(LOG_WARN, "skip_wallpaper: unknown 0x%08x", crc);
+    return -1;
+}
+
+/* themeSettings#fa58b6d4 flags:# message_colors_animated:flags.2?true
+ *   base_theme:BaseTheme accent_color:int
+ *   background_icon_id:flags.0?long outbox_accent_color:flags.3?int
+ *   message_colors:flags.1?Vector<int> wallpaper:flags.2?WallPaper */
+static int skip_theme_settings(TlReader *r) {
+    if (!tl_reader_ok(r) || r->len - r->pos < 4) return -1;
+    uint32_t crc = tl_read_uint32(r);
+    if (crc != CRC_themeSettings) {
+        logger_log(LOG_WARN, "skip_theme_settings: unknown 0x%08x", crc);
+        return -1;
+    }
+    if (r->len - r->pos < 4) return -1;
+    uint32_t flags = tl_read_uint32(r);
+    /* base_theme — one of the 5 base-theme CRCs, no payload */
+    if (r->len - r->pos < 4) return -1;
+    uint32_t bt = tl_read_uint32(r);
+    if (bt != CRC_baseThemeClassic && bt != CRC_baseThemeDay &&
+        bt != CRC_baseThemeDark    && bt != CRC_baseThemeTinted &&
+        bt != CRC_baseThemeArctic) {
+        logger_log(LOG_WARN, "skip_theme_settings: unknown BaseTheme 0x%08x", bt);
+        return -1;
+    }
+    if (r->len - r->pos < 4) return -1;
+    tl_read_int32(r);                               /* accent_color */
+    if (flags & (1u << 0)) {
+        if (r->len - r->pos < 8) return -1;
+        tl_read_int64(r);                           /* background_icon_id */
+    }
+    if (flags & (1u << 3)) {
+        if (r->len - r->pos < 4) return -1;
+        tl_read_int32(r);                           /* outbox_accent_color */
+    }
+    if (flags & (1u << 1)) {
+        /* message_colors:Vector<int> */
+        if (r->len - r->pos < 8) return -1;
+        uint32_t vc = tl_read_uint32(r);
+        if (vc != TL_vector) return -1;
+        uint32_t n = tl_read_uint32(r);
+        if (r->len - r->pos < (size_t)n * 4) return -1;
+        for (uint32_t i = 0; i < n; i++) tl_read_int32(r);
+    }
+    if (flags & (1u << 2)) {
+        if (skip_wallpaper(r) != 0) return -1;     /* wallpaper */
+    }
+    return 0;
+}
+
 /* Skip a Vector<WebPageAttribute> (webPage.attributes, flags.12). Only
  * the three known WebPageAttribute variants are supported; anything
  * else makes the caller bail. */
@@ -1827,9 +2387,7 @@ static int skip_webpage_attributes_vector(TlReader *r) {
         switch (crc) {
         case CRC_webPageAttributeTheme: {
             /* flags:# documents:flags.0?Vector<Document>
-             *        settings:flags.1?ThemeSettings
-             * v1 bails if settings is present — ThemeSettings is a
-             * fat nested object we don't otherwise walk. */
+             *        settings:flags.1?ThemeSettings */
             if (r->len - r->pos < 4) return -1;
             uint32_t flags = tl_read_uint32(r);
             if (flags & (1u << 0)) {
@@ -1842,9 +2400,7 @@ static int skip_webpage_attributes_vector(TlReader *r) {
                 }
             }
             if (flags & (1u << 1)) {
-                logger_log(LOG_WARN,
-                    "skip_webpage_attributes: theme settings not supported");
-                return -1;
+                if (skip_theme_settings(r) != 0) return -1;
             }
             break;
         }
@@ -2653,16 +3209,23 @@ static int skip_message_media_body(TlReader *r, MediaInfo *out) {
         if (out) out->kind = MEDIA_DOCUMENT;
         if (r->len - r->pos < 4) return -1;
         uint32_t flags = tl_read_uint32(r);
-        if (flags & ((1u << 5) | (1u << 9) | (1u << 10) | (1u << 11))) {
-            logger_log(LOG_WARN,
-                       "tl_skip_message_media: document with unsupported flags 0x%x",
-                       flags);
-            return -1;
-        }
+        /* flags.3=nopremium flags.4=spoiler flags.6=video flags.7=round
+         * flags.8=voice — all boolean markers, no wire data; safe to ignore.
+         * flags.5/9/11 are undefined in the current schema; treat as boolean. */
         if (flags & (1u << 0)) {
             if (document_inner(r, out) != 0) return -1;
         }
         if (flags & (1u << 2)) { if (r->len - r->pos < 4) return -1; tl_read_int32(r); }
+        if (flags & (1u << 10)) {
+            /* alt_documents:flags.10?Vector<Document> */
+            if (r->len - r->pos < 8) return -1;
+            uint32_t vc = tl_read_uint32(r);
+            if (vc != TL_vector) return -1;
+            uint32_t n = tl_read_uint32(r);
+            for (uint32_t i = 0; i < n; i++) {
+                if (tl_skip_document(r) != 0) return -1;
+            }
+        }
         return 0;
     }
 
@@ -2948,11 +3511,21 @@ static int extract_chat_inner(TlReader *r, ChatSummary *out) {
     if (crc == TL_chat) {
         if (r->len - r->pos < 4) return -1;
         uint32_t flags = tl_read_uint32(r);
-        /* migrated_to:flags.6?InputChannel — too complex to dispatch here. */
         if (flags & (1u << 6)) {
-            logger_log(LOG_WARN,
-                       "extract_chat: chat with migrated_to not supported");
-            return -1;
+            /* migrated_to:flags.6?InputChannel — read and discard */
+            if (r->len - r->pos < 4) return -1;
+            uint32_t ic_crc = tl_read_uint32(r);
+            if (ic_crc == CRC_inputChannelEmpty) {
+                /* no payload */
+            } else if (ic_crc == CRC_inputChannel ||
+                       ic_crc == CRC_inputChannelFromMessage) {
+                if (r->len - r->pos < 16) return -1;
+                tl_read_int64(r); tl_read_int64(r);
+            } else {
+                logger_log(LOG_WARN,
+                           "extract_chat: unknown InputChannel 0x%08x", ic_crc);
+                return -1;
+            }
         }
         /* id:long title:string photo:ChatPhoto */
         if (r->len - r->pos < 8) return -1;
@@ -3005,15 +3578,16 @@ static int extract_chat_inner(TlReader *r, ChatSummary *out) {
         if (r->len - r->pos < 8) return -1;
         uint32_t flags  = tl_read_uint32(r);
         uint32_t flags2 = tl_read_uint32(r);
-        /* Known flags2 bits: 0,4,7,8,9,10,11. Reject any others. */
+        /* Known flags2 bits: 0,4,7,8,9,10,11.  Unknown bits may be boolean
+         * markers with no wire payload (same pattern as tl_skip_user). Log
+         * at DEBUG and continue; a desync will surface as a parse error below. */
         const uint32_t flags2_known =
             (1u << 0) | (1u << 4) | (1u << 7) | (1u << 8) |
             (1u << 9) | (1u << 10) | (1u << 11);
         if (flags2 & ~flags2_known) {
-            logger_log(LOG_WARN,
-                       "extract_chat: channel with unknown flags2 bits 0x%x",
-                       flags2);
-            return -1;
+            logger_log(LOG_DEBUG,
+                       "extract_chat: channel unknown flags2 bits 0x%x (continuing)",
+                       flags2 & ~flags2_known);
         }
         if (r->len - r->pos < 8) return -1;
         int64_t id = tl_read_int64(r);

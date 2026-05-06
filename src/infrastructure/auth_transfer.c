@@ -16,12 +16,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* TL constructor IDs (not yet in tl_registry). */
-#define CRC_auth_exportAuthorization   0xe5bfffcdu
-#define CRC_auth_exportedAuthorization 0xb434e2b8u
-#define CRC_auth_importAuthorization   0xa57a7dadu
-#define CRC_auth_authorization         0x2ea2c0d4u
-#define CRC_auth_authorizationSignUpRequired 0x44747e9au
+/* TL constructor IDs — canonical names from tl_registry.h. */
+#define CRC_auth_exportAuthorization        TL_auth_exportAuthorization
+#define CRC_auth_exportedAuthorization      TL_auth_exportedAuthorization
+#define CRC_auth_importAuthorization        TL_auth_importAuthorization
+#define CRC_auth_authorization              TL_auth_authorization
+#define CRC_auth_authorizationSignUpRequired TL_auth_authorizationSignUpRequired
 
 #define RESP_BUF_SIZE 65536
 

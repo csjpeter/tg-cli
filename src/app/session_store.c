@@ -35,6 +35,11 @@
 
 #if !defined(_WIN32)
 #  include <sys/file.h>   /* flock(2) */
+#else
+#  include <windows.h>    /* LockFileEx / UnlockFileEx */
+#  include <io.h>         /* _open, _close, _get_osfhandle */
+#  include <share.h>      /* _SH_DENYNO */
+#  include <sys/stat.h>   /* _S_IREAD, _S_IWRITE */
 #endif
 
 #define STORE_MAGIC      "TGCS"
@@ -108,11 +113,12 @@ static int ensure_dir(void) {
 }
 
 /* -------------------------------------------------------------------------
- * Advisory locking (POSIX only)
+ * Advisory locking
  *
  * Returns an open fd that holds the lock, or -1 on error / busy.
- * The caller must close() the fd to release the lock.
- * On Windows these stubs always succeed (no-op).
+ * The caller must pass the fd to unlock_file() to release and close it.
+ * POSIX: uses flock(2).
+ * Windows: uses LockFileEx via _get_osfhandle; _open provides the fd.
  * ---------------------------------------------------------------------- */
 
 #if !defined(_WIN32)
@@ -151,15 +157,39 @@ static void unlock_file(int fd) {
     if (fd >= 0) close(fd);
 }
 
-#else /* _WIN32 — no advisory locks; just return a dummy fd */
+#else /* _WIN32 — LockFileEx advisory locking */
 
 static int lock_file(const char *path, int how) {
-    (void)path; (void)how;
-    return 0;   /* non-negative = success */
+    int fd = _open(path,
+                   _O_CREAT | _O_RDWR | _O_BINARY,
+                   _S_IREAD | _S_IWRITE);
+    if (fd == -1) {
+        logger_log(LOG_ERROR, "session_store: _open(%s) failed", path);
+        return -1;
+    }
+    HANDLE h = (HANDLE)_get_osfhandle(fd);
+    OVERLAPPED ov;
+    memset(&ov, 0, sizeof(ov));
+    DWORD flags = LOCKFILE_FAIL_IMMEDIATELY;
+    if (how == LOCK_EX) flags |= LOCKFILE_EXCLUSIVE_LOCK;
+    if (!LockFileEx(h, flags, 0, 1, 0, &ov)) {
+        logger_log(LOG_ERROR,
+                   "session_store: LockFileEx failed (another process may "
+                   "hold the session lock)");
+        _close(fd);
+        return -1;
+    }
+    return fd;
 }
 
 static void unlock_file(int fd) {
-    (void)fd;
+    if (fd >= 0) {
+        HANDLE h = (HANDLE)_get_osfhandle(fd);
+        OVERLAPPED ov;
+        memset(&ov, 0, sizeof(ov));
+        UnlockFileEx(h, 0, 1, 0, &ov);
+        _close(fd);
+    }
 }
 
 #endif /* _WIN32 */

@@ -8,8 +8,8 @@
  * Wraps transport connect + DH auth key generation + auth.sendCode +
  * auth.signIn into one call. Handles:
  *   - DC migration (PHONE_MIGRATE_X, USER_MIGRATE_X, NETWORK_MIGRATE_X)
- *   - persistent auth key storage (TODO)
- *   - 2FA password challenge (TODO — P3-03)
+ *   - persistent auth key storage (via config_store)
+ *   - 2FA password challenge (auth_2fa SRP flow)
  */
 
 #ifndef APP_AUTH_FLOW_H
@@ -44,7 +44,7 @@ struct AuthFlowCallbacks {
 typedef struct {
     int     dc_id;           /**< Final DC the session is pinned to.      */
     int64_t user_id;         /**< Authenticated user id, 0 if unknown.   */
-    int     needs_password;  /**< Non-zero if 2FA is required (TODO).    */
+    int     needs_password;  /**< Non-zero if 2FA was required and handled. */
 } AuthFlowResult;
 
 /**

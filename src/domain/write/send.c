@@ -19,13 +19,14 @@
 
 #define CRC_messages_sendMessage 0x0d9d75a4u
 
-/* messages.Updates constructors we may see in the response. We only need
- * to recognise them enough to return success + optionally extract the
- * outgoing message id from updateShortSentMessage. */
+/* messages.Updates constructors we may see in the response. */
 #define CRC_updateShortSentMessage  0x9015e101u
 #define CRC_updates                 TL_updates
 #define CRC_updatesCombined         TL_updatesCombined
 #define CRC_updateShort             TL_updateShort
+/* updateMessageID#4e90bfd6 id:int random_id:long — maps our random_id to the
+ * assigned server message id inside the full updates/updatesCombined envelope. */
+#define CRC_updateMessageID         0x4e90bfd6u
 
 static int write_input_peer(TlWriter *w, const HistoryPeer *p) {
     switch (p->kind) {
@@ -67,7 +68,8 @@ int domain_send_message_reply(const ApiConfig *cfg,
         return -1;
     }
 
-    /* random_id — must be uniformly random 64-bit. */
+    /* random_id — must be uniformly random 64-bit; kept for updateMessageID
+     * matching in the response. */
     uint8_t rand_buf[8] = {0};
     int64_t random_id = 0;
     if (crypto_rand_bytes(rand_buf, sizeof(rand_buf)) == 0) {
@@ -137,10 +139,23 @@ int domain_send_message_reply(const ApiConfig *cfg,
         return 0;
     }
 
-    /* For updates / updatesCombined / updateShort we just accept success.
-     * Message-id extraction from the full Updates envelope is future work. */
-    if (top == CRC_updates || top == CRC_updatesCombined
-        || top == CRC_updateShort) {
+    /* For updates / updatesCombined: scan for updateMessageID#4e90bfd6 which
+     * carries the mapping: random_id → assigned server message id. */
+    if (top == CRC_updates || top == CRC_updatesCombined) {
+        if (msg_id_out && resp_len >= 16) {
+            for (size_t i = 0; i <= resp_len - 16; i++) {
+                uint32_t crc;
+                memcpy(&crc, resp + i, 4);
+                if (crc != CRC_updateMessageID) continue;
+                int32_t mid; int64_t rid;
+                memcpy(&mid, resp + i + 4, 4);
+                memcpy(&rid, resp + i + 8, 8);
+                if (rid == random_id) { *msg_id_out = mid; break; }
+            }
+        }
+        return 0;
+    }
+    if (top == CRC_updateShort) {
         return 0;
     }
 
