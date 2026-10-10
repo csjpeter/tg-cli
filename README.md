@@ -75,12 +75,12 @@ The project follows a strict layered CLEAN architecture:
 ```
 Entry points   →  src/main/{tg_cli,tg_cli_ro,tg_tui}.c   (three binaries — ADR-0005)
 App            →  src/app/             (bootstrap, auth flow, DC session, session store)
-TUI            →  src/tui/             (screen, panes, list view, status row, app)
+TUI            →  src/tui/             (panes, list views, status row, app; on libtuikit)
 Domain         →  src/domain/read/ + src/domain/write/   (Telegram service logic)
 Infrastructure →  src/infrastructure/  (config, cache, transport, RPC, api_call, auth)
 Core           →  src/core/            (logger, fs_util, TL serial/skip/registry,
                                         AES-IGE, MTProto crypto, crypto wrappers)
-Platform       →  src/platform/        (terminal + path + socket; Linux is the only supported platform)
+Platform       →  src/platform/        (path + socket; the terminal is libtuikit; Linux is the only supported platform)
 ```
 
 `tg-cli-ro` is compile-time read-only: the `tg-domain-write` library is
@@ -196,7 +196,7 @@ the interactive wizard.
 bin/tg-tui
 ```
 
-After login you land in a readline-backed prompt. Try `help` for the
+After login you land in a prompt with line editing and history (libtuikit). Try `help` for the
 full command list. Highlights:
 
 ```
@@ -318,13 +318,15 @@ for the full legal research including:
 
 ## Workspace libraries
 
-The PTY tests use `libptytest`, one of the owner's own libraries, in one of two
+The terminal layer, the TUI and the line editor use `libtuikit`, and the PTY
+tests use `libptytest`, two of the owner's own libraries, each in one of two
 ways, chosen at configure time with `-DWORKSPACE_LIBS=bundled|system|auto`:
 
 - **system** (the default of `auto`, tg-cli being proprietary): the installed
-  `libptytest-dev` package, linked statically from `libptytest.a`.
-- **bundled**: the `deps/libptytest` git submodule, pinned to a release tag and
-  built with the project. `./manage.sh deps` and `./manage.sh build` initialise
+  `libtuikit-dev` / `libptytest-dev` packages, linked statically from
+  `libtuikit.a` / `libptytest.a`.
+- **bundled**: the `deps/libtuikit` and `deps/libptytest` git submodules, each
+  pinned to a release tag and built with the project. `./manage.sh deps` and `./manage.sh build` initialise
   it; no `git submodule` command has to be typed.
 
 Both ways are built and tested. No copy of the library's sources is in the tree.
@@ -333,5 +335,5 @@ Both ways are built and tested. No copy of the library's sources is in the tree.
 
 Proprietary; the owner is the author. See [LICENSE](LICENSE).
 
-`libptytest` (dual-licensed GPL-3.0-only OR proprietary) is used here under the
-owner's proprietary licence.
+`libtuikit` and `libptytest` (dual-licensed GPL-3.0-only OR proprietary) are
+used here under the owner's proprietary licence.

@@ -12,16 +12,9 @@
 #include "test_helpers.h"
 #include "tui/status_row.h"
 
-#include <string.h>
+#include "tui_grid.h"
 
-static void row_text(const Screen *s, int row, char *out, size_t cap) {
-    size_t oi = 0;
-    for (int c = 0; c < s->cols && oi + 1 < cap; c++) {
-        ScreenCell cell = s->back[row * s->cols + c];
-        out[oi++] = (cell.cp && cell.cp < 128) ? (char)cell.cp : ' ';
-    }
-    out[oi] = '\0';
-}
+#include <string.h>
 
 static void test_init_is_dialogs_mode(void) {
     StatusRow sr; status_row_init(&sr);
@@ -41,53 +34,53 @@ static void test_set_message_truncates(void) {
 }
 
 static void test_render_dialogs_mode_shows_hint(void) {
-    Screen s; ASSERT(screen_init(&s, 1, 80) == 0, "init");
+    tui_screen *s = tui_screen_new(1, 80); ASSERT(s != NULL, "init");
     StatusRow sr; status_row_init(&sr);
-    Pane p = { .row = 0, .col = 0, .rows = 1, .cols = 80 };
-    status_row_render(&sr, &p, &s);
-    char buf[128]; row_text(&s, 0, buf, sizeof(buf));
+    tui_rect p = tui_rect_make(0, 0, 1, 80);
+    status_row_render(&sr, &p, s);
+    char buf[128]; tgrid_row(s, 0, buf, sizeof(buf));
     ASSERT(strstr(buf, "[dialogs]") != NULL, "dialogs prefix");
     ASSERT(strstr(buf, "Enter") != NULL, "enter hint");
-    /* Every cell on the row must have SCREEN_ATTR_REVERSE set. */
+    /* Every cell on the row must have TUI_ATTR_REVERSE set. */
     for (int c = 0; c < 80; c++) {
-        ASSERT(s.back[c].attrs & SCREEN_ATTR_REVERSE, "full-row reverse");
+        ASSERT(tgrid_attrs(s, 0, c) & TUI_ATTR_REVERSE, "full-row reverse");
     }
-    screen_free(&s);
+    tui_screen_free(s);
 }
 
 static void test_render_history_mode_shows_different_hint(void) {
-    Screen s; ASSERT(screen_init(&s, 1, 80) == 0, "init");
+    tui_screen *s = tui_screen_new(1, 80); ASSERT(s != NULL, "init");
     StatusRow sr; status_row_init(&sr);
     sr.mode = STATUS_MODE_HISTORY;
-    Pane p = { .row = 0, .col = 0, .rows = 1, .cols = 80 };
-    status_row_render(&sr, &p, &s);
-    char buf[128]; row_text(&s, 0, buf, sizeof(buf));
+    tui_rect p = tui_rect_make(0, 0, 1, 80);
+    status_row_render(&sr, &p, s);
+    char buf[128]; tgrid_row(s, 0, buf, sizeof(buf));
     ASSERT(strstr(buf, "[history]") != NULL, "history prefix");
     ASSERT(strstr(buf, "Tab") != NULL, "tab hint");
-    screen_free(&s);
+    tui_screen_free(s);
 }
 
 static void test_render_message_right_aligned(void) {
-    Screen s; ASSERT(screen_init(&s, 1, 80) == 0, "init");
+    tui_screen *s = tui_screen_new(1, 80); ASSERT(s != NULL, "init");
     StatusRow sr; status_row_init(&sr);
     status_row_set_message(&sr, "loading");
-    Pane p = { .row = 0, .col = 0, .rows = 1, .cols = 80 };
-    status_row_render(&sr, &p, &s);
+    tui_rect p = tui_rect_make(0, 0, 1, 80);
+    status_row_render(&sr, &p, s);
     /* "loading" is 7 chars; col = 80 - 7 - 1 = 72 */
-    ASSERT(s.back[72].cp == 'l', "message starts at right-aligned col");
-    ASSERT(s.back[78].cp == 'g', "message ends near right edge");
-    screen_free(&s);
+    ASSERT(tgrid_ch(s, 0, 72) == 'l', "message starts at right-aligned col");
+    ASSERT(tgrid_ch(s, 0, 78) == 'g', "message ends near right edge");
+    tui_screen_free(s);
 }
 
 static void test_render_null_args_noop(void) {
-    Screen s; ASSERT(screen_init(&s, 1, 20) == 0, "init");
-    Pane p = { .row = 0, .col = 0, .rows = 1, .cols = 20 };
+    tui_screen *s = tui_screen_new(1, 20); ASSERT(s != NULL, "init");
+    tui_rect p = tui_rect_make(0, 0, 1, 20);
     StatusRow sr; status_row_init(&sr);
-    status_row_render(NULL, &p, &s);
-    status_row_render(&sr, NULL, &s);
+    status_row_render(NULL, &p, s);
+    status_row_render(&sr, NULL, s);
     status_row_render(&sr, &p, NULL);
-    ASSERT(s.back[0].cp == ' ', "back untouched");
-    screen_free(&s);
+    ASSERT(tgrid_ch(s, 0, 0) == ' ', "back untouched");
+    tui_screen_free(s);
 }
 
 void test_tui_status_row_run(void) {

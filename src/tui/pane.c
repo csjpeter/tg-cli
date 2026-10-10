@@ -13,8 +13,8 @@
 
 #include <string.h>
 
-int pane_is_valid(const Pane *p) {
-    return p && p->rows > 0 && p->cols > 0;
+int pane_is_valid(const tui_rect *r) {
+    return r && !tui_rect_is_empty(*r);
 }
 
 static void zero_layout(Layout *out) { memset(out, 0, sizeof(*out)); }
@@ -55,28 +55,4 @@ void layout_compute(Layout *out, int screen_rows, int screen_cols,
     out->status.col   = 0;
     out->status.rows  = 1;
     out->status.cols  = screen_cols;
-}
-
-int pane_put_str(const Pane *p, Screen *s,
-                  int row, int col, const char *utf8, uint8_t attrs) {
-    if (!pane_is_valid(p) || !s || !utf8) return 0;
-    if (row < 0 || row >= p->rows || col < 0 || col >= p->cols) return 0;
-    int remaining = p->cols - col;
-    return screen_put_str_n(s, p->row + row, p->col + col, remaining,
-                            utf8, attrs);
-}
-
-void pane_fill(const Pane *p, Screen *s,
-               int row, int col, int n, uint8_t attrs) {
-    if (!pane_is_valid(p) || !s || n <= 0) return;
-    if (row < 0 || row >= p->rows || col < 0 || col >= p->cols) return;
-    if (col + n > p->cols) n = p->cols - col;
-    screen_fill(s, p->row + row, p->col + col, n, attrs);
-}
-
-void pane_clear(const Pane *p, Screen *s) {
-    if (!pane_is_valid(p) || !s) return;
-    for (int r = 0; r < p->rows; r++) {
-        screen_fill(s, p->row + r, p->col, p->cols, 0);
-    }
 }

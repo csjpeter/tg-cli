@@ -36,17 +36,20 @@ static const char *hint_for(StatusMode m) {
 }
 
 void status_row_render(const StatusRow *sr,
-                        const Pane *pane, Screen *screen) {
+                        const tui_rect *pane, tui_screen *screen) {
     if (!sr || !pane || !screen || !pane_is_valid(pane)) return;
     /* The row is always one line; ignore extra pane rows so callers can pass
      * a taller pane without getting extra blanks. */
-    pane_fill(pane, screen, 0, 0, pane->cols, SCREEN_ATTR_REVERSE);
-    const char *hint = hint_for(sr->mode);
-    pane_put_str(pane, screen, 0, 0, hint, SCREEN_ATTR_REVERSE);
+    tui_style rev = tui_style_attrs(TUI_ATTR_REVERSE);
+    tui_canvas c = tui_canvas_sub(tui_canvas_of(screen),
+                                  tui_rect_make(pane->row, pane->col,
+                                                1, pane->cols));
+    tui_canvas_fill(c, tui_canvas_rect(c), rev);
+    tui_canvas_put(c, 0, 0, hint_for(sr->mode), rev);
     if (sr->message[0]) {
         int mlen = (int)strlen(sr->message);
         int col = pane->cols - mlen - 1;
         if (col < 1) col = 1;
-        pane_put_str(pane, screen, 0, col, sr->message, SCREEN_ATTR_REVERSE);
+        tui_canvas_put(c, 0, col, sr->message, rev);
     }
 }

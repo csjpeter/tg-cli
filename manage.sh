@@ -52,15 +52,16 @@ ensure_submodules() {
 
     # In auto mode an installed package is enough: a failure here is a warning.
     local have_pkg=0
-    pkg-config --exists libptytest && have_pkg=1
+    pkg-config --exists libptytest && pkg-config --exists libtuikit && have_pkg=1
 
-    if ! git submodule update --init --recursive; then
+    # Not --recursive: a library's own test-only submodules are not needed.
+    if ! git submodule update --init; then
         if [ "$mode" = auto ] && [ "$have_pkg" = 1 ]; then
-            echo "WARNING: could not initialise the submodules; using the installed libptytest-dev." >&2
+            echo "WARNING: could not initialise the submodules; using the installed libtuikit-dev and libptytest-dev." >&2
             return 0
         fi
         echo "ERROR: could not initialise the git submodules (no network, or no access to the repository?)." >&2
-        echo "       Install libptytest-dev and use WORKSPACE_LIBS=system, or fix the access." >&2
+        echo "       Install libtuikit-dev and libptytest-dev and use WORKSPACE_LIBS=system, or fix the access." >&2
         return 1
     fi
 

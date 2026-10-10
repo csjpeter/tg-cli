@@ -50,8 +50,9 @@ The project follows a strict layered CLEAN architecture with zero circular depen
 Entry points   →  src/main/{tg_cli,tg_cli_ro,tg_tui}.c   (three binaries, ADR-0005)
 App            →  src/app/           (bootstrap, auth flow, credentials, DC config,
                                       DC session, session store)
-TUI            →  src/tui/           (screen, pane, list_view, dialog_pane,
-                                      history_pane, status_row, app state machine)
+TUI            →  src/tui/           (pane layout, dialog_pane, history_pane,
+                                      status_row, text_safe, app state machine;
+                                      drawn and driven by libtuikit)
 Domain         →  src/domain/read/   (self, dialogs, history, search, user_info,
                                       contacts, updates, media)
                   src/domain/write/  (send, edit, delete, forward, read_history,
@@ -60,10 +61,10 @@ Infrastructure →  src/infrastructure/ (config_store, cache_store, transport,
                                       mtproto_auth, mtproto_rpc, api_call,
                                       auth_session, auth_2fa, auth_transfer)
 Core           →  src/core/          (logger, fs_util, raii.h, arg_parse,
-                                      readline, tl_serial, tl_skip, tl_registry,
+                                      tl_serial, tl_skip, tl_registry,
                                       ige_aes, mtproto_crypto, mtproto_session,
                                       crypto wrappers, config)
-Platform       →  src/platform/{terminal,path,socket}.h
+Platform       →  src/platform/{path,socket}.h (terminal.h: Windows preparation only)
                     src/platform/posix/    (Linux)
                     src/platform/windows/  (untested preparation, not supported)
 Vendor         →  src/vendor/tinf    (bundled tiny gzip decoder)
@@ -108,7 +109,7 @@ C11 (`-std=c11`). Linked against libssl (OpenSSL). All public functions should h
 
 **Keep external dependencies minimal.**  The project intentionally uses only the C standard library, POSIX, and libssl (OpenSSL).  Before reaching for a new library, exhaust stdlib/POSIX options first.  New runtime dependencies require explicit justification and user approval.
 
-The owner's own libraries (`libptytest` now, `libtuikit` after TG-13) come as a
+The owner's own libraries (`libtuikit`, `libptytest`) come as a
 git submodule under `deps/` pinned to a release tag, linked statically
 (`WORKSPACE_LIBS=bundled`), or as the installed `-dev` package
 (`WORKSPACE_LIBS=system`); `auto` (the default) prefers the installed package.
@@ -164,8 +165,8 @@ time — **no `#ifdef` guards in shared code**.
 
 ```
 src/platform/
-  terminal.h          ← canonical interface (get_cols, set_raw, restore, …)
-  posix/terminal.c    ← termios + ioctl  (Linux)
+  terminal.h          ← interface of the untested Windows console backend; on
+                        Linux the terminal is libtuikit (tui_term, tui_tty)
   windows/terminal.c  ← untested preparation, not a supported platform
 
   path.h              ← home_dir(), cache_dir(), config_dir()

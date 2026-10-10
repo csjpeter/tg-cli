@@ -16,7 +16,8 @@
 int tui_app_init(TuiApp *app, int rows, int cols) {
     if (!app) return -1;
     memset(app, 0, sizeof(*app));
-    if (screen_init(&app->screen, rows, cols) != 0) return -1;
+    app->screen = tui_screen_new(rows, cols);
+    if (!app->screen) return -1;
     layout_compute(&app->layout, rows, cols, 28);
     dialog_pane_init(&app->dialogs);
     history_pane_init(&app->history);
@@ -25,83 +26,55 @@ int tui_app_init(TuiApp *app, int rows, int cols) {
     app->rows = rows;
     app->cols = cols;
     /* Wire viewport heights so list_views know how much they render. */
-    app->dialogs.lv.rows_visible = app->layout.dialogs.rows;
-    app->history.lv.rows_visible = app->layout.history.rows;
+    tui_listview_set_viewport(&app->dialogs.lv, app->layout.dialogs.rows);
+    tui_listview_set_viewport(&app->history.lv, app->layout.history.rows);
     return 0;
 }
 
 void tui_app_free(TuiApp *app) {
     if (!app) return;
-    screen_free(&app->screen);
+    tui_screen_free(app->screen);
+    app->screen = NULL;
 }
 
 int tui_app_resize(TuiApp *app, int rows, int cols) {
     if (!app) return -1;
-    screen_free(&app->screen);
-    if (screen_init(&app->screen, rows, cols) != 0) return -1;
+    if (!app->screen || tui_screen_resize(app->screen, rows, cols) != 0)
+        return -1;
     layout_compute(&app->layout, rows, cols, 28);
-    list_view_set_viewport(&app->dialogs.lv, app->layout.dialogs.rows);
-    list_view_set_viewport(&app->history.lv, app->layout.history.rows);
+    tui_listview_set_viewport(&app->dialogs.lv, app->layout.dialogs.rows);
+    tui_listview_set_viewport(&app->history.lv, app->layout.history.rows);
     app->rows = rows;
     app->cols = cols;
     return 0;
 }
 
-static ListView *focused_list_view(TuiApp *app) {
+static tui_listview *focused_list_view(TuiApp *app) {
     return (app->focus == TUI_FOCUS_DIALOGS)
          ? &app->dialogs.lv
          : &app->history.lv;
 }
 
-TuiEvent tui_app_handle_key(TuiApp *app, TermKey key) {
-    if (!app) return TUI_EVENT_NONE;
+static TuiEvent focus_to(TuiApp *app, TuiFocus f, StatusMode m) {
+    if (app->focus == f) return TUI_EVENT_NONE;
+    app->focus = f;
+    app->status.mode = m;
+    return TUI_EVENT_REDRAW;
+}
 
-    switch (key) {
-    case TERM_KEY_QUIT:
-    case TERM_KEY_ESC:
+TuiEvent tui_app_handle_key(TuiApp *app, const tui_event *ev) {
+    if (!app || !ev || ev->type != TUI_EV_KEY) return TUI_EVENT_NONE;
+
+    if (ev->key == TUI_KEY_ESC || TUI_EV_IS_CTRL(ev, 'c')
+        || TUI_EV_IS_CHAR(ev, 'q') || TUI_EV_IS_CHAR(ev, 'Q'))
         return TUI_EVENT_QUIT;
 
-    case TERM_KEY_LEFT:
-        if (app->focus != TUI_FOCUS_DIALOGS) {
-            app->focus = TUI_FOCUS_DIALOGS;
-            app->status.mode = STATUS_MODE_DIALOGS;
-            return TUI_EVENT_REDRAW;
-        }
-        return TUI_EVENT_NONE;
+    if ((ev->key == TUI_KEY_LEFT && ev->mods == 0) || TUI_EV_IS_CHAR(ev, 'h'))
+        return focus_to(app, TUI_FOCUS_DIALOGS, STATUS_MODE_DIALOGS);
+    if ((ev->key == TUI_KEY_RIGHT && ev->mods == 0) || TUI_EV_IS_CHAR(ev, 'l'))
+        return focus_to(app, TUI_FOCUS_HISTORY, STATUS_MODE_HISTORY);
 
-    case TERM_KEY_RIGHT:
-        if (app->focus != TUI_FOCUS_HISTORY) {
-            app->focus = TUI_FOCUS_HISTORY;
-            app->status.mode = STATUS_MODE_HISTORY;
-            return TUI_EVENT_REDRAW;
-        }
-        return TUI_EVENT_NONE;
-
-    case TERM_KEY_PREV_LINE:
-        list_view_move_up(focused_list_view(app));
-        return TUI_EVENT_REDRAW;
-
-    case TERM_KEY_NEXT_LINE:
-        list_view_move_down(focused_list_view(app));
-        return TUI_EVENT_REDRAW;
-
-    case TERM_KEY_PREV_PAGE:
-        list_view_page_up(focused_list_view(app));
-        return TUI_EVENT_REDRAW;
-
-    case TERM_KEY_NEXT_PAGE:
-        list_view_page_down(focused_list_view(app));
-        return TUI_EVENT_REDRAW;
-
-    case TERM_KEY_HOME:
-        list_view_home(focused_list_view(app));
-        return TUI_EVENT_REDRAW;
-
-    case TERM_KEY_END:
-        list_view_end(focused_list_view(app));
-        return TUI_EVENT_REDRAW;
-
-    case TERM_KEY_ENTER:
+    if (ev->key == TUI_KEY_ENTER && ev->mods == 0) {
         if (app->focus == TUI_FOCUS_DIALOGS
             && dialog_pane_selected(&app->dialogs) != NULL) {
             /* Caller loads history for the selection and then flips focus
@@ -112,48 +85,27 @@ TuiEvent tui_app_handle_key(TuiApp *app, TermKey key) {
             return TUI_EVENT_OPEN_DIALOG;
         }
         return TUI_EVENT_NONE;
-
-    default:
-        return TUI_EVENT_NONE;
     }
-}
 
-TuiEvent tui_app_handle_char(TuiApp *app, int ch) {
-    if (!app) return TUI_EVENT_NONE;
-    switch (ch) {
-    case 'q': case 'Q':
-        return TUI_EVENT_QUIT;
-    case 'j':
-        return tui_app_handle_key(app, TERM_KEY_NEXT_LINE);
-    case 'k':
-        return tui_app_handle_key(app, TERM_KEY_PREV_LINE);
-    case 'h':
-        return tui_app_handle_key(app, TERM_KEY_LEFT);
-    case 'l':
-        return tui_app_handle_key(app, TERM_KEY_RIGHT);
-    case 'g':
-        return tui_app_handle_key(app, TERM_KEY_HOME);
-    case 'G':
-        return tui_app_handle_key(app, TERM_KEY_END);
-    default:
-        return TUI_EVENT_NONE;
-    }
+    if (tui_listview_handle(focused_list_view(app), ev))
+        return TUI_EVENT_REDRAW;
+    return TUI_EVENT_NONE;
 }
 
 void tui_app_paint(TuiApp *app) {
     if (!app) return;
-    screen_clear_back(&app->screen);
+    tui_screen_clear(app->screen, TUI_STYLE_DEFAULT);
     if (pane_is_valid(&app->layout.dialogs)) {
         dialog_pane_render(&app->dialogs, &app->layout.dialogs,
-                           &app->screen,
+                           app->screen,
                            app->focus == TUI_FOCUS_DIALOGS);
     }
     if (pane_is_valid(&app->layout.history)) {
         history_pane_render(&app->history, &app->layout.history,
-                            &app->screen);
+                            app->screen);
     }
     if (pane_is_valid(&app->layout.status)) {
         status_row_render(&app->status, &app->layout.status,
-                          &app->screen);
+                          app->screen);
     }
 }

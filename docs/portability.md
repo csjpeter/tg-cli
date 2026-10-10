@@ -8,8 +8,7 @@ list. It is a list of what is waiting, not a plan, and not a claim of support.
 
 | Dependency | Where | Would need |
 |---|---|---|
-| `termios.h` raw mode, `ioctl(TIOCGWINSZ)`, `SIGWINCH` | `src/platform/posix/terminal.c` | a console backend; `src/platform/windows/terminal.c` exists but is untested. TG-11 moves the terminal layer to libtuikit, which then owns this question |
-| `wcwidth(3)` / locale | terminal layer | a bundled width table (`src/core/wcwidth.c`); libtuikit has its own |
+| `termios.h` raw mode, `ioctl(TIOCGWINSZ)`, `SIGWINCH`, `wcwidth(3)` | libtuikit (`tui_term`, `tui_tty`, `tui_screen`), linked statically | libtuikit owns the question (its own platform-scope ticket). `src/platform/windows/terminal.c`, its interface `src/platform/terminal.h` and `src/core/wcwidth.c` are the earlier Windows preparation: kept (the owner's rule that existing compatibility code is preserved), not built on Linux, untested |
 | `$HOME`, XDG `~/.config` and `~/.cache` | `src/platform/posix/path.c` | per-OS config and cache directories; `src/platform/windows/path.c` is untested |
 | POSIX sockets, `poll` | `src/platform/posix/socket.c` | Winsock; `src/platform/windows/socket.c` is untested |
 | File locking with `flock`/`fcntl` | `src/app/session_store.c` (`#if !defined(_WIN32)`) | `LockFileEx`, already written in the `_WIN32` branch, untested |

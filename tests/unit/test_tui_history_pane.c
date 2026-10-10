@@ -12,6 +12,8 @@
 #include "test_helpers.h"
 #include "tui/history_pane.h"
 
+#include "tui_grid.h"
+
 #include <string.h>
 
 /* --- Helpers --- */
@@ -44,16 +46,6 @@ static HistoryEntry mk_media(int32_t id, MediaKind kind) {
 static HistoryPeer mk_peer_self(void) {
     HistoryPeer p = { .kind = HISTORY_PEER_SELF };
     return p;
-}
-
-static void row_text(const Screen *s, int row, char *out, size_t cap) {
-    size_t oi = 0;
-    for (int c = 0; c < s->cols && oi + 1 < cap; c++) {
-        ScreenCell cell = s->back[row * s->cols + c];
-        out[oi++] = (cell.cp && cell.cp < 128) ? (char)cell.cp : ' ';
-    }
-    while (oi > 0 && out[oi - 1] == ' ') oi--;
-    out[oi] = '\0';
 }
 
 /* --- State tests --- */
@@ -98,31 +90,31 @@ static void test_set_entries_clamps_overflow(void) {
 /* --- Render tests --- */
 
 static void test_render_unloaded_shows_select_hint(void) {
-    Screen s; ASSERT(screen_init(&s, 5, 25) == 0, "init screen");
+    tui_screen *s = tui_screen_new(5, 25); ASSERT(s != NULL, "init screen");
     HistoryPane hp; history_pane_init(&hp);
-    Pane p = { .row = 0, .col = 0, .rows = 5, .cols = 25 };
+    tui_rect p = tui_rect_make(0, 0, 5, 25);
     hp.lv.rows_visible = p.rows;
-    history_pane_render(&hp, &p, &s);
-    char buf[64]; row_text(&s, 2, buf, sizeof(buf));
+    history_pane_render(&hp, &p, s);
+    char buf[64]; tgrid_row(s, 2, buf, sizeof(buf));
     ASSERT(strstr(buf, "(select a dialog)") != NULL, "hint shown");
-    screen_free(&s);
+    tui_screen_free(s);
 }
 
 static void test_render_loaded_empty_shows_no_messages(void) {
-    Screen s; ASSERT(screen_init(&s, 5, 25) == 0, "init screen");
+    tui_screen *s = tui_screen_new(5, 25); ASSERT(s != NULL, "init screen");
     HistoryPane hp; history_pane_init(&hp);
     HistoryPeer peer = mk_peer_self();
     history_pane_set_entries(&hp, &peer, NULL, 0);
-    Pane p = { .row = 0, .col = 0, .rows = 5, .cols = 25 };
+    tui_rect p = tui_rect_make(0, 0, 5, 25);
     hp.lv.rows_visible = p.rows;
-    history_pane_render(&hp, &p, &s);
-    char buf[64]; row_text(&s, 2, buf, sizeof(buf));
+    history_pane_render(&hp, &p, s);
+    char buf[64]; tgrid_row(s, 2, buf, sizeof(buf));
     ASSERT(strstr(buf, "(no messages)") != NULL, "empty placeholder");
-    screen_free(&s);
+    tui_screen_free(s);
 }
 
 static void test_render_rows_show_direction_and_text(void) {
-    Screen s; ASSERT(screen_init(&s, 4, 30) == 0, "init screen");
+    tui_screen *s = tui_screen_new(4, 30); ASSERT(s != NULL, "init screen");
     HistoryPane hp; history_pane_init(&hp);
     HistoryPeer peer = mk_peer_self();
     HistoryEntry src[3] = {
@@ -131,36 +123,36 @@ static void test_render_rows_show_direction_and_text(void) {
         mk_complex(98),
     };
     history_pane_set_entries(&hp, &peer, src, 3);
-    Pane p = { .row = 0, .col = 0, .rows = 4, .cols = 30 };
+    tui_rect p = tui_rect_make(0, 0, 4, 30);
     hp.lv.rows_visible = p.rows;
-    history_pane_render(&hp, &p, &s);
-    char row0[64]; row_text(&s, 0, row0, sizeof(row0));
-    char row1[64]; row_text(&s, 1, row1, sizeof(row1));
-    char row2[64]; row_text(&s, 2, row2, sizeof(row2));
+    history_pane_render(&hp, &p, s);
+    char row0[64]; tgrid_row(s, 0, row0, sizeof(row0));
+    char row1[64]; tgrid_row(s, 1, row1, sizeof(row1));
+    char row2[64]; tgrid_row(s, 2, row2, sizeof(row2));
     ASSERT(row0[0] == '>', "outgoing arrow");
     ASSERT(strstr(row0, "[100]") != NULL, "id badge");
     ASSERT(strstr(row0, "hello") != NULL, "text rendered");
     ASSERT(row1[0] == '<', "incoming arrow");
     ASSERT(strstr(row2, "(complex)") != NULL, "complex marker");
-    screen_free(&s);
+    tui_screen_free(s);
 }
 
 static void test_render_media_without_text_shows_media_marker(void) {
-    Screen s; ASSERT(screen_init(&s, 2, 30) == 0, "init screen");
+    tui_screen *s = tui_screen_new(2, 30); ASSERT(s != NULL, "init screen");
     HistoryPane hp; history_pane_init(&hp);
     HistoryPeer peer = mk_peer_self();
     HistoryEntry src[1] = { mk_media(50, MEDIA_PHOTO) };
     history_pane_set_entries(&hp, &peer, src, 1);
-    Pane p = { .row = 0, .col = 0, .rows = 2, .cols = 30 };
+    tui_rect p = tui_rect_make(0, 0, 2, 30);
     hp.lv.rows_visible = p.rows;
-    history_pane_render(&hp, &p, &s);
-    char row[64]; row_text(&s, 0, row, sizeof(row));
+    history_pane_render(&hp, &p, s);
+    char row[64]; tgrid_row(s, 0, row, sizeof(row));
     ASSERT(strstr(row, "(media)") != NULL, "media marker");
-    screen_free(&s);
+    tui_screen_free(s);
 }
 
 static void test_render_respects_scroll(void) {
-    Screen s; ASSERT(screen_init(&s, 3, 30) == 0, "init screen");
+    tui_screen *s = tui_screen_new(3, 30); ASSERT(s != NULL, "init screen");
     HistoryPane hp; history_pane_init(&hp);
     HistoryPeer peer = mk_peer_self();
     HistoryEntry src[6];
@@ -169,39 +161,39 @@ static void test_render_respects_scroll(void) {
         src[i] = mk_text(1000 + i, 0, text);
     }
     history_pane_set_entries(&hp, &peer, src, 6);
-    Pane p = { .row = 0, .col = 0, .rows = 3, .cols = 30 };
+    tui_rect p = tui_rect_make(0, 0, 3, 30);
     hp.lv.rows_visible = p.rows;
-    list_view_end(&hp.lv);  /* scroll to bottom */
-    history_pane_render(&hp, &p, &s);
-    char row0[64]; row_text(&s, 0, row0, sizeof(row0));
-    char row2[64]; row_text(&s, 2, row2, sizeof(row2));
+    tui_listview_end(&hp.lv);  /* scroll to bottom */
+    history_pane_render(&hp, &p, s);
+    char row0[64]; tgrid_row(s, 0, row0, sizeof(row0));
+    char row2[64]; tgrid_row(s, 2, row2, sizeof(row2));
     ASSERT(strstr(row0, "msg3") != NULL, "row 0 shows msg3 after scroll");
     ASSERT(strstr(row2, "msg5") != NULL, "row 2 shows last message");
-    screen_free(&s);
+    tui_screen_free(s);
 }
 
 static void test_render_complex_row_is_dimmed(void) {
-    Screen s; ASSERT(screen_init(&s, 2, 20) == 0, "init screen");
+    tui_screen *s = tui_screen_new(2, 20); ASSERT(s != NULL, "init screen");
     HistoryPane hp; history_pane_init(&hp);
     HistoryPeer peer = mk_peer_self();
     HistoryEntry src[1] = { mk_complex(42) };
     history_pane_set_entries(&hp, &peer, src, 1);
-    Pane p = { .row = 0, .col = 0, .rows = 2, .cols = 20 };
+    tui_rect p = tui_rect_make(0, 0, 2, 20);
     hp.lv.rows_visible = p.rows;
-    history_pane_render(&hp, &p, &s);
-    ASSERT(s.back[0].attrs & SCREEN_ATTR_DIM, "complex row is dimmed");
-    screen_free(&s);
+    history_pane_render(&hp, &p, s);
+    ASSERT(tgrid_attrs(s, 0, 0) & TUI_ATTR_DIM, "complex row is dimmed");
+    tui_screen_free(s);
 }
 
 static void test_render_null_args_noop(void) {
-    Screen s; ASSERT(screen_init(&s, 2, 10) == 0, "init screen");
-    Pane p = { .row = 0, .col = 0, .rows = 2, .cols = 10 };
+    tui_screen *s = tui_screen_new(2, 10); ASSERT(s != NULL, "init screen");
+    tui_rect p = tui_rect_make(0, 0, 2, 10);
     HistoryPane hp; history_pane_init(&hp);
-    history_pane_render(NULL, &p, &s);
-    history_pane_render(&hp, NULL, &s);
+    history_pane_render(NULL, &p, s);
+    history_pane_render(&hp, NULL, s);
     history_pane_render(&hp, &p, NULL);
-    ASSERT(s.back[0].cp == ' ', "back untouched");
-    screen_free(&s);
+    ASSERT(tgrid_ch(s, 0, 0) == ' ', "back untouched");
+    tui_screen_free(s);
 }
 
 void test_tui_history_pane_run(void) {

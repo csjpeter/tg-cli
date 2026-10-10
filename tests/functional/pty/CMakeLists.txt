@@ -154,8 +154,8 @@ target_link_libraries(pty-wizard-test-runner PRIVATE ptytest::ptytest_static)
 
 add_test(NAME PtyWizardTests COMMAND pty-wizard-test-runner)
 
-# ── TEST-87: terminal_read_password masking tests ────────────────────
-# password_harness: tiny binary that calls terminal_read_password() and
+# ── TEST-87: tui_tty_read_password masking tests ────────────────────
+# password_harness: tiny binary that calls tui_tty_read_password() and
 # prints the result.  Isolates the masked-input behaviour from the full
 # tg-tui login path (no mock server needed).
 add_executable(password_harness
@@ -187,35 +187,3 @@ target_link_libraries(pty-password-test-runner PRIVATE ptytest::ptytest_static)
 
 add_test(NAME PtyPasswordTests COMMAND pty-password-test-runner)
 
-# ── TEST-88: terminal.c coverage harness ─────────────────────────────
-# terminal_coverage_harness: minimal binary that exercises terminal functions
-# directly (cols/rows, raw mode, read_key, wait_key, resize, signal handlers,
-# non-TTY password path) to boost line coverage of terminal.c to ≥85%.
-add_executable(terminal_coverage_harness
-    terminal_coverage_harness.c
-)
-
-target_include_directories(terminal_coverage_harness PRIVATE
-    ${CMAKE_SOURCE_DIR}/src
-    ${CMAKE_SOURCE_DIR}/src/platform
-)
-
-target_link_libraries(terminal_coverage_harness PRIVATE tg-proto)
-
-# Test runner that drives terminal_coverage_harness through the PTY.
-add_executable(pty-terminal-coverage-test-runner
-    test_terminal_coverage.c
-)
-
-target_include_directories(pty-terminal-coverage-test-runner PRIVATE
-    ${CMAKE_SOURCE_DIR}/tests/functional/pty
-    ${CMAKE_SOURCE_DIR}/tests/common
-)
-
-target_compile_definitions(pty-terminal-coverage-test-runner PRIVATE
-    TERMINAL_COVERAGE_HARNESS="$<TARGET_FILE:terminal_coverage_harness>"
-)
-
-target_link_libraries(pty-terminal-coverage-test-runner PRIVATE ptytest::ptytest_static)
-
-add_test(NAME PtyTerminalCoverageTests COMMAND pty-terminal-coverage-test-runner)
