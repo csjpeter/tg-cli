@@ -3,9 +3,10 @@
 
 /**
  * POSIX terminal implementation.
- * Uses termios(3), ioctl TIOCGWINSZ, wcwidth(3).
+ * Uses termios(3), ioctl TIOCGWINSZ and the core wcwidth table.
  */
 #include "../terminal.h"
+#include "core/wcwidth.h"
 #include <errno.h>
 #include <poll.h>
 #include <signal.h>
@@ -180,8 +181,10 @@ TermKey terminal_read_key(void) {
 }
 
 int terminal_wcwidth(uint32_t cp) {
-    int w = wcwidth((wchar_t)cp);
-    return (w < 0) ? 0 : w;
+    /* The project's own Unicode table, not libc wcwidth(): the program never
+     * calls setlocale(), and in the "C" locale libc reports -1 for every code
+     * point above ASCII (TG-2). */
+    return core_wcwidth(cp);
 }
 
 int terminal_wait_key(int timeout_ms) {

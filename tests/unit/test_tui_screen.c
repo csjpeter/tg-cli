@@ -78,6 +78,21 @@ static void test_put_str_clips_at_right_edge(void) {
     screen_free(&s);
 }
 
+/* TG-2: the program never calls setlocale(), so it runs in the "C" locale,
+ * where libc wcwidth() is -1 above ASCII.  The width must not depend on it. */
+static void test_put_str_non_ascii_in_c_locale(void) {
+    setlocale(LC_ALL, "C");
+    Screen s; ASSERT(screen_init(&s, 1, 10) == 0, "init");
+    int w = screen_put_str(&s, 0, 0, "\xC3\xA1rv\xC3\xADz", SCREEN_ATTR_NORMAL);
+    ASSERT(w == 5, "accented text keeps all five columns in the C locale");
+    ASSERT(s.back[0].cp == 0xE1, "a-acute is drawn");
+    w = screen_put_str(&s, 0, 5, "\xE4\xB8\xAD\xE6\x96\x87", SCREEN_ATTR_NORMAL);
+    ASSERT(w == 4, "CJK text takes two columns per character in the C locale");
+    ASSERT(terminal_wcwidth(0xE1) == 1, "terminal_wcwidth(a-acute) is 1");
+    ASSERT(terminal_wcwidth(0x4E2D) == 2, "terminal_wcwidth(CJK) is 2");
+    screen_free(&s);
+}
+
 static void test_put_str_wide_char_occupies_two_cells(void) {
     setlocale(LC_CTYPE, "en_US.UTF-8");
     Screen s; ASSERT(screen_init(&s, 1, 10) == 0, "init");
@@ -373,6 +388,7 @@ void test_tui_screen_run(void) {
     RUN_TEST(test_init_allocates_and_free_releases);
     RUN_TEST(test_init_rejects_bad_dims);
     RUN_TEST(test_put_str_ascii_lands_in_back);
+    RUN_TEST(test_put_str_non_ascii_in_c_locale);
     RUN_TEST(test_put_str_clips_at_right_edge);
     RUN_TEST(test_put_str_wide_char_occupies_two_cells);
     RUN_TEST(test_put_str_wide_char_clipped_when_one_cell_left);
