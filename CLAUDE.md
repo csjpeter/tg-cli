@@ -64,8 +64,8 @@ Core           →  src/core/          (logger, fs_util, raii.h, arg_parse,
                                       ige_aes, mtproto_crypto, mtproto_session,
                                       crypto wrappers, config)
 Platform       →  src/platform/{terminal,path,socket}.h
-                    src/platform/posix/    (Linux/macOS/Android)
-                    src/platform/windows/  (MinGW-w64)
+                    src/platform/posix/    (Linux)
+                    src/platform/windows/  (untested preparation, not supported)
 Vendor         →  src/vendor/tinf    (bundled tiny gzip decoder)
 ```
 
@@ -110,42 +110,35 @@ C11 (`-std=c11`). Linked against libssl (OpenSSL). All public functions should h
 
 ## Portability
 
-**Target platforms: Linux (primary), macOS, Windows, Android.**
+**Target platform: Linux (Debian) only.** A release for, or support of, macOS,
+iOS, Android or Windows is **not a goal** (owner's decision, 2026-10-10; see
+`policies/platform-scope-model.md` in the workspace). Nothing in this project
+promises it, and there is no build, package or CI for those platforms.
 
-Prefer standard C11 / POSIX interfaces.  Where platform-specific APIs are
-unavoidable, isolate them behind thin abstraction layers (e.g. a `platform/`
-module) so each target only needs to implement a small, well-defined surface.
+Only **preparation** is done, and only where it is cheap:
 
-Known portability gaps that need shims before non-Linux builds work:
+- Prefer standard C11 / POSIX interfaces when the portable form is no harder to
+  write; keep the few platform-specific things behind the interfaces in
+  `src/platform/`.
+- Where portability is not cheap, **write the dependency down** in
+  `docs/portability.md` (what binds the code to Linux, what another platform
+  would need, roughly how much work).
+- **Do not write ports.** No new `#ifdef _WIN32`, `__APPLE__` or `__ANDROID__`
+  branch and no new `src/platform/<other>/` code for a platform nobody builds
+  and tests, and no claim of support in the README, man pages or documents.
+- The existing `src/platform/windows/` files and the `_WIN32` branch of
+  `src/app/session_store.c` are untested preparation, kept as they are. They are
+  not a supported platform and must not be extended without the owner's say.
 
-| API / feature | macOS | Android (NDK) | Windows |
-|---|---|---|---|
-| `termios.h` raw mode | ✅ | ✅ | ❌ needs `GetConsoleMode`/`SetConsoleMode` |
-| `ioctl TIOCGWINSZ` | ✅ | ✅ | ❌ needs `GetConsoleScreenBufferInfo` |
-| `wcwidth(3)` | ✅ | ✅ | ❌ needs bundled implementation |
-| `asprintf` | ✅ | ✅ | ❌ needs a thin wrapper (available in MinGW) |
-| `__attribute__((cleanup(...)))` (RAII) | ✅ GCC / Apple Clang | ✅ Clang NDK | ✅ MinGW-w64 (GCC) |
-| Home dir (`$HOME`) | ✅ | ⚠️ use app data dir | ❌ use `%USERPROFILE%` |
-| Cache/config paths (`~/.cache`, `~/.config`) | ✅ | ❌ use app-specific dirs | ❌ use `%APPDATA%` |
-| TCP sockets | ✅ POSIX `sys/socket.h` | ✅ POSIX | ✅ Winsock2 (`platform/windows/socket.c`) |
-
-**Compiler policy: GCC (or Clang) on every platform — MSVC is out of scope.**
-
-| Platform | Toolchain |
-|----------|-----------|
-| Linux | GCC |
-| macOS | GCC (Homebrew) or Apple Clang |
-| Windows | MinGW-w64 (GCC) |
-| Android | NDK Clang |
-
-`__attribute__((cleanup(...)))` is supported by all of the above and is the
-canonical RAII mechanism for this project.  MSVC is explicitly not a target.
+Compiler policy: GCC (or Clang). MSVC is out of scope.
+`__attribute__((cleanup(...)))` is the canonical RAII mechanism.
 
 **Rules for new code:**
-- Never add a new POSIX/platform-specific call without noting it in the table above.
+- Never add a new POSIX/platform-specific call without noting it in
+  `docs/portability.md`.
 - Platform differences are resolved by the **build system, not `#ifdef` macros**.
   See the Platform Abstraction section below.
-- Android TUI works only inside a terminal emulator; non-interactive (batch) mode must always be functional.
+- Batch (non-interactive) mode must always stay functional.
 
 ## Platform Abstraction
 
@@ -157,16 +150,16 @@ time — **no `#ifdef` guards in shared code**.
 ```
 src/platform/
   terminal.h          ← canonical interface (get_cols, set_raw, restore, …)
-  posix/terminal.c    ← termios + ioctl  (Linux, macOS, Android)
-  windows/terminal.c  ← GetConsoleMode + GetConsoleScreenBufferInfo
+  posix/terminal.c    ← termios + ioctl  (Linux)
+  windows/terminal.c  ← untested preparation, not a supported platform
 
   path.h              ← home_dir(), cache_dir(), config_dir()
   posix/path.c        ← $HOME / XDG
-  windows/path.c      ← %USERPROFILE% / %APPDATA%
+  windows/path.c      ← untested preparation
 ```
 
 **Allowed `#ifdef` use:** only inside a platform implementation file itself
-(e.g. to distinguish Linux vs macOS within the POSIX backend), never in
+(never a branch for a platform nobody builds), never in
 `core/`, `domain/`, `infrastructure/`, or `main.c`.
 
 ## Dependency Inversion for Testability

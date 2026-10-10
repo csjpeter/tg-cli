@@ -68,7 +68,7 @@ All F-0x output respects:
 
 ## 6. Non-functional requirements
 
-- **Platforms:** Linux (primary), macOS, Windows (MinGW-w64), Android (NDK).
+- **Platforms:** Linux (Debian) only. A release for, or support of, macOS, iOS, Android or Windows is not a goal; only cheap preparation is done and the open items are listed in `docs/portability.md`.
 - **Toolchain:** GCC or Clang (MSVC explicitly out of scope).
 - **Dependencies:** C stdlib, POSIX, libssl (OpenSSL). No libcurl, no TDLib.
 - **Testing:** three levels — unit (mock IO), functional (real
