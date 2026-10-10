@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: LicenseRef-Proprietary */
 /* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
 /* Proprietary; the owner is the author. */
+/* Created: 2026-03-28 */
+/* Windows console terminal backend (untested preparation; see docs/portability.md). */
 
 /**
  * Windows terminal implementation for MinGW-w64.

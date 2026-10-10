@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-04-20 */
+/* Functional coverage for gzip_packed + msg_container. */
+
 /**
  * @file test_rpc_envelope.c
  * @brief TEST-81 — functional coverage for gzip_packed + msg_container.

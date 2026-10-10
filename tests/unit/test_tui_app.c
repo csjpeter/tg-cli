@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-04-17 */
+/* Unit tests for the TUI state machine. */
+
 /**
  * @file tests/unit/test_tui_app.c
  * @brief Unit tests for the TUI state machine (US-11 v2).

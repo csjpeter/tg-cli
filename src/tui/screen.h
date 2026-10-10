@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: LicenseRef-Proprietary */
 /* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
 /* Proprietary; the owner is the author. */
+/* Created: 2026-04-17 */
+/* Double-buffered terminal screen for the curses-style TUI. */
 
 #ifndef TUI_SCREEN_H
 #define TUI_SCREEN_H

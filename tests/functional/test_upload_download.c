@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-04-19 */
+/* Upload / download functional tests. */
+
 /**
  * @file test_upload_download.c
  * @brief FT-06 — upload / download functional tests.

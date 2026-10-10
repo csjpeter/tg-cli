@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: LicenseRef-Proprietary */
 /* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
 /* Proprietary; the owner is the author. */
+/* Created: 2026-03-28 */
+/* File system helpers for directory creation and permissions. */
 
 #ifndef FS_UTIL_H
 #define FS_UTIL_H

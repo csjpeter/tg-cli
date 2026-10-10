@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-04-16 */
+/* Unit tests for domain_download_photo. */
+
 /**
  * @file test_domain_media.c
  * @brief Unit tests for domain_download_photo (P6-01).

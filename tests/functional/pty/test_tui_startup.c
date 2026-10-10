@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-04-19 */
+/* Tg-tui --tui startup, dialog list display, and quit. */
+
 /**
  * @file test_tui_startup.c
  * @brief PTY-02 — tg-tui --tui startup, dialog list display, and quit.

@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-04-17 */
+/* Unit tests for P10-04 cross-DC authorization transfer. */
+
 /**
  * @file test_auth_transfer.c
  * @brief Unit tests for P10-04 cross-DC authorization transfer.

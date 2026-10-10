@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-04-29 */
+/* Entry point for the integration test suite. */
+
 /**
  * @file test_runner.c
  * @brief Entry point for the integration test suite.

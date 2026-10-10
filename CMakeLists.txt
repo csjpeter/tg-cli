@@ -1,3 +1,9 @@
+# SPDX-License-Identifier: LicenseRef-Proprietary
+# Copyright (c) 2026 Peter Csaszar (Császár Péter)
+# Proprietary; the owner is the author.
+# Created: 2026-03-29
+# CMake build rules for the project.
+
 cmake_minimum_required(VERSION 3.16)
 project(tg-cli C)
 

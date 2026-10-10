@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: LicenseRef-Proprietary */
 /* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
 /* Proprietary; the owner is the author. */
+/* Created: 2026-04-19 */
+/* Helpers to redact PII (phone numbers, auth codes, hashes) before logging. */
 
 #include "pii_redact.h"
 #include <string.h>

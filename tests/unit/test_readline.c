@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-03-31 */
+/* Unit tests for readline.c (history API and non-TTY path). */
+
 /**
  * @file test_readline.c
  * @brief Unit tests for readline.c (history API and non-TTY path).

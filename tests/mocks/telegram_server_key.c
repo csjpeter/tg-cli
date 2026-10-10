@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-04-20 */
+/* Test-only RSA key pair for functional DH handshake tests. */
+
 /**
  * @file telegram_server_key.c  [TEST_ONLY]
  * @brief Test-only RSA key pair for functional DH handshake tests.

@@ -4,7 +4,7 @@
 # Proprietary; the owner is the author.
 # Created: 2026-10-10
 # Checks that LICENSE, the README, the man pages and every file's SPDX tag declare the same proprietary licence.
-#
+
 # Usage: check_license.sh <source root>
 set -eu
 root="$1"

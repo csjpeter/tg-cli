@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-03-29 */
+/* Unit tests for Phase 2 modules (socket mock, transport, session). */
+
 /**
  * @file test_phase2.c
  * @brief Unit tests for Phase 2 modules (socket mock, transport, session).

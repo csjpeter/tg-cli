@@ -1,4 +1,10 @@
 #!/bin/bash
+# SPDX-License-Identifier: LicenseRef-Proprietary
+# Copyright (c) 2026 Peter Csaszar (Császár Péter)
+# Proprietary; the owner is the author.
+# Created: 2026-04-19
+# Verifies that bin/tg-cli-ro contains none of the write-domain symbols.
+
 # ci/check-ro-isolation.sh
 #
 # Verifies that bin/tg-cli-ro contains none of the write-domain symbols.

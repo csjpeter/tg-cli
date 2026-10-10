@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-04-20 */
+/* Functional coverage for deep pagination of messages.getDialogs, messages.getHistory, and messages.search. */
+
 /**
  * @file test_deep_pagination.c
  * @brief TEST-77 / US-26 — functional coverage for deep pagination of

@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-03-29 */
+/* Unit tests for AES-256-IGE (using mock crypto). */
+
 /**
  * @file test_ige_aes.c
  * @brief Unit tests for AES-256-IGE (using mock crypto).

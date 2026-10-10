@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-03-31 */
+/* Unit tests for TL constructor registry. */
+
 /**
  * @file test_registry.c
  * @brief Unit tests for TL constructor registry.

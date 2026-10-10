@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-10-10 */
+/* Terminal_raw_enter() failure paths (TG-4). */
+
 /**
  * @file test_terminal_raw_faults.c
  * @brief terminal_raw_enter() failure paths (TG-4).

@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-04-17 */
+/* Unit tests for the status row. */
+
 /**
  * @file tests/unit/test_tui_status_row.c
  * @brief Unit tests for the status row (US-11 v2).
