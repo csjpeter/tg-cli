@@ -117,18 +117,30 @@ TermKey terminal_read_key(void) {
             case 'D': result = TERM_KEY_LEFT;      break;  /* ESC[D — Left arrow  */
             case 'H': result = TERM_KEY_HOME;      break;  /* ESC[H — Home        */
             case 'F': result = TERM_KEY_END;       break;  /* ESC[F — End         */
-            case '1': { /* ESC[1~ Home or ESC[1;...  */
+            case '1': case '3': case '4': case '5':
+            case '6': case '7': case '8': {
+                /* ESC[<n>~ is a plain editing key; ESC[<n>;<mod>~ and
+                 * ESC[1;<mod><A-F> are modified keys.  Consume the whole
+                 * sequence up to its final byte so no parameter or final
+                 * byte is left behind to be read as typed text (TG-3);
+                 * only the unmodified ESC[<n>~ form maps to a key. */
                 int c4 = read_byte();
-                if (c4 == '~') result = TERM_KEY_HOME;
-                else           result = TERM_KEY_IGNORE; /* ESC[1;... modifier */
+                if (c4 == '~') {
+                    switch (c3) {
+                    case '1': case '7': result = TERM_KEY_HOME;      break;
+                    case '3':           result = TERM_KEY_DELETE;    break;
+                    case '4': case '8': result = TERM_KEY_END;       break;
+                    case '5':           result = TERM_KEY_PREV_PAGE; break;
+                    default:            result = TERM_KEY_NEXT_PAGE; break;
+                    }
+                } else {
+                    int ch = c4;
+                    while (ch != -1 && !(ch >= 0x40 && ch <= 0x7E))
+                        ch = read_byte();
+                    result = TERM_KEY_IGNORE;
+                }
                 break;
             }
-            case '3': read_byte(); result = TERM_KEY_DELETE;    break; /* ESC[3~ Del  */
-            case '4': read_byte(); result = TERM_KEY_END;       break; /* ESC[4~ End  */
-            case '5': read_byte(); result = TERM_KEY_PREV_PAGE; break; /* ESC[5~ PgUp */
-            case '6': read_byte(); result = TERM_KEY_NEXT_PAGE; break; /* ESC[6~ PgDn */
-            case '7': read_byte(); result = TERM_KEY_HOME;      break; /* ESC[7~ Home */
-            case '8': read_byte(); result = TERM_KEY_END;       break; /* ESC[8~ End  */
             default:
                 if (c3 != -1) {
                     int ch;
