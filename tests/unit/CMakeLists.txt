@@ -93,3 +93,8 @@ add_test(NAME LicenseDeclaration
 # (policies/source-header-model.md).
 add_test(NAME SourceHeaders
          COMMAND ${CMAKE_SOURCE_DIR}/tests/unit/check_headers.sh ${CMAKE_SOURCE_DIR})
+
+# The owner's private domain appears in no tracked file
+# (policies/private-names-model.md).
+add_test(NAME PrivateNames
+         COMMAND ${CMAKE_SOURCE_DIR}/tests/unit/check_private_names.sh ${CMAKE_SOURCE_DIR})
