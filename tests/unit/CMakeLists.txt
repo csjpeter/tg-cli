@@ -63,7 +63,6 @@ set(TEST_SOURCES
 add_executable(test-runner ${TEST_SOURCES})
 target_link_libraries(test-runner PRIVATE tg-domain-write tg-domain-read tg-app tg-tui-lib tg-proto OpenSSL::SSL OpenSSL::Crypto)
 
-add_test(NAME UnitTests COMMAND test-runner)
 
 # terminal_raw_enter() failure paths (TG-4): terminal.c is compiled again with
 # tcgetattr/tcsetattr renamed to the fakes in the test.  No other test links
@@ -76,4 +75,3 @@ set_source_files_properties(${CMAKE_SOURCE_DIR}/src/platform/posix/terminal.c
     TARGET_DIRECTORY test-terminal-raw-faults
     PROPERTIES COMPILE_DEFINITIONS "tcgetattr=tg_test_tcgetattr;tcsetattr=tg_test_tcsetattr;poll=tg_test_poll;isatty=tg_test_isatty")
 target_include_directories(test-terminal-raw-faults PRIVATE ${CMAKE_SOURCE_DIR}/src)
-add_test(NAME TerminalRawFaults COMMAND test-terminal-raw-faults)

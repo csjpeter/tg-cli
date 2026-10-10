@@ -217,26 +217,15 @@ target_link_libraries(tg-cli PRIVATE tg-domain-read tg-domain-write)
 install(FILES claude/skills/tg-cli/SKILL.md
         DESTINATION share/claude-skills/tg-cli)
 
-# The skill must agree with the man pages.
-add_test(NAME SkillMatchesManPages
-         COMMAND ${CMAKE_SOURCE_DIR}/tests/skill/check_skill.sh ${CMAKE_SOURCE_DIR})
-
 # PTY test library (POSIX only)
 if(UNIX)
     add_subdirectory(libs/libptytest)
 endif()
 
-# Unit tests
+# Tests: every one is declared in tests/CMakeLists.txt with project_test() and
+# built into build/tests/<category>/bin/<name> (policies/testing-model.md).
 enable_testing()
-add_subdirectory(tests/unit)
-
-# Functional tests (real crypto, no mocks)
-add_subdirectory(tests/functional)
-
-# Integration tests — target tg-integration-test-runner, EXCLUDED_FROM_ALL.
-# Build explicitly with: cmake --build <dir> --target tg-integration-test-runner
-# or via: ./manage.sh integration
-add_subdirectory(tests/integration)
+add_subdirectory(tests)
 
 # libFuzzer harness — only built when -DENABLE_FUZZ=ON is passed.
 # The option is declared earlier (near ENABLE_COVERAGE) so the

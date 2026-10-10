@@ -9,7 +9,6 @@ add_executable(pty-test-runner
 
 target_link_libraries(pty-test-runner PRIVATE ptytest)
 
-add_test(NAME PtyTests COMMAND pty-test-runner)
 
 # ── PTY TUI startup tests (PTY-02) ───────────────────────────────────
 # These require the full tg-app / tg-proto / tg-crypto stack so the stub
@@ -18,11 +17,11 @@ add_executable(pty-tui-test-runner
     test_tui_startup.c
     pty_tel_stub.c
     # Real crypto (not mock) — the stub must speak real AES-IGE.
-    ../../../src/core/crypto.c
+    ${CMAKE_SOURCE_DIR}/src/core/crypto.c
 )
 
 target_include_directories(pty-tui-test-runner PRIVATE
-    ${CMAKE_SOURCE_DIR}/tests/functional/pty
+    ${CMAKE_SOURCE_DIR}/tests/pty
     ${CMAKE_SOURCE_DIR}/tests/common
     ${CMAKE_SOURCE_DIR}/tests/mocks
     ${CMAKE_SOURCE_DIR}/src
@@ -41,17 +40,16 @@ target_link_libraries(pty-tui-test-runner PRIVATE
     Threads::Threads
 )
 
-add_test(NAME PtyTuiTests COMMAND pty-tui-test-runner)
 
 # ── PTY-04: TUI SIGWINCH resize tests ────────────────────────────────
 add_executable(pty-tui-resize-test-runner
     test_tui_resize.c
     pty_tel_stub.c
-    ../../../src/core/crypto.c
+    ${CMAKE_SOURCE_DIR}/src/core/crypto.c
 )
 
 target_include_directories(pty-tui-resize-test-runner PRIVATE
-    ${CMAKE_SOURCE_DIR}/tests/functional/pty
+    ${CMAKE_SOURCE_DIR}/tests/pty
     ${CMAKE_SOURCE_DIR}/tests/common
     ${CMAKE_SOURCE_DIR}/tests/mocks
     ${CMAKE_SOURCE_DIR}/src
@@ -70,7 +68,6 @@ target_link_libraries(pty-tui-resize-test-runner PRIVATE
     Threads::Threads
 )
 
-add_test(NAME PtyTuiResizeTests COMMAND pty-tui-resize-test-runner)
 
 # ── PTY-03: readline navigation tests ────────────────────────────────
 # rl_harness: tiny binary that calls rl_readline in a loop and prints
@@ -92,7 +89,7 @@ add_executable(pty-readline-test-runner
 )
 
 target_include_directories(pty-readline-test-runner PRIVATE
-    ${CMAKE_SOURCE_DIR}/tests/functional/pty
+    ${CMAKE_SOURCE_DIR}/tests/pty
     ${CMAKE_SOURCE_DIR}/tests/common
     ${CMAKE_SOURCE_DIR}/libs/libptytest
 )
@@ -103,17 +100,16 @@ target_compile_definitions(pty-readline-test-runner PRIVATE
 
 target_link_libraries(pty-readline-test-runner PRIVATE ptytest)
 
-add_test(NAME PtyReadlineTests COMMAND pty-readline-test-runner)
 
 # ── PTY-05: Ctrl-C exit + terminal-restore tests ─────────────────────
 add_executable(pty-ctrl-c-test-runner
     test_ctrl_c_exit.c
     pty_tel_stub.c
-    ../../../src/core/crypto.c
+    ${CMAKE_SOURCE_DIR}/src/core/crypto.c
 )
 
 target_include_directories(pty-ctrl-c-test-runner PRIVATE
-    ${CMAKE_SOURCE_DIR}/tests/functional/pty
+    ${CMAKE_SOURCE_DIR}/tests/pty
     ${CMAKE_SOURCE_DIR}/tests/common
     ${CMAKE_SOURCE_DIR}/tests/mocks
     ${CMAKE_SOURCE_DIR}/src
@@ -132,7 +128,6 @@ target_link_libraries(pty-ctrl-c-test-runner PRIVATE
     Threads::Threads
 )
 
-add_test(NAME PtyCtrlCTests COMMAND pty-ctrl-c-test-runner)
 
 # ── PTY-06: config wizard interactive tests (FEAT-37) ────────────────
 add_executable(pty-wizard-test-runner
@@ -140,7 +135,7 @@ add_executable(pty-wizard-test-runner
 )
 
 target_include_directories(pty-wizard-test-runner PRIVATE
-    ${CMAKE_SOURCE_DIR}/tests/functional/pty
+    ${CMAKE_SOURCE_DIR}/tests/pty
     ${CMAKE_SOURCE_DIR}/tests/common
     ${CMAKE_SOURCE_DIR}/libs/libptytest
 )
@@ -151,7 +146,6 @@ target_compile_definitions(pty-wizard-test-runner PRIVATE
 
 target_link_libraries(pty-wizard-test-runner PRIVATE ptytest)
 
-add_test(NAME PtyWizardTests COMMAND pty-wizard-test-runner)
 
 # ── TEST-87: terminal_read_password masking tests ────────────────────
 # password_harness: tiny binary that calls terminal_read_password() and
@@ -174,7 +168,7 @@ add_executable(pty-password-test-runner
 )
 
 target_include_directories(pty-password-test-runner PRIVATE
-    ${CMAKE_SOURCE_DIR}/tests/functional/pty
+    ${CMAKE_SOURCE_DIR}/tests/pty
     ${CMAKE_SOURCE_DIR}/tests/common
     ${CMAKE_SOURCE_DIR}/libs/libptytest
 )
@@ -185,7 +179,6 @@ target_compile_definitions(pty-password-test-runner PRIVATE
 
 target_link_libraries(pty-password-test-runner PRIVATE ptytest)
 
-add_test(NAME PtyPasswordTests COMMAND pty-password-test-runner)
 
 # ── TEST-88: terminal.c coverage harness ─────────────────────────────
 # terminal_coverage_harness: minimal binary that exercises terminal functions
@@ -208,7 +201,7 @@ add_executable(pty-terminal-coverage-test-runner
 )
 
 target_include_directories(pty-terminal-coverage-test-runner PRIVATE
-    ${CMAKE_SOURCE_DIR}/tests/functional/pty
+    ${CMAKE_SOURCE_DIR}/tests/pty
     ${CMAKE_SOURCE_DIR}/tests/common
     ${CMAKE_SOURCE_DIR}/libs/libptytest
 )
@@ -219,4 +212,3 @@ target_compile_definitions(pty-terminal-coverage-test-runner PRIVATE
 
 target_link_libraries(pty-terminal-coverage-test-runner PRIVATE ptytest)
 
-add_test(NAME PtyTerminalCoverageTests COMMAND pty-terminal-coverage-test-runner)

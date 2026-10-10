@@ -36,7 +36,10 @@ set(INTEG_INCLUDES
 
 # ---- Test runner ----
 
-add_executable(tg-integration-test-runner EXCLUDE_FROM_ALL ${INTEGRATION_SOURCES})
+# Part of the default build: a declared test must have its file in
+# build/tests/integration/bin/ (policies/testing-model.md).  Running it needs a
+# real Telegram test DC and credentials: ./manage.sh integration.
+add_executable(tg-integration-test-runner ${INTEGRATION_SOURCES})
 target_link_libraries(tg-integration-test-runner PRIVATE ${INTEG_LIBS})
 target_include_directories(tg-integration-test-runner PRIVATE ${INTEG_INCLUDES})
 
