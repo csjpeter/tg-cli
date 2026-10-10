@@ -35,6 +35,7 @@ show_help() {
     echo "  coverage           Run tests and generate coverage report"
     echo "  tidy               Run clang-tidy static analysis on src/ (warn-only)"
     echo "  check-ro-isolation Verify tg-cli-ro contains no write-domain symbols (ADR-0005)"
+    echo "  check-static-libs  Verify the binaries have no libtuikit.so / libptytest.so dependency"
     echo "  clean-logs         Purge all application log files"
     echo "  fuzz               Build and run libFuzzer harness for TL parser (requires clang)"
     echo "  clean              Remove all build artifacts"
@@ -84,6 +85,11 @@ install_deps() {
                     echo "Detected Ubuntu 24.04. Installing dependencies..."
                     sudo apt-get update
                     sudo apt-get install -y build-essential cmake libssl-dev lcov valgrind clang-tidy
+                    # The workspace libraries come from the workspace apt
+                    # repository, unless the submodules in deps/ are used.
+                    if [ "${WORKSPACE_LIBS:-auto}" != bundled ]; then
+                        sudo apt-get install -y libtuikit-dev libptytest-dev
+                    fi
                 else
                     echo "Unsupported Ubuntu version: $VERSION_ID. Only 24.04 is explicitly supported."
                     exit 1
@@ -327,6 +333,9 @@ case "$1" in
         ;;
     check-ro-isolation)
         bash ci/check-ro-isolation.sh "${2:-$BIN_DIR/tg-cli-ro}"
+        ;;
+    check-static-libs)
+        bash ci/check-static-libs.sh "$BIN_DIR/tg-cli-ro" "$BIN_DIR/tg-tui" "$BIN_DIR/tg-cli"
         ;;
     clean-logs)
         rm -rf ~/.cache/tg-cli/logs/*

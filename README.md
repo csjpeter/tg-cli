@@ -142,6 +142,8 @@ an arg-parse bug were exploited.
 | C11 compiler (GCC/Clang) | Build |
 | POSIX sockets | TCP transport (built into the OS) |
 | libssl (OpenSSL) | AES, SHA-256, RSA, DH crypto primitives |
+| libtuikit | Terminal layer, TUI, line editor, password prompt (static; see [Workspace libraries](#workspace-libraries)) |
+| libptytest | PTY-driven tests only (static; test dependency) |
 | CMake | Build system |
 
 **No third-party Telegram libraries.** No TDLib, no Bot API wrappers, no JSON libraries.
@@ -152,7 +154,7 @@ Everything is implemented from scratch.
 ## Building
 
 ```bash
-./manage.sh deps     # Install system dependencies (Ubuntu 24.04 / Rocky 9)
+./manage.sh deps     # Install system dependencies, libtuikit-dev and libptytest-dev included (Ubuntu 24.04 / Rocky 9)
 ./manage.sh build    # Release build — produces bin/tg-cli-ro, bin/tg-tui, bin/tg-cli
 ./manage.sh test     # Unit tests under AddressSanitizer
 ./manage.sh valgrind # Unit tests under Valgrind
@@ -298,7 +300,8 @@ docs/
 │   ├── 0002-raii-memory-safety.md
 │   ├── 0003-custom-test-framework.md
 │   ├── 0004-dependency-inversion.md
-│   └── 0005-three-binary-architecture.md
+│   ├── 0005-three-binary-architecture.md
+│   └── 0008-terminal-layer-is-libtuikit.md
 ```
 
 ---
@@ -330,6 +333,8 @@ ways, chosen at configure time with `-DWORKSPACE_LIBS=bundled|system|auto`:
   it; no `git submodule` command has to be typed.
 
 Both ways are built and tested. No copy of the library's sources is in the tree.
+`./manage.sh check-static-libs` (and the `StaticWorkspaceLibs` ctest) verifies that
+no binary depends on `libtuikit.so` or `libptytest.so`.
 
 ## License
 

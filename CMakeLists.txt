@@ -224,6 +224,15 @@ target_link_libraries(tg-cli PRIVATE tg-domain-read tg-domain-write)
 install(FILES claude/skills/tg-cli/SKILL.md
         DESTINATION share/claude-skills/tg-cli)
 
+# The workspace libraries are linked statically: no libtuikit.so or
+# libptytest.so may show up among the dependencies of a binary.
+add_test(NAME StaticWorkspaceLibs
+         COMMAND ${CMAKE_SOURCE_DIR}/ci/check-static-libs.sh
+                 $<TARGET_FILE:tg-cli-ro> $<TARGET_FILE:tg-tui> $<TARGET_FILE:tg-cli>)
+add_test(NAME StaticWorkspaceLibsCheckSelfTest
+         COMMAND ${CMAKE_SOURCE_DIR}/tests/ci/check_static_libs_test.sh
+                 ${CMAKE_SOURCE_DIR} ${CMAKE_BINARY_DIR}/tests/ci)
+
 # The skill must agree with the man pages.
 add_test(NAME SkillMatchesManPages
          COMMAND ${CMAKE_SOURCE_DIR}/tests/skill/check_skill.sh ${CMAKE_SOURCE_DIR})

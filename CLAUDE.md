@@ -64,6 +64,7 @@ Observed patterns and their guardrails for every future session:
 ./manage.sh test       # Unit tests with ASAN
 ./manage.sh valgrind   # Unit tests with Valgrind
 ./manage.sh coverage   # GCOV/LCOV coverage report (>90% goal for core/infra)
+./manage.sh check-static-libs  # No libtuikit.so / libptytest.so dependency in the binaries
 ./manage.sh clean      # Remove build artifacts
 ./manage.sh deps       # Install system dependencies (Ubuntu 24.04 / Rocky 9)
 ```
@@ -144,7 +145,7 @@ git submodule under `deps/` pinned to a release tag, linked statically
 Both are built and tested. **Never copy their sources into the tree**, never
 edit a submodule in place; a change a library needs is a ticket in the library's
 project and a bump of the pin to the new release tag
-(`policies/dependencies-model.md`).
+(`policies/dependencies-model.md`; ADR-0008). `ci/check-static-libs.sh` guards that no binary needs their `.so`.
 
 ## Portability
 

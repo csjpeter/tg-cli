@@ -202,3 +202,11 @@ skipped gracefully on Windows cross-compile targets.
 
 Full coverage workflow is documented in
 [`docs/dev/coverage.md`](coverage.md).
+
+## Static workspace libraries
+
+`./manage.sh check-static-libs` runs `ci/check-static-libs.sh` on the three
+binaries (ldd must not list `libtuikit.so` or `libptytest.so`). The same check
+is the ctest `StaticWorkspaceLibs`; `StaticWorkspaceLibsCheckSelfTest` feeds the
+script a fake `ldd` (`LDD=` override) to prove it accepts a clean binary and
+rejects a dependency on either library or a missing binary.

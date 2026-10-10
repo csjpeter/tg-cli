@@ -51,3 +51,4 @@
 - [ADR-0005: Three-binary Architecture](adr/0005-three-binary-architecture.md)
 - [ADR-0006: Three-level Test Strategy](adr/0006-test-strategy.md)
 - [ADR-0007: In-process Mock Telegram Server](adr/0007-mock-telegram-server.md)
+- [ADR-0008: The terminal layer is libtuikit](adr/0008-terminal-layer-is-libtuikit.md)
