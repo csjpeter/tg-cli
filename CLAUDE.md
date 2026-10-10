@@ -126,9 +126,15 @@ Only **preparation** is done, and only where it is cheap:
 - **Do not write ports.** No new `#ifdef _WIN32`, `__APPLE__` or `__ANDROID__`
   branch and no new `src/platform/<other>/` code for a platform nobody builds
   and tests, and no claim of support in the README, man pages or documents.
-- The existing `src/platform/windows/` files and the `_WIN32` branch of
-  `src/app/session_store.c` are untested preparation, kept as they are. They are
-  not a supported platform and must not be extended without the owner's say.
+- **Local rule (owner's decision, 2026-10-10): the platform-compatibility code
+  that already exists is preserved.** `src/platform/windows/*`, the `_WIN32`
+  branch of `src/app/session_store.c` and the CMake `if(WIN32)` source selection
+  are not deleted, not "cleaned up" and not moved out, also when another ticket
+  (for example the libtuikit migration) makes them look unused; changes that
+  touch them keep them compiling in principle. They are untested preparation,
+  not a supported platform. Beyond this, the general policy
+  (`policies/platform-scope-model.md`) applies unchanged: no new ports, no
+  new branches, no claims of support.
 
 Compiler policy: GCC (or Clang). MSVC is out of scope.
 `__attribute__((cleanup(...)))` is the canonical RAII mechanism.

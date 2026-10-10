@@ -17,9 +17,11 @@ list. It is a list of what is waiting, not a plan, and not a claim of support.
 | `__attribute__((cleanup))` RAII | `src/core/raii.h` | GCC or Clang only; MSVC is out of scope |
 | Bash `manage.sh`, `apt`, Valgrind, LCOV | `manage.sh`, `ci/` | none: the build and test host is Linux regardless |
 
-## Existing preparation that is not support
+## Existing platform-compatibility code is preserved
 
-`src/platform/windows/*` and the `_WIN32` branch of `src/app/session_store.c`
-predate the platform decision. They are not built, not tested and not a
-supported platform. They are kept until the owner decides whether to remove them
-(for example as part of TG-13). They must not be extended.
+`src/platform/windows/*`, the `_WIN32` branch of `src/app/session_store.c` and
+the `if(WIN32)` source selection in `CMakeLists.txt` predate the platform
+decision. By the owner's decision (2026-10-10) **they are kept**: not deleted,
+not refactored away. They are not built, not tested and not a supported
+platform, and no claim is made for them. New code follows the general policy
+(`policies/platform-scope-model.md`): no new ports.
