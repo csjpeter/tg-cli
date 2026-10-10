@@ -14,6 +14,7 @@
 
 #include "tui_grid.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 /* --- Helpers --- */
@@ -94,7 +95,7 @@ static void test_render_unloaded_shows_select_hint(void) {
     HistoryPane hp; history_pane_init(&hp);
     tui_rect p = tui_rect_make(0, 0, 5, 25);
     hp.lv.rows_visible = p.rows;
-    history_pane_render(&hp, &p, s);
+    history_pane_render(&hp, &p, s, 1);
     char buf[64]; tgrid_row(s, 2, buf, sizeof(buf));
     ASSERT(strstr(buf, "(select a dialog)") != NULL, "hint shown");
     tui_screen_free(s);
@@ -107,9 +108,9 @@ static void test_render_loaded_empty_shows_no_messages(void) {
     history_pane_set_entries(&hp, &peer, NULL, 0);
     tui_rect p = tui_rect_make(0, 0, 5, 25);
     hp.lv.rows_visible = p.rows;
-    history_pane_render(&hp, &p, s);
+    history_pane_render(&hp, &p, s, 1);
     char buf[64]; tgrid_row(s, 2, buf, sizeof(buf));
-    ASSERT(strstr(buf, "(no messages)") != NULL, "empty placeholder");
+    ASSERT(strstr(buf, "(no messages - r reloads)") != NULL, "empty placeholder");
     tui_screen_free(s);
 }
 
@@ -125,7 +126,7 @@ static void test_render_rows_show_direction_and_text(void) {
     history_pane_set_entries(&hp, &peer, src, 3);
     tui_rect p = tui_rect_make(0, 0, 4, 30);
     hp.lv.rows_visible = p.rows;
-    history_pane_render(&hp, &p, s);
+    history_pane_render(&hp, &p, s, 1);
     char row0[64]; tgrid_row(s, 0, row0, sizeof(row0));
     char row1[64]; tgrid_row(s, 1, row1, sizeof(row1));
     char row2[64]; tgrid_row(s, 2, row2, sizeof(row2));
@@ -145,7 +146,7 @@ static void test_render_media_without_text_shows_media_marker(void) {
     history_pane_set_entries(&hp, &peer, src, 1);
     tui_rect p = tui_rect_make(0, 0, 2, 30);
     hp.lv.rows_visible = p.rows;
-    history_pane_render(&hp, &p, s);
+    history_pane_render(&hp, &p, s, 1);
     char row[64]; tgrid_row(s, 0, row, sizeof(row));
     ASSERT(strstr(row, "(media)") != NULL, "media marker");
     tui_screen_free(s);
@@ -164,7 +165,7 @@ static void test_render_respects_scroll(void) {
     tui_rect p = tui_rect_make(0, 0, 3, 30);
     hp.lv.rows_visible = p.rows;
     tui_listview_end(&hp.lv);  /* scroll to bottom */
-    history_pane_render(&hp, &p, s);
+    history_pane_render(&hp, &p, s, 1);
     char row0[64]; tgrid_row(s, 0, row0, sizeof(row0));
     char row2[64]; tgrid_row(s, 2, row2, sizeof(row2));
     ASSERT(strstr(row0, "msg3") != NULL, "row 0 shows msg3 after scroll");
@@ -173,15 +174,59 @@ static void test_render_respects_scroll(void) {
 }
 
 static void test_render_complex_row_is_dimmed(void) {
-    tui_screen *s = tui_screen_new(2, 20); ASSERT(s != NULL, "init screen");
+    tui_screen *s = tui_screen_new(3, 20); ASSERT(s != NULL, "init screen");
     HistoryPane hp; history_pane_init(&hp);
     HistoryPeer peer = mk_peer_self();
-    HistoryEntry src[1] = { mk_complex(42) };
-    history_pane_set_entries(&hp, &peer, src, 1);
-    tui_rect p = tui_rect_make(0, 0, 2, 20);
+    HistoryEntry src[2] = { mk_text(43, 0, "plain"), mk_complex(42) };
+    history_pane_set_entries(&hp, &peer, src, 2);
+    tui_rect p = tui_rect_make(0, 0, 3, 20);
     hp.lv.rows_visible = p.rows;
-    history_pane_render(&hp, &p, s);
-    ASSERT(tgrid_attrs(s, 0, 0) & TUI_ATTR_DIM, "complex row is dimmed");
+    history_pane_render(&hp, &p, s, 1);
+    /* Row 0 is the selected one; the complex row below it keeps its dim. */
+    ASSERT(tgrid_attrs(s, 1, 0) & TUI_ATTR_DIM, "complex row is dimmed");
+    ASSERT(!(tgrid_attrs(s, 0, 0) & TUI_ATTR_DIM), "plain row is not dimmed");
+    tui_screen_free(s);
+}
+
+static void test_render_selection_style_follows_focus(void) {
+    tui_screen *s = tui_screen_new(3, 20); ASSERT(s != NULL, "init screen");
+    HistoryPane hp; history_pane_init(&hp);
+    HistoryPeer peer = mk_peer_self();
+    HistoryEntry src[2] = { mk_text(2, 0, "one"), mk_text(1, 0, "two") };
+    history_pane_set_entries(&hp, &peer, src, 2);
+    tui_rect p = tui_rect_make(0, 0, 3, 20);
+    TuiGrid *g = malloc(sizeof(*g)); ASSERT(g != NULL, "alloc");
+
+    history_pane_render(&hp, &p, s, 1);
+    tui_grid_capture(g, s);
+    ASSERT(g->fg[0][0] == TUI_BLACK && g->bg[0][19] == TUI_CYAN
+           && (g->attrs[0][0] & TUI_ATTR_BOLD), "selected row bold black on cyan");
+    ASSERT(g->bg[1][0] == TUI_COLOR_DEFAULT, "other row not filled");
+
+    history_pane_render(&hp, &p, s, 0);
+    tui_grid_capture(g, s);
+    ASSERT(g->bg[0][0] == TUI_COLOR_DEFAULT, "no fill when unfocused");
+    ASSERT(g->attrs[0][0] & TUI_ATTR_UNDERLINE, "underlined when unfocused");
+    free(g);
+    tui_screen_free(s);
+}
+
+static void test_render_unreadable_history_says_so(void) {
+    tui_screen *s = tui_screen_new(5, 40); ASSERT(s != NULL, "init screen");
+    HistoryPane hp; history_pane_init(&hp);
+    HistoryPeer peer = mk_peer_self();
+    history_pane_set_entries(&hp, &peer, NULL, 0);
+    hp.load_failed = 1;
+    tui_rect p = tui_rect_make(0, 0, 5, 40);
+    history_pane_render(&hp, &p, s, 1);
+    char buf[64]; tgrid_row(s, 2, buf, sizeof(buf));
+    ASSERT(strstr(buf, "could not read messages") != NULL, "says it could not read");
+    ASSERT(strstr(buf, "no messages") == NULL, "not shown as empty");
+    TuiGrid *g = malloc(sizeof(*g)); ASSERT(g != NULL, "alloc");
+    tui_grid_capture(g, s);
+    int col = (int)(strstr(buf, "could") - buf);
+    ASSERT(g->fg[2][col] == TUI_RED, "in the error colour");
+    free(g);
     tui_screen_free(s);
 }
 
@@ -189,9 +234,9 @@ static void test_render_null_args_noop(void) {
     tui_screen *s = tui_screen_new(2, 10); ASSERT(s != NULL, "init screen");
     tui_rect p = tui_rect_make(0, 0, 2, 10);
     HistoryPane hp; history_pane_init(&hp);
-    history_pane_render(NULL, &p, s);
-    history_pane_render(&hp, NULL, s);
-    history_pane_render(&hp, &p, NULL);
+    history_pane_render(NULL, &p, s, 1);
+    history_pane_render(&hp, NULL, s, 1);
+    history_pane_render(&hp, &p, NULL, 1);
     ASSERT(tgrid_ch(s, 0, 0) == ' ', "back untouched");
     tui_screen_free(s);
 }
@@ -206,5 +251,7 @@ void test_tui_history_pane_run(void) {
     RUN_TEST(test_render_media_without_text_shows_media_marker);
     RUN_TEST(test_render_respects_scroll);
     RUN_TEST(test_render_complex_row_is_dimmed);
+    RUN_TEST(test_render_selection_style_follows_focus);
+    RUN_TEST(test_render_unreadable_history_says_so);
     RUN_TEST(test_render_null_args_noop);
 }

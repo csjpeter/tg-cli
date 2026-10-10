@@ -14,6 +14,7 @@
 
 #include "tui_grid.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 /* --- Helpers --- */
@@ -87,15 +88,15 @@ static void test_selected_after_navigation(void) {
 /* --- Render tests --- */
 
 static void test_render_empty_pane_shows_placeholder(void) {
-    tui_screen *s = tui_screen_new(5, 20); ASSERT(s != NULL, "init screen");
+    tui_screen *s = tui_screen_new(5, 30); ASSERT(s != NULL, "init screen");
     DialogPane dp; dialog_pane_init(&dp);
-    tui_rect p = tui_rect_make(0, 0, 5, 20);
+    tui_rect p = tui_rect_make(0, 0, 5, 30);
     dp.lv.rows_visible = p.rows;
     dialog_pane_render(&dp, &p, s, /*focused*/ 1);
 
     /* Row 2 (middle of 5 rows) should hold the placeholder text. */
-    char buf[32]; tgrid_row(s, 2, buf, sizeof(buf));
-    ASSERT(strstr(buf, "(no dialogs)") != NULL, "placeholder rendered");
+    char buf[64]; tgrid_row(s, 2, buf, sizeof(buf));
+    ASSERT(strstr(buf, "(no dialogs - r reloads)") != NULL, "placeholder rendered");
     tui_screen_free(s);
 }
 
@@ -141,21 +142,22 @@ static void test_render_highlights_selection_when_focused(void) {
     dp.lv.rows_visible = p.rows;
     dialog_pane_render(&dp, &p, s, /*focused*/ 1);
 
-    /* Row 0 (not selected) should not be reversed. */
-    ASSERT((tgrid_attrs(s, 0, 0) & TUI_ATTR_REVERSE) == 0,
-           "row 0 not highlighted");
-    /* Row 1 (selected) should be reversed across the full pane width. */
+    TuiGrid *g = malloc(sizeof(*g)); ASSERT(g != NULL, "alloc");
+    tui_grid_capture(g, s);
+    /* The selected row is bold black on cyan across the full pane width. */
     for (int c = 0; c < p.cols; c++) {
-        uint8_t a = tgrid_attrs(s, 1, c);
-        ASSERT(a & TUI_ATTR_REVERSE, "row 1 fully highlighted");
+        ASSERT(g->fg[1][c] == TUI_BLACK && g->bg[1][c] == TUI_CYAN,
+               "row 1 black on cyan");
+        ASSERT(g->attrs[1][c] & TUI_ATTR_BOLD, "row 1 bold");
     }
-    /* Row 2 should not be reversed. */
-    ASSERT((tgrid_attrs(s, 2, 0) & TUI_ATTR_REVERSE) == 0,
-           "row 2 not highlighted");
+    /* The other rows keep the terminal's own colours. */
+    ASSERT(g->bg[0][0] == TUI_COLOR_DEFAULT && g->bg[2][0] == TUI_COLOR_DEFAULT,
+           "other rows not filled");
+    free(g);
     tui_screen_free(s);
 }
 
-static void test_render_does_not_highlight_when_unfocused(void) {
+static void test_render_marks_selection_without_focus_by_attribute(void) {
     tui_screen *s = tui_screen_new(2, 20); ASSERT(s != NULL, "init screen");
     DialogPane dp; dialog_pane_init(&dp);
     DialogEntry src[2] = {
@@ -166,11 +168,30 @@ static void test_render_does_not_highlight_when_unfocused(void) {
     tui_rect p = tui_rect_make(0, 0, 2, 20);
     dp.lv.rows_visible = p.rows;
     dialog_pane_render(&dp, &p, s, /*focused*/ 0);
-    /* Selected row stays on row 0; must NOT be reversed. */
-    for (int c = 0; c < p.cols; c++) {
-        ASSERT((tgrid_attrs(s, 0, c) & TUI_ATTR_REVERSE) == 0,
-               "no reverse when unfocused");
-    }
+    TuiGrid *g = malloc(sizeof(*g)); ASSERT(g != NULL, "alloc");
+    tui_grid_capture(g, s);
+    ASSERT(g->bg[0][0] == TUI_COLOR_DEFAULT, "no fill when unfocused");
+    ASSERT(g->attrs[0][0] & TUI_ATTR_UNDERLINE, "selection underlined");
+    ASSERT(!(g->attrs[1][0] & TUI_ATTR_UNDERLINE), "other row plain");
+    free(g);
+    tui_screen_free(s);
+}
+
+static void test_render_unreadable_list_is_not_shown_as_empty(void) {
+    tui_screen *s = tui_screen_new(5, 40); ASSERT(s != NULL, "init screen");
+    DialogPane dp; dialog_pane_init(&dp);
+    dp.load_failed = 1;
+    tui_rect p = tui_rect_make(0, 0, 5, 40);
+    dialog_pane_render(&dp, &p, s, 1);
+    char buf[64]; tgrid_row(s, 2, buf, sizeof(buf));
+    ASSERT(strstr(buf, "could not read dialogs") != NULL, "says it could not read");
+    ASSERT(strstr(buf, "no dialogs") == NULL, "not shown as empty");
+    TuiGrid *g = malloc(sizeof(*g)); ASSERT(g != NULL, "alloc");
+    tui_grid_capture(g, s);
+    int col = (int)(strstr(buf, "could") - buf);
+    ASSERT(g->fg[2][col] == TUI_RED && (g->attrs[2][col] & TUI_ATTR_BOLD),
+           "in the error style");
+    free(g);
     tui_screen_free(s);
 }
 
@@ -230,7 +251,8 @@ void test_tui_dialog_pane_run(void) {
     RUN_TEST(test_render_empty_pane_shows_placeholder);
     RUN_TEST(test_render_writes_kind_prefix_and_title);
     RUN_TEST(test_render_highlights_selection_when_focused);
-    RUN_TEST(test_render_does_not_highlight_when_unfocused);
+    RUN_TEST(test_render_marks_selection_without_focus_by_attribute);
+    RUN_TEST(test_render_unreadable_list_is_not_shown_as_empty);
     RUN_TEST(test_render_bolds_unread_rows);
     RUN_TEST(test_render_respects_scroll_top);
     RUN_TEST(test_render_null_args_are_noops);

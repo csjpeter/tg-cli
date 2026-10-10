@@ -12,8 +12,10 @@
  * @brief Pane geometry + layout for the curses-style TUI (US-11 v2).
  *
  * A pane is a tui_rect of the screen (libtuikit); drawing goes through a
- * tui_canvas (tui_canvas_sub) that clips to it. The Layout computes the standard three-pane split for the v2 TUI:
+ * tui_canvas (tui_canvas_sub) that clips to it. The Layout computes the standard split for the v2 TUI:
  *
+ *   +-----------------------------------------------------+
+ *   |  header bar: where we are             tg-tui        |
  *   +---------------+-------------------------------------+
  *   |  dialog list  |  message history of selected chat   |
  *   |               |                                     |
@@ -24,9 +26,10 @@
 
 #include <tuikit/canvas.h>
 
-/** Layout for the classic three-section TUI. Every rect is relative to the
+/** Layout for the classic header / two-pane / status TUI. Every rect is relative to the
  *  full screen origin (0,0) — no nested coordinate systems. */
 typedef struct {
+    tui_rect header;   /* top single-row bar (full width)        */
     tui_rect dialogs;  /* left pane                              */
     tui_rect history;  /* right pane                             */
     tui_rect status;   /* bottom single-row pane (full width)    */
@@ -36,7 +39,7 @@ typedef struct {
  *  @p left_width_hint is a desired width for the dialogs pane; the function
  *  clamps it to [MIN_LEFT_WIDTH, MAX_LEFT_WIDTH] and shrinks further if the
  *  terminal is too narrow. When the terminal is smaller than the absolute
- *  minimum (e.g. rows < 3 or cols < 20), every pane rect is zeroed so callers
+ *  minimum (e.g. rows < TUI_MIN_SCREEN_ROWS or cols < TUI_MIN_SCREEN_COLS), every pane rect is zeroed so callers
  *  can detect "too small" with pane_is_valid(). */
 void layout_compute(Layout *out, int screen_rows, int screen_cols,
                     int left_width_hint);

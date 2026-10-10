@@ -823,7 +823,8 @@ static int run_tui_loop(const ApiConfig *cfg,
     /* Prime the dialog list. Failure is non-fatal; the user sees the
      * empty-placeholder and can still quit. */
     if (dialog_pane_refresh(&app.dialogs, cfg, s, t) != 0) {
-        status_row_set_message(&app.status, "dialogs: load failed");
+        status_row_set_message_kind(&app.status, "dialogs: load failed",
+                                    STATUS_MSG_ERROR);
     }
     /* dialog_pane_set_entries resets the list view but forgets the
      * viewport height set in tui_app_init; restore it. */
@@ -909,21 +910,44 @@ static int run_tui_loop(const ApiConfig *cfg,
 
         if (action == TUI_EVENT_QUIT) break;
 
+        if (action == TUI_EVENT_RELOAD) {
+            /* r: re-read the dialogs and the open history; the cursor and
+             * the window stay (dialog_pane_refresh / history_pane_load). */
+            status_row_set_message_kind(&app.status, "reloading\xe2\x80\xa6",
+                                        STATUS_MSG_PROGRESS);
+            tui_flip(term, &app, &out);
+            int bad = dialog_pane_refresh(&app.dialogs, cfg, s, t) != 0;
+            if (app.history.peer_loaded
+                && history_pane_load(&app.history, cfg, s, t,
+                                     &app.history.peer) != 0)
+                bad = 1;
+            if (bad)
+                status_row_set_message_kind(&app.status, "reload failed",
+                                            STATUS_MSG_ERROR);
+            else
+                status_row_set_message_kind(&app.status, "reloaded",
+                                            STATUS_MSG_OK);
+        }
+
         if (action == TUI_EVENT_OPEN_DIALOG) {
             const DialogEntry *d = dialog_pane_selected(&app.dialogs);
             if (d) {
                 HistoryPeer peer;
                 if (dialog_to_history_peer(d, &peer) == 0) {
-                    status_row_set_message(&app.status, "loading…");
+                    status_row_set_message_kind(&app.status, "loading…",
+                                                STATUS_MSG_PROGRESS);
                     tui_flip(term, &app, &out);
                     if (history_pane_load(&app.history, cfg, s, t, &peer) == 0) {
                         status_row_set_message(&app.status, NULL);
                     } else {
-                        status_row_set_message(&app.status, "history: load failed");
+                        status_row_set_message_kind(&app.status,
+                                                    "history: load failed",
+                                                    STATUS_MSG_ERROR);
                     }
                 } else {
-                    status_row_set_message(&app.status,
-                                           "cannot open (access_hash missing)");
+                    status_row_set_message_kind(&app.status,
+                                                "cannot open (access_hash missing)",
+                                                STATUS_MSG_ERROR);
                 }
             }
         }
