@@ -20,7 +20,7 @@
 
 #include "fs_util.h"
 #include "platform/path.h"
-#include "platform/terminal.h"
+#include <tuikit/tty.h>
 
 #include <ctype.h>
 #include <errno.h>
@@ -233,13 +233,14 @@ int config_wizard_run_interactive(int force) {
     memset(api_hash, 0, sizeof(api_hash));
     int hash_ok = 0;
     for (int attempt = 0; attempt < MAX_RETRIES; attempt++) {
-        int n = terminal_read_password("Enter your api_hash: ",
-                                        api_hash, sizeof(api_hash));
+        int n = tui_tty_read_password(STDIN_FILENO, STDOUT_FILENO,
+                                   "Enter your api_hash: ",
+                                   api_hash, sizeof(api_hash));
         if (n < 0) {
             fprintf(stderr, "\nlogin: aborted\n");
             return -1;
         }
-        /* terminal_read_password already NUL-terminates; strip any trailing
+        /* tui_tty_read_password already NUL-terminates; strip any trailing
          * newline that some implementations might leave. */
         size_t slen = strlen(api_hash);
         while (slen > 0 && (api_hash[slen-1] == '\n' || api_hash[slen-1] == '\r'))

@@ -87,7 +87,6 @@ inventory (grouped by layer):
 | core | `fs_util.c` | `test_fs_util.c` |
 | core | `logger.c` | `test_logger.c` |
 | core | `arg_parse.c` | `test_arg_parse.c` |
-| core | `readline.c` | `test_readline.c` |
 | core | `tl_serial.c` | `test_tl_serial.c` |
 | core | `tl_skip.c` | `test_tl_skip.c` |
 | core | `tl_registry.c` | `test_registry.c` |
@@ -119,8 +118,8 @@ inventory (grouped by layer):
 | domain/write | `edit.c`, `delete.c`, `forward.c` | `test_domain_edit_delete_forward.c` |
 | domain/write | `read_history.c` | `test_domain_read_history.c` |
 | domain/write | `upload.c` | `test_domain_upload.c` |
-| tui | `screen.c`, `pane.c`, `list_view.c` | `test_tui_app.c`, `test_tui_dialog_pane.c`, `test_tui_history_pane.c` |
-| platform | `posix/path.c`, `posix/terminal.c` | `test_platform.c` |
+| tui | `pane.c`, `dialog_pane.c`, `history_pane.c`, `status_row.c`, `text_safe.c`, `app.c` | `test_tui_app.c`, `test_tui_pane.c`, `test_tui_dialog_pane.c`, `test_tui_history_pane.c`, `test_tui_status_row.c`, `test_text_rendering_safety.c` (screens are read back with `tests/common/tui_grid.h`) |
+| platform | `posix/path.c` | `test_platform.c` |
 
 ### Writing a New Unit Test
 

@@ -19,8 +19,8 @@
  */
 
 #include "tui/pane.h"
-#include "tui/screen.h"
-#include "tui/list_view.h"
+
+#include <tuikit/listview.h>
 
 #include "domain/read/history.h"
 #include "api_call.h"
@@ -34,7 +34,7 @@ typedef struct {
     int          count;
     HistoryPeer  peer;
     int          peer_loaded;   /* 1 once set/loaded, 0 before          */
-    ListView     lv;
+    tui_listview lv;
 } HistoryPane;
 
 /** Zero out entries, peer, list_view state. */
@@ -56,7 +56,7 @@ int  history_pane_load(HistoryPane *hp,
 /** Render the pane onto @p screen within @p pane. When the peer has not
  *  been loaded yet, shows "(select a dialog)". When the peer is loaded
  *  but empty, shows "(no messages)". */
-void history_pane_render(const HistoryPane *hp,
-                          const Pane *pane, Screen *screen);
+void history_pane_render(HistoryPane *hp,
+                          const tui_rect *pane, tui_screen *screen);
 
 #endif /* TUI_HISTORY_PANE_H */

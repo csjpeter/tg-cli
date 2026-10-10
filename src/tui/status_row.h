@@ -17,7 +17,6 @@
  */
 
 #include "tui/pane.h"
-#include "tui/screen.h"
 
 #define STATUS_ROW_MSG_MAX 128
 
@@ -40,6 +39,6 @@ void status_row_set_message(StatusRow *sr, const char *msg);
 /** Render the row onto @p screen within @p pane. Inverse-video across the
  *  whole row to make the status line visually distinct. */
 void status_row_render(const StatusRow *sr,
-                        const Pane *pane, Screen *screen);
+                        const tui_rect *pane, tui_screen *screen);
 
 #endif /* TUI_STATUS_ROW_H */

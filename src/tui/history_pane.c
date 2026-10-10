@@ -10,6 +10,7 @@
  */
 
 #include "tui/history_pane.h"
+#include "tui/text_safe.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -17,7 +18,7 @@
 void history_pane_init(HistoryPane *hp) {
     if (!hp) return;
     memset(hp, 0, sizeof(*hp));
-    list_view_init(&hp->lv);
+    tui_listview_init(&hp->lv);
 }
 
 void history_pane_set_entries(HistoryPane *hp,
@@ -34,7 +35,7 @@ void history_pane_set_entries(HistoryPane *hp,
     hp->peer_loaded = 1;
     hp->lv.selected = (n > 0) ? 0 : -1;
     hp->lv.scroll_top = 0;
-    list_view_set_count(&hp->lv, n);
+    tui_listview_set_count(&hp->lv, n);
 }
 
 int history_pane_load(HistoryPane *hp,
@@ -64,37 +65,40 @@ static int format_row(const HistoryEntry *e, char *out, size_t cap) {
     else if (e->text[0]) body = e->text;
     else if (e->media)   body = "(media)";
     else                 body = "";
-    return snprintf(out, cap, "%c [%d] %s", arrow, e->id, body);
+    char clean[HISTORY_TEXT_MAX];
+    tui_text_strip_bidi(body, clean, sizeof(clean));
+    return snprintf(out, cap, "%c [%d] %s", arrow, e->id, clean);
 }
 
-void history_pane_render(const HistoryPane *hp,
-                          const Pane *pane, Screen *screen) {
+static void draw_history_row(void *ctx, tui_canvas row, int index,
+                             int selected) {
+    const HistoryPane *hp = ctx;
+    const HistoryEntry *e = &hp->entries[index];
+    char line[HISTORY_TEXT_MAX + 32];
+    format_row(e, line, sizeof(line));
+    uint16_t attrs = e->complex ? TUI_ATTR_DIM : 0;
+    (void)selected;
+    tui_canvas_put(row, 0, 0, line, tui_style_attrs(attrs));
+}
+
+void history_pane_render(HistoryPane *hp,
+                          const tui_rect *pane, tui_screen *screen) {
     if (!hp || !pane || !screen || !pane_is_valid(pane)) return;
-    pane_clear(pane, screen);
+    tui_canvas c = tui_canvas_sub(tui_canvas_of(screen), *pane);
+    tui_canvas_clear(c, TUI_STYLE_DEFAULT);
 
     const char *placeholder = NULL;
     if (!hp->peer_loaded)  placeholder = "(select a dialog)";
     else if (hp->count==0) placeholder = "(no messages)";
 
     if (placeholder) {
-        int mid_row = pane->rows / 2;
+        tui_listview_set_viewport(&hp->lv, pane->rows);
         int col = (pane->cols - (int)strlen(placeholder)) / 2;
         if (col < 0) col = 0;
-        pane_put_str(pane, screen, mid_row, col,
-                     placeholder, SCREEN_ATTR_DIM);
+        tui_canvas_put(c, pane->rows / 2, col, placeholder,
+                       tui_style_attrs(TUI_ATTR_DIM));
         return;
     }
 
-    int first = hp->lv.scroll_top;
-    int last  = first + hp->lv.rows_visible;
-    if (last > hp->count) last = hp->count;
-
-    for (int i = first; i < last; i++) {
-        const HistoryEntry *e = &hp->entries[i];
-        char line[HISTORY_TEXT_MAX + 32];
-        format_row(e, line, sizeof(line));
-        uint8_t attrs = 0;
-        if (e->complex) attrs |= SCREEN_ATTR_DIM;
-        pane_put_str(pane, screen, i - first, 0, line, attrs);
-    }
+    tui_listview_render(&hp->lv, c, TUI_STYLE_DEFAULT, draw_history_row, hp);
 }

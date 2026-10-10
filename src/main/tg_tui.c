@@ -23,8 +23,11 @@
 #include "infrastructure/auth_logout.h"
 #include "logger.h"
 
-#include "readline.h"
-#include "platform/terminal.h"
+#include <tuikit/lineedit.h>
+#include <tuikit/tty.h>
+#include <tuikit/term.h>
+#include <tuikit/screen.h>
+#include <tuikit/buf.h>
 #include "arg_parse.h"
 
 #include "domain/read/self.h"
@@ -50,6 +53,7 @@
 
 #include "tui/app.h"
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -65,17 +69,28 @@ static void fmt_date(char *buf, size_t cap, int64_t ts) {
 /* ---- Credential callbacks: batch values fall back to interactive prompts ---- */
 
 typedef struct {
-    LineHistory *hist;
+    tui_history *hist;
     const char  *phone;     /**< from --phone (may be NULL → interactive) */
     const char  *code;      /**< from --code  (may be NULL → interactive) */
     const char  *password;  /**< from --password (may be NULL → interactive) */
 } PromptCtx;
 
+/* One edited line on the current terminal line (libtuikit's tui_readline):
+ * Up/Down browse @p hist and an accepted line is added to it.  A pipe or
+ * file on stdin is read as a plain line.  Negative on EOF/cancel. */
+static int line_read(const char *prompt, char *buf, size_t size,
+                     tui_history *hist) {
+    tui_readline_opts o;
+    tui_readline_opts_init(&o);
+    o.history = hist;
+    return tui_readline(prompt, buf, size, &o);
+}
+
 static int tui_read_line(const char *label, char *out, size_t cap,
-                          LineHistory *hist) {
+                          tui_history *hist) {
     char prompt[64];
     snprintf(prompt, sizeof(prompt), "%s: ", label);
-    int n = rl_readline(prompt, out, cap, hist);
+    int n = line_read(prompt, out, cap, hist);
     return (n < 0) ? -1 : 0;
 }
 
@@ -677,14 +692,12 @@ static void print_help(void) {
 /* ---- REPL ---- */
 
 static int repl(const ApiConfig *cfg, MtProtoSession *s, Transport *t,
-                 LineHistory *hist) {
+                 tui_history *hist) {
     char line[512];
     for (;;) {
-        int n = rl_readline("tg> ", line, sizeof(line), hist);
+        int n = line_read("tg> ", line, sizeof(line), hist);
         if (n < 0) return 0; /* EOF / Ctrl-C */
         if (n == 0) continue;
-
-        rl_history_add(hist, line);
 
         /* Parse the very small command language in-place. */
         char *cmd = line;
@@ -782,11 +795,20 @@ static int dialog_to_history_peer(const DialogEntry *d, HistoryPeer *out) {
     }
 }
 
+/* Paint the app into the terminal: the diffed bytes of tui_screen_render()
+ * go out through tui_term_flush_buf(). */
+static void tui_flip(tui_term *term, TuiApp *app, tui_buf *out) {
+    tui_app_paint(app);
+    tui_buf_reset(out);
+    if (tui_screen_render(app->screen, out) >= 0)
+        tui_term_flush_buf(term, out);
+}
+
 /* Curses-style TUI loop (US-11 v2). Returns 0 on clean exit. */
 static int run_tui_loop(const ApiConfig *cfg,
                          MtProtoSession *s, Transport *t) {
-    int rows = terminal_rows(); if (rows < 3)  rows = 24;
-    int cols = terminal_cols(); if (cols < 40) cols = 80;
+    int rows = tui_tty_rows(STDOUT_FILENO); if (rows < 3)  rows = 24;
+    int cols = tui_tty_cols(STDOUT_FILENO); if (cols < 40) cols = 80;
 
     TuiApp app;
     if (tui_app_init(&app, rows, cols) != 0) {
@@ -800,30 +822,30 @@ static int run_tui_loop(const ApiConfig *cfg,
     if (dialog_pane_refresh(&app.dialogs, cfg, s, t) != 0) {
         status_row_set_message(&app.status, "dialogs: load failed");
     }
-    /* dialog_pane_set_entries resets the list_view but forgets the
+    /* dialog_pane_set_entries resets the list view but forgets the
      * viewport height set in tui_app_init; restore it. */
-    app.dialogs.lv.rows_visible = app.layout.dialogs.rows;
+    tui_listview_set_viewport(&app.dialogs.lv, app.layout.dialogs.rows);
 
-    RAII_TERM_RAW TermRawState *raw = terminal_raw_enter();
-    if (!raw) {
+    /* Raw mode, hidden cursor, and the signal handlers that restore the
+     * terminal on SIGTERM / SIGHUP / SIGINT and track SIGWINCH. */
+    tui_term_opts to;
+    tui_term_opts_init(&to);
+    to.flags = TUI_TERM_HIDE_CURSOR;
+    tui_term *term = tui_term_open(&to);
+    if (!term) {
         fprintf(stderr, "tg-tui: cannot enter raw mode\n");
         tui_app_free(&app);
         return 1;
     }
-    /* Ensure SIGTERM / SIGHUP / SIGINT restore the terminal before exiting,
-     * even if the default handler bypasses our RAII cleanup. */
-    terminal_install_cleanup_handlers(raw);
-    screen_cursor_visible(&app.screen, 0);
-
-    terminal_enable_resize_notifications();
+    tui_buf out;
+    tui_buf_init(&out);
 
     /* Prime updates polling. If getState fails (eg. offline or server hiccup)
      * we silently skip live polling — the pane UI still works. */
     UpdatesState upd_state = {0};
     int upd_active = (domain_updates_state(cfg, s, t, &upd_state) == 0);
 
-    tui_app_paint(&app);
-    screen_flip(&app.screen);
+    tui_flip(term, &app, &out);
 
     /* Poll cadence for updates.getDifference. 5 seconds is low enough to
      * feel live and high enough not to rate-limit ourselves. */
@@ -831,24 +853,12 @@ static int run_tui_loop(const ApiConfig *cfg,
 
     int rc = 0;
     for (;;) {
-        int ready = terminal_wait_key(POLL_INTERVAL_MS);
+        tui_event ev;
+        int ready = tui_term_wait(term, POLL_INTERVAL_MS, NULL, 0, &ev);
 
-        /* SIGWINCH interrupts poll(): pick up the new size and repaint. */
-        if (terminal_consume_resize()) {
-            int nr = terminal_rows(); if (nr < 3)  nr = app.rows;
-            int nc = terminal_cols(); if (nc < 40) nc = app.cols;
-            if (nr != app.rows || nc != app.cols) {
-                if (tui_app_resize(&app, nr, nc) == 0) {
-                    screen_cursor_visible(&app.screen, 0);
-                    tui_app_paint(&app);
-                    screen_flip(&app.screen);
-                }
-            }
-            if (ready == TERM_WAIT_INTR) continue;   /* woken by SIGWINCH */
-        }
-
-        if (ready == TERM_WAIT_ERROR) {
-            /* The wait itself failed (poll error): retrying would spin. */
+        if (ready < 0) {
+            if (errno == EINTR) continue;        /* interrupted — retry */
+            /* The wait itself failed: retrying would spin. */
             fprintf(stderr, "tg-tui: waiting for input failed\n");
             rc = 1;
             break;
@@ -869,44 +879,41 @@ static int run_tui_loop(const ApiConfig *cfg,
                                    || diff.other_updates_count > 0);
                     if (changed) {
                         dialog_pane_refresh(&app.dialogs, cfg, s, t);
-                        app.dialogs.lv.rows_visible = app.layout.dialogs.rows;
                         if (app.history.peer_loaded) {
                             history_pane_load(&app.history, cfg, s, t,
                                               &app.history.peer);
-                            app.history.lv.rows_visible = app.layout.history.rows;
                         }
-                        tui_app_paint(&app);
-                        screen_flip(&app.screen);
+                        tui_flip(term, &app, &out);
                     }
                 }
             }
             continue;
         }
 
-        if (ready == TERM_WAIT_INTR) continue;   /* interrupted — retry */
+        if (ev.type == TUI_EV_HANGUP) break;     /* the terminal is gone */
 
-        TermKey key = terminal_read_key();
-        TuiEvent ev;
-        if (key == TERM_KEY_IGNORE) {
-            ev = tui_app_handle_char(&app, terminal_last_printable());
-        } else {
-            ev = tui_app_handle_key(&app, key);
+        if (ev.type == TUI_EV_RESIZE) {
+            int nr = ev.rows; if (nr < 3)  nr = app.rows;
+            int nc = ev.cols; if (nc < 40) nc = app.cols;
+            if (tui_app_resize(&app, nr, nc) == 0) {
+                tui_screen_invalidate(app.screen);
+                tui_flip(term, &app, &out);
+            }
+            continue;
         }
 
-        if (ev == TUI_EVENT_QUIT) break;
+        TuiEvent action = tui_app_handle_key(&app, &ev);
 
-        if (ev == TUI_EVENT_OPEN_DIALOG) {
+        if (action == TUI_EVENT_QUIT) break;
+
+        if (action == TUI_EVENT_OPEN_DIALOG) {
             const DialogEntry *d = dialog_pane_selected(&app.dialogs);
             if (d) {
                 HistoryPeer peer;
                 if (dialog_to_history_peer(d, &peer) == 0) {
                     status_row_set_message(&app.status, "loading…");
-                    tui_app_paint(&app);
-                    screen_flip(&app.screen);
+                    tui_flip(term, &app, &out);
                     if (history_pane_load(&app.history, cfg, s, t, &peer) == 0) {
-                        /* Restore the viewport height lost to the
-                         * history_pane_set_entries reset. */
-                        app.history.lv.rows_visible = app.layout.history.rows;
                         status_row_set_message(&app.status, NULL);
                     } else {
                         status_row_set_message(&app.status, "history: load failed");
@@ -918,15 +925,13 @@ static int run_tui_loop(const ApiConfig *cfg,
             }
         }
 
-        if (ev != TUI_EVENT_NONE) {
-            tui_app_paint(&app);
-            screen_flip(&app.screen);
-        }
+        if (action != TUI_EVENT_NONE) tui_flip(term, &app, &out);
     }
 
-    /* Reset the terminal for the shell prompt. */
-    screen_cursor_visible(&app.screen, 1);
-    screen_cursor(&app.screen, app.rows, 1);
+    /* Restore the terminal (raw mode, cursor) and leave a fresh line for
+     * the shell prompt. */
+    tui_buf_free(&out);
+    tui_term_close(term);
     fputs("\r\n", stdout);
     fflush(stdout);
     tui_app_free(&app);
@@ -1049,8 +1054,8 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    LineHistory hist;
-    rl_history_init(&hist);
+    tui_history hist;
+    tui_history_init(&hist, 256);
 
     PromptCtx pctx = {
         .hist     = &hist,
@@ -1078,6 +1083,7 @@ int main(int argc, char **argv) {
 
     if (auth_flow_login(&cfg, &cb, &t, &s, NULL) != 0) {
         fprintf(stderr, "tg-tui: login failed\n");
+        tui_history_free(&hist);
         transport_close(&t);
         app_shutdown(&ctx);
         return 1;
@@ -1085,6 +1091,7 @@ int main(int argc, char **argv) {
 
     int rc = tui_mode ? run_tui_loop(&cfg, &s, &t)
                       : repl(&cfg, &s, &t, &hist);
+    tui_history_free(&hist);
     transport_close(&t);
     app_shutdown(&ctx);
     return rc;

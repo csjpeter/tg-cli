@@ -24,13 +24,13 @@
  * testable in isolation.
  */
 
-#include "tui/screen.h"
 #include "tui/pane.h"
 #include "tui/dialog_pane.h"
 #include "tui/history_pane.h"
 #include "tui/status_row.h"
 
-#include "platform/terminal.h"
+#include <tuikit/event.h>
+#include <tuikit/screen.h>
 
 typedef enum {
     TUI_FOCUS_DIALOGS = 0,
@@ -45,7 +45,7 @@ typedef enum {
 } TuiEvent;
 
 typedef struct {
-    Screen      screen;
+    tui_screen *screen;
     Layout      layout;
     DialogPane  dialogs;
     HistoryPane history;
@@ -66,13 +66,12 @@ void tui_app_free(TuiApp *app);
  *  size and recomputes the layout. Returns 0 on success, -1 on failure. */
 int  tui_app_resize(TuiApp *app, int rows, int cols);
 
-/** Handle a TermKey. Returns a TuiEvent describing the high-level effect.
- *  Navigation and focus switching always return TUI_EVENT_REDRAW; Enter on
- *  the dialogs pane returns TUI_EVENT_OPEN_DIALOG; Ctrl-C returns QUIT. */
-TuiEvent tui_app_handle_key(TuiApp *app, TermKey key);
-
-/** Handle a printable character (for `q`, `j/k/h/l`, etc). */
-TuiEvent tui_app_handle_char(TuiApp *app, int ch);
+/** Feed one decoded key event (TUI_EV_KEY). Quit: q, Q, Esc, Ctrl-C.
+ *  Left/Right and h/l move focus between the panes; Up/Down, PgUp/PgDn,
+ *  Home/End, j/k, g/G, Ctrl-F/Ctrl-B move in the focused list (libtuikit's
+ *  tui_listview_handle); Enter opens the selected dialog. Other events
+ *  (and NULL) yield TUI_EVENT_NONE. */
+TuiEvent tui_app_handle_key(TuiApp *app, const tui_event *ev);
 
 /** Stage the current UI state into `app->screen.back`. Does not flip. */
 void tui_app_paint(TuiApp *app);

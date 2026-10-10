@@ -18,8 +18,8 @@
  */
 
 #include "tui/pane.h"
-#include "tui/screen.h"
-#include "tui/list_view.h"
+
+#include <tuikit/listview.h>
 
 #include "domain/read/dialogs.h"
 #include "api_call.h"
@@ -31,7 +31,7 @@
 typedef struct {
     DialogEntry entries[DIALOG_PANE_MAX];
     int         count;
-    ListView    lv;
+    tui_listview lv;
 } DialogPane;
 
 /** Zero out entries and list_view state. */
@@ -52,8 +52,8 @@ int  dialog_pane_refresh(DialogPane *dp,
 /** Render the pane onto @p screen within @p pane. When @p focused is
  *  non-zero the selected row is rendered with reverse video so users can
  *  tell which side has input focus. */
-void dialog_pane_render(const DialogPane *dp,
-                         const Pane *pane, Screen *screen,
+void dialog_pane_render(DialogPane *dp,
+                         const tui_rect *pane, tui_screen *screen,
                          int focused);
 
 /** Returns a pointer to the currently-selected entry, or NULL when the
