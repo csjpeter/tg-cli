@@ -203,7 +203,7 @@ int terminal_wait_key(int timeout_ms) {
         return 0;
     }
     if (rc == WAIT_TIMEOUT) return 0;
-    return -1;
+    return TERM_WAIT_ERROR;
 }
 
 /* ---- wcwidth ---- */

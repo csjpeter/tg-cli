@@ -172,6 +172,21 @@ static int mode_wait_key(void) {
     return 0;
 }
 
+/* ---- wait_key_resize (TG-5) -------------------------------------------- */
+
+static int mode_wait_key_resize(void) {
+    terminal_enable_resize_notifications();
+    printf("READY\n");
+    fflush(stdout);
+    int rc = terminal_wait_key(5000);
+    if (rc == TERM_WAIT_INTR)       printf("WAIT_KEY:INTR\n");
+    else if (rc == TERM_WAIT_ERROR) printf("WAIT_KEY:ERROR\n");
+    else if (rc > 0)                printf("WAIT_KEY:READY\n");
+    else                            printf("WAIT_KEY:TIMEOUT\n");
+    fflush(stdout);
+    return 0;
+}
+
 /* ---- install_handlers -------------------------------------------------- */
 
 static int mode_install_handlers(void) {
@@ -262,6 +277,7 @@ int main(int argc, char **argv) {
     if (strcmp(argv[1], "read_key")         == 0) return mode_read_key();
     if (strcmp(argv[1], "raw_flags")        == 0) return mode_raw_flags();
     if (strcmp(argv[1], "wait_key")         == 0) return mode_wait_key();
+    if (strcmp(argv[1], "wait_key_resize")  == 0) return mode_wait_key_resize();
     if (strcmp(argv[1], "install_handlers") == 0) return mode_install_handlers();
     if (strcmp(argv[1], "resize_notify")    == 0) return mode_resize_notify();
     if (strcmp(argv[1], "passwd_nontty")    == 0) return mode_passwd_nontty();

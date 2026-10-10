@@ -72,11 +72,18 @@ TermKey terminal_read_key(void);
 /**
  * Wait up to @p timeout_ms for a keystroke to be ready on stdin.
  * Returns 1 when at least one byte is pending (read_key will not
- * block for that first byte), 0 on timeout, -1 on interrupt or
- * error. The terminal need not be in raw mode. Pass a negative
- * timeout to block indefinitely.
+ * block for that first byte), 0 on timeout, TERM_WAIT_INTR when a
+ * signal (for example SIGWINCH) interrupted the wait -- the caller
+ * redraws or simply waits again -- and TERM_WAIT_ERROR when the wait
+ * itself failed and retrying will not help. The terminal need not be in
+ * raw mode. Pass a negative timeout to block indefinitely.
  */
 int     terminal_wait_key(int timeout_ms);
+
+/** terminal_wait_key(): the wait itself failed; do not retry blindly. */
+#define TERM_WAIT_ERROR  (-1)
+/** terminal_wait_key(): a signal interrupted the wait; retry is correct. */
+#define TERM_WAIT_INTR   (-2)
 
 /**
  * Returns the last printable ASCII character (32–126) that caused

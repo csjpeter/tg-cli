@@ -365,6 +365,24 @@ done_no_session:
     return;
 }
 
+/* ── Test: a resize interrupts the wait and says so (TG-5) ──────────── */
+
+static void test_wait_key_interrupted_by_resize(void) {
+    PtySession *s = open_harness("wait_key_resize");
+    CHECK(s != NULL, "open_harness(wait_key_resize) should succeed",
+          done_no_session);
+
+    CHECK_WAIT_FOR(s, "READY", 3000, done);
+    CHECK(pty_resize(s, 100, 30) == 0, "pty_resize must succeed", done);
+    CHECK_WAIT_FOR(s, "WAIT_KEY:INTR", 3000, done);
+    CHECK(!pty_screen_contains(s, "WAIT_KEY:ERROR"),
+          "an interrupted wait is not an error", done);
+done:
+    pty_close(s);
+done_no_session:
+    return;
+}
+
 /* ── Test: terminal_install_cleanup_handlers ─────────────────────────── */
 
 /**
@@ -566,6 +584,7 @@ int main(void) {
     RUN_TEST(test_read_key_escape_sequences);
     RUN_TEST(test_read_key_modified_keys_leave_no_text);
     RUN_TEST(test_wait_key);
+    RUN_TEST(test_wait_key_interrupted_by_resize);
     RUN_TEST(test_install_cleanup_handlers);
     RUN_TEST(test_resize_notifications);
     RUN_TEST(test_passwd_nontty);

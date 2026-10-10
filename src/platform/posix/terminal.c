@@ -220,8 +220,9 @@ int terminal_wait_key(int timeout_ms) {
     struct pollfd pfd = { .fd = STDIN_FILENO, .events = POLLIN, .revents = 0 };
     int rc = poll(&pfd, 1, timeout_ms);
     if (rc < 0) {
-        /* EINTR (e.g. SIGWINCH) is not a hard error — caller retries. */
-        return (errno == EINTR) ? -1 : -1;
+        /* EINTR (e.g. SIGWINCH) is not a hard error — the caller retries;
+         * anything else is reported as an error (TG-5). */
+        return (errno == EINTR) ? TERM_WAIT_INTR : TERM_WAIT_ERROR;
     }
     if (rc == 0) return 0;
     return (pfd.revents & POLLIN) ? 1 : 0;
