@@ -1,5 +1,6 @@
-/* SPDX-License-Identifier: GPL-3.0-or-later */
-/* Copyright 2026 Peter Csaszar */
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
 /*
  * Derived from Markus Kuhn's mk_wcwidth (public domain, 2007-05-26):
  *   https://www.cl.cam.ac.uk/~mgk25/ucs/wcwidth.c

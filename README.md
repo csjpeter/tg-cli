@@ -2,7 +2,6 @@
 [![Valgrind](https://github.com/csjpeter/tg-cli/actions/workflows/valgrind.yml/badge.svg)](https://github.com/csjpeter/tg-cli/actions/workflows/valgrind.yml)
 [![Coverage](https://csjpeter.github.io/tg-cli/coverage-badge.svg)](https://csjpeter.github.io/tg-cli/)
 [![Functional coverage](https://csjpeter.github.io/tg-cli/coverage-functional-badge.svg)](https://csjpeter.github.io/tg-cli/functional/)
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 # tg-cli
 
@@ -313,10 +312,10 @@ for the full legal research including:
 - Server RSA public key provenance (from TDLib, BSL-1.0)
 - api_id registration requirements
 - AI/ML clause analysis
-- GPL/BSL licensing implications
+- Licensing implications of third-party code (BSL-1.0 server key, Zlib)
 
 ---
 
 ## License
 
-[GPL v3](LICENSE)
+Proprietary; the owner is the author. See [LICENSE](LICENSE).

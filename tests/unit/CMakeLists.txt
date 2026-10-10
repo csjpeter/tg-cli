@@ -77,3 +77,8 @@ set_source_files_properties(${CMAKE_SOURCE_DIR}/src/platform/posix/terminal.c
     PROPERTIES COMPILE_DEFINITIONS "tcgetattr=tg_test_tcgetattr;tcsetattr=tg_test_tcsetattr;poll=tg_test_poll;isatty=tg_test_isatty")
 target_include_directories(test-terminal-raw-faults PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME TerminalRawFaults COMMAND test-terminal-raw-faults)
+
+# LICENSE, README, man pages and every file's SPDX tag declare one licence
+# (policies/licensing-model.md).
+add_test(NAME LicenseDeclaration
+         COMMAND ${CMAKE_SOURCE_DIR}/tests/unit/check_license.sh ${CMAKE_SOURCE_DIR})
