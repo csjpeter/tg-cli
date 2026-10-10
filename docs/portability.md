@@ -25,3 +25,19 @@ decision. By the owner's decision (2026-10-10) **they are kept**: not deleted,
 not refactored away. They are not built, not tested and not a supported
 platform, and no claim is made for them. New code follows the general policy
 (`policies/platform-scope-model.md`): no new ports.
+
+## Review of the platform `#ifdef`s (2026-10-10)
+
+The policy asks that a platform `#ifdef` is kept only where it isolates one
+small piece of real platform code, and that it is documented here.
+
+| File | `#ifdef` | What it isolates | Verdict |
+|---|---|---|---|
+| `src/app/session_store.c` (l.36, 124, 160-195, 342) | `_WIN32` | the advisory lock on the session file: POSIX `fcntl`/`flock` against `LockFileEx` | one small, isolated piece; documented above; **kept** (owner's rule: existing compatibility code is preserved) |
+| `tests/unit/test_session_store.c` (l.357, 463) | `_WIN32` | two concurrency tests that need POSIX `fork` | follows the one above; **kept** |
+
+No other source file has a platform `#ifdef`. Platform differences elsewhere are
+chosen by CMake (`if(WIN32)` in `CMakeLists.txt`), which is the project's rule.
+No document or man page claims support for a platform other than Linux; the
+file-ticket history under `issues/` is a record of past work and is not
+rewritten.
