@@ -20,6 +20,6 @@ responsible disclosure path is important.
 ## Fix
 Add `/home/csjpeter/ai-projects/tg-cli/SECURITY.md` with:
 - Scope: what is in-scope for security reports (crypto, auth, session handling).
-- Reporting path: e.g. email `peter@csaszar.email` or GitHub private
+- Reporting path: e.g. email `<the owner's contact address>` or GitHub private
   vulnerability reporting.
 - Expected response time and disclosure timeline.

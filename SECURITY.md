@@ -9,7 +9,7 @@ tg-cli handles sensitive data including Telegram authentication keys, MTProto 2.
 
 ## Reporting a Vulnerability
 
-Please report security vulnerabilities by emailing **peter@csaszar.email** with:
+Please report security vulnerabilities by emailing **csjpeter@gmail.com** with:
 
 - A clear description of the issue
 - Steps to reproduce (if applicable)
