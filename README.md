@@ -81,7 +81,7 @@ Domain         →  src/domain/read/ + src/domain/write/   (Telegram service log
 Infrastructure →  src/infrastructure/  (config, cache, transport, RPC, api_call, auth)
 Core           →  src/core/            (logger, fs_util, TL serial/skip/registry,
                                         AES-IGE, MTProto crypto, crypto wrappers)
-Platform       →  src/platform/        (terminal + path + socket, posix + windows)
+Platform       →  src/platform/        (terminal + path + socket; Linux is the only supported platform)
 ```
 
 `tg-cli-ro` is compile-time read-only: the `tg-domain-write` library is
@@ -254,7 +254,7 @@ for the authoritative status. Short version:
 - [x] Three binaries (`tg-cli-ro` / `tg-tui` / `tg-cli`) from one codebase
 - [x] RAII memory safety via `__attribute__((cleanup))`
 - [x] Logger + filesystem helpers + INI config store + cache store
-- [x] Platform abstraction (POSIX + MinGW-w64)
+- [x] Platform abstraction (Linux supported; other platforms are preparation only, see docs/portability.md)
 - [x] Custom test framework; `./manage.sh test|valgrind|coverage`
 - [x] TL serialization + AES-256-IGE + MTProto encryption
 - [x] DH auth key exchange (PQ factorization, RSA_PAD, `new_nonce_hash1`)
