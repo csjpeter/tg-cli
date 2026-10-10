@@ -125,6 +125,27 @@ done_no_session:
     return;
 }
 
+/* ── Test: raw mode turns flow control off (TG-4) ─────────────────────── */
+
+static void test_raw_enter_disables_flow_control(void) {
+    PtySession *s = open_harness("raw_flags");
+    CHECK(s != NULL, "open_harness(raw_flags) should succeed", done_no_session);
+
+    CHECK_WAIT_FOR(s, "IXON:0",   3000, done);
+    CHECK_WAIT_FOR(s, "IXOFF:0",  3000, done);
+    CHECK_WAIT_FOR(s, "ICANON:0", 3000, done);
+    CHECK_WAIT_FOR(s, "ECHO:0",   3000, done);
+    CHECK_WAIT_FOR(s, "ISIG:0",   3000, done);
+    CHECK_WAIT_FOR(s, "RESTORED_IXON:1", 3000, done);
+
+    int exit_code = pty_wait_exit(s, 3000);
+    CHECK(exit_code == 0, "harness must exit 0 for raw_flags mode", done);
+done:
+    pty_close(s);
+done_no_session:
+    return;
+}
+
 /* ── Test: terminal_read_key — basic printable and control keys ──────── */
 
 /**
@@ -540,6 +561,7 @@ int main(void) {
 
     RUN_TEST(test_cols_rows_on_pty);
     RUN_TEST(test_raw_enter_exit);
+    RUN_TEST(test_raw_enter_disables_flow_control);
     RUN_TEST(test_read_key_basic);
     RUN_TEST(test_read_key_escape_sequences);
     RUN_TEST(test_read_key_modified_keys_leave_no_text);

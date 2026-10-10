@@ -26,6 +26,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <signal.h>
+#include <termios.h>
 
 /* ---- cols_rows --------------------------------------------------------- */
 
@@ -57,6 +58,32 @@ static int mode_raw_enter_exit(void) {
         return 1;
     }
     printf("RAW_EXIT:OK\n");
+    fflush(stdout);
+    return 0;
+}
+
+/* ---- raw_flags (TG-4) -------------------------------------------------- */
+
+static int mode_raw_flags(void) {
+    struct termios before;
+    tcgetattr(STDIN_FILENO, &before);
+    TermRawState *st = terminal_raw_enter();
+    if (!st) {
+        printf("RAW:FAIL\n");
+        fflush(stdout);
+        return 1;
+    }
+    struct termios t;
+    tcgetattr(STDIN_FILENO, &t);
+    printf("IXON:%d\n", (t.c_iflag & IXON) ? 1 : 0);
+    printf("IXOFF:%d\n", (t.c_iflag & IXOFF) ? 1 : 0);
+    printf("ICANON:%d\n", (t.c_lflag & ICANON) ? 1 : 0);
+    printf("ECHO:%d\n", (t.c_lflag & ECHO) ? 1 : 0);
+    printf("ISIG:%d\n", (t.c_lflag & ISIG) ? 1 : 0);
+    fflush(stdout);
+    terminal_raw_exit(&st);
+    tcgetattr(STDIN_FILENO, &t);
+    printf("RESTORED_IXON:%d\n", ((t.c_iflag & IXON) != 0) == ((before.c_iflag & IXON) != 0));
     fflush(stdout);
     return 0;
 }
@@ -233,6 +260,7 @@ int main(int argc, char **argv) {
     if (strcmp(argv[1], "cols_rows")        == 0) return mode_cols_rows();
     if (strcmp(argv[1], "raw_enter_exit")   == 0) return mode_raw_enter_exit();
     if (strcmp(argv[1], "read_key")         == 0) return mode_read_key();
+    if (strcmp(argv[1], "raw_flags")        == 0) return mode_raw_flags();
     if (strcmp(argv[1], "wait_key")         == 0) return mode_wait_key();
     if (strcmp(argv[1], "install_handlers") == 0) return mode_install_handlers();
     if (strcmp(argv[1], "resize_notify")    == 0) return mode_resize_notify();

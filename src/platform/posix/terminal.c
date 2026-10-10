@@ -54,9 +54,26 @@ TermRawState *terminal_raw_enter(void) {
 
     struct termios raw = state->saved;
     raw.c_lflag &= ~(unsigned)(ICANON | ECHO | ISIG);
+    /* Flow control off: otherwise the line discipline swallows Ctrl-S and
+     * Ctrl-Q and the screen appears to hang (TG-4). */
+    raw.c_iflag &= ~(unsigned)(IXON | IXOFF);
     raw.c_cc[VMIN]  = 1;
     raw.c_cc[VTIME] = 0;
-    tcsetattr(STDIN_FILENO, TCSANOW, &raw);
+    if (tcsetattr(STDIN_FILENO, TCSANOW, &raw) != 0) {
+        free(state);
+        return NULL;
+    }
+
+    /* tcsetattr() reports success when any part of the change was applied:
+     * read the mode back and insist on the bits this program relies on. */
+    struct termios got;
+    if (tcgetattr(STDIN_FILENO, &got) != 0 ||
+        (got.c_lflag & (ICANON | ECHO | ISIG)) != 0 ||
+        (got.c_iflag & (IXON | IXOFF)) != 0) {
+        tcsetattr(STDIN_FILENO, TCSANOW, &state->saved);
+        free(state);
+        return NULL;
+    }
     state->active = 1;
     return state;
 }
