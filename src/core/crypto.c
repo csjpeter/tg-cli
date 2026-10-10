@@ -246,6 +246,16 @@ int crypto_rsa_public_encrypt(CryptoRsaKey *key, const unsigned char *data,
         return -1;
     }
 
+    /* EVP_PKEY_encrypt() reads *outlen as the capacity of `out`.  The contract
+     * of this wrapper is that `out` holds the key size and *out_len only
+     * receives the result, so the capacity is set here (TG-18). */
+    int key_size = EVP_PKEY_get_size(key->pkey);
+    if (key_size <= 0) {
+        EVP_PKEY_CTX_free(ctx);
+        return -1;
+    }
+    *out_len = (size_t)key_size;
+
     if (EVP_PKEY_encrypt(ctx, out, out_len, data, data_len) <= 0) {
         EVP_PKEY_CTX_free(ctx);
         return -1;
