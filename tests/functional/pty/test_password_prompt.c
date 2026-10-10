@@ -245,6 +245,31 @@ done_no_session:
 }
 
 /**
+ * @brief TG-6: Ctrl-C during the prompt leaves the terminal with echo ON.
+ *
+ * The harness forks; the child reads the password and dies of SIGINT, the
+ * parent then reports the echo flag of the shared terminal.  Before the fix
+ * the prompt's handler-less read left ECHO cleared (ECHO_AFTER:0).
+ */
+static void test_sigint_leaves_echo_on(void) {
+    PtySession *s = open_harness("sigint_probe");
+    CHECK(s != NULL, "open_harness(sigint_probe) should succeed",
+          done_no_session);
+
+    CHECK_WAIT_FOR(s, "Password", 3000, done);
+    pty_settle(s, 100);
+    pty_send_key(s, PTY_KEY_CTRL_C);
+
+    CHECK_WAIT_FOR(s, "CHILD_SIGNAL:2", 3000, done);
+    CHECK_WAIT_FOR(s, "ECHO_AFTER:1", 3000, done);
+    pty_wait_exit(s, 3000);
+done:
+    pty_close(s);
+done_no_session:
+    return;
+}
+
+/**
  * @brief Scenario 4: Backspace in the hidden buffer corrects the password.
  *
  * In canonical mode with ECHO cleared, the tty line discipline still
@@ -349,6 +374,7 @@ int main(void) {
     RUN_TEST(test_echo_off_during_input);
     RUN_TEST(test_echo_restored_on_return);
     RUN_TEST(test_echo_restored_after_sigint);
+    RUN_TEST(test_sigint_leaves_echo_on);
     RUN_TEST(test_backspace_edits_hidden_buffer);
     RUN_TEST(test_ctrl_d_on_empty_reports_error);
     RUN_TEST(test_long_input_fits_buffer);
