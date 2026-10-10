@@ -212,6 +212,15 @@ target_link_libraries(tg-tui PRIVATE tg-domain-read tg-domain-write tg-tui-lib)
 add_executable(tg-cli src/main/tg_cli.c)
 target_link_libraries(tg-cli PRIVATE tg-domain-read tg-domain-write)
 
+# Claude skill for the CLI (policies/cli-skill-model.md): installed by the
+# package under /usr/share/claude-skills/<name>/, never into a home directory.
+install(FILES claude/skills/tg-cli/SKILL.md
+        DESTINATION share/claude-skills/tg-cli)
+
+# The skill must agree with the man pages.
+add_test(NAME SkillMatchesManPages
+         COMMAND ${CMAKE_SOURCE_DIR}/tests/skill/check_skill.sh ${CMAKE_SOURCE_DIR})
+
 # PTY test library (POSIX only)
 if(UNIX)
     add_subdirectory(libs/libptytest)
