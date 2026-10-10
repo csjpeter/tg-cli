@@ -841,7 +841,14 @@ static int run_tui_loop(const ApiConfig *cfg,
                     screen_flip(&app.screen);
                 }
             }
-            if (ready < 0) continue;   /* poll returned -1 (EINTR) */
+            if (ready == TERM_WAIT_INTR) continue;   /* woken by SIGWINCH */
+        }
+
+        if (ready == TERM_WAIT_ERROR) {
+            /* The wait itself failed (poll error): retrying would spin. */
+            fprintf(stderr, "tg-tui: waiting for input failed\n");
+            rc = 1;
+            break;
         }
 
         if (ready == 0) {
@@ -873,7 +880,7 @@ static int run_tui_loop(const ApiConfig *cfg,
             continue;
         }
 
-        if (ready < 0) continue;   /* interrupted before any key — retry */
+        if (ready == TERM_WAIT_INTR) continue;   /* interrupted — retry */
 
         TermKey key = terminal_read_key();
         TuiEvent ev;

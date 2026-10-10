@@ -9,6 +9,8 @@
 
 #include "platform/terminal.h"
 
+#include <errno.h>
+#include <poll.h>
 #include <stdio.h>
 #include <string.h>
 #include <termios.h>
@@ -45,6 +47,18 @@ int tg_test_tcsetattr(int fd, int when, const struct termios *t) {
     g_state = *t;
     if (g_ignore_flow) g_state.c_iflag |= IXON;
     return 0;
+}
+
+/* terminal_wait_key(): what poll() answers (TG-5). */
+static int g_poll_rc;
+static int g_poll_errno;
+static short g_poll_revents;
+
+int tg_test_poll(struct pollfd *fds, nfds_t n, int timeout) {
+    (void)n; (void)timeout;
+    fds[0].revents = g_poll_revents;
+    errno = g_poll_errno;
+    return g_poll_rc;
 }
 
 static void reset(void) {
@@ -85,7 +99,20 @@ static void test_partial_change_is_reported_and_undone(void) {
     CHECK((g_state.c_lflag & ICANON) != 0, "the terminal is left as it was found");
 }
 
+static void test_wait_key_interrupt_differs_from_error(void) {
+    g_poll_rc = -1; g_poll_errno = EINTR; g_poll_revents = 0;
+    CHECK(terminal_wait_key(10) == TERM_WAIT_INTR, "EINTR is reported as an interrupt");
+    g_poll_rc = -1; g_poll_errno = EBADF;
+    CHECK(terminal_wait_key(10) == TERM_WAIT_ERROR, "EBADF is reported as an error");
+    CHECK(TERM_WAIT_INTR != TERM_WAIT_ERROR, "the two codes differ");
+    g_poll_rc = 0; g_poll_errno = 0;
+    CHECK(terminal_wait_key(10) == 0, "a timeout is 0");
+    g_poll_rc = 1; g_poll_revents = POLLIN;
+    CHECK(terminal_wait_key(10) == 1, "pending input is 1");
+}
+
 int main(void) {
+    test_wait_key_interrupt_differs_from_error();
     test_success_clears_flow_control();
     test_tcsetattr_failure_is_reported();
     test_partial_change_is_reported_and_undone();

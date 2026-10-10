@@ -74,6 +74,6 @@ add_executable(test-terminal-raw-faults
     ${CMAKE_SOURCE_DIR}/src/core/wcwidth.c)
 set_source_files_properties(${CMAKE_SOURCE_DIR}/src/platform/posix/terminal.c
     TARGET_DIRECTORY test-terminal-raw-faults
-    PROPERTIES COMPILE_DEFINITIONS "tcgetattr=tg_test_tcgetattr;tcsetattr=tg_test_tcsetattr")
+    PROPERTIES COMPILE_DEFINITIONS "tcgetattr=tg_test_tcgetattr;tcsetattr=tg_test_tcsetattr;poll=tg_test_poll")
 target_include_directories(test-terminal-raw-faults PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME TerminalRawFaults COMMAND test-terminal-raw-faults)
