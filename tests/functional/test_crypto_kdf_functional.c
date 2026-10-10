@@ -8,6 +8,7 @@
 
 #include "test_helpers.h"
 #include "crypto.h"
+#include "telegram_server_key.h"
 
 #include <stdint.h>
 #include <string.h>
@@ -98,7 +99,26 @@ static void test_pbkdf2_sha512_rejects_bad_args(void) {
            "out_len == 0 rejected");
 }
 
+/* TG-18: out_len is an output only; a caller that initialises it to 0 (as
+ * auth_step_req_dh() does) must still get a 256-byte RSA block. */
+static void test_rsa_public_encrypt_ignores_incoming_out_len(void) {
+    CryptoRsaKey *key = crypto_rsa_load_public(telegram_server_key_get_pem());
+    ASSERT(key != NULL, "test server public key loads");
+    if (!key) return;
+
+    unsigned char in[256];
+    memset(in, 0x11, sizeof(in));
+    in[0] = 0;                     /* numerically below the modulus */
+    unsigned char out[256];
+    size_t out_len = 0;
+    int rc = crypto_rsa_public_encrypt(key, in, sizeof(in), out, &out_len);
+    ASSERT(rc == 0, "encrypt succeeds with out_len initialised to 0");
+    ASSERT(out_len == 256, "encrypt reports the 256-byte block");
+    crypto_rsa_free(key);
+}
+
 void run_crypto_kdf_functional_tests(void) {
+    RUN_TEST(test_rsa_public_encrypt_ignores_incoming_out_len);
     RUN_TEST(test_sha512_empty_known);
     RUN_TEST(test_sha512_abc_known);
     RUN_TEST(test_pbkdf2_sha512_known_1iter);
