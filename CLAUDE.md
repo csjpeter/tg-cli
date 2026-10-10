@@ -108,6 +108,15 @@ C11 (`-std=c11`). Linked against libssl (OpenSSL). All public functions should h
 
 **Keep external dependencies minimal.**  The project intentionally uses only the C standard library, POSIX, and libssl (OpenSSL).  Before reaching for a new library, exhaust stdlib/POSIX options first.  New runtime dependencies require explicit justification and user approval.
 
+The owner's own libraries (`libptytest` now, `libtuikit` after TG-13) come as a
+git submodule under `deps/` pinned to a release tag, linked statically
+(`WORKSPACE_LIBS=bundled`), or as the installed `-dev` package
+(`WORKSPACE_LIBS=system`); `auto` (the default) prefers the installed package.
+Both are built and tested. **Never copy their sources into the tree**, never
+edit a submodule in place; a change a library needs is a ticket in the library's
+project and a bump of the pin to the new release tag
+(`policies/dependencies-model.md`).
+
 ## Portability
 
 **Target platform: Linux (Debian) only.** A release for, or support of, macOS,

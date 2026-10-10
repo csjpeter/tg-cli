@@ -41,6 +41,39 @@ show_help() {
     echo "  help               Show this help message"
 }
 
+# The workspace's own libraries come as git submodules under deps/ (bundled) or
+# as -dev packages (system); WORKSPACE_LIBS=bundled|system|auto chooses
+# (policies/dependencies-model.md).  A stranger never types a git submodule
+# command: deps and build initialise the submodules and check the pins.
+ensure_submodules() {
+    local mode="${WORKSPACE_LIBS:-auto}"
+    [ -f .gitmodules ] || return 0
+    [ "$mode" = system ] && return 0
+
+    # In auto mode an installed package is enough: a failure here is a warning.
+    local have_pkg=0
+    pkg-config --exists libptytest && have_pkg=1
+
+    if ! git submodule update --init --recursive; then
+        if [ "$mode" = auto ] && [ "$have_pkg" = 1 ]; then
+            echo "WARNING: could not initialise the submodules; using the installed libptytest-dev." >&2
+            return 0
+        fi
+        echo "ERROR: could not initialise the git submodules (no network, or no access to the repository?)." >&2
+        echo "       Install libptytest-dev and use WORKSPACE_LIBS=system, or fix the access." >&2
+        return 1
+    fi
+
+    local path commit
+    while read -r path; do
+        commit=$(git -C "$path" rev-parse HEAD)
+        if ! git -C "$path" describe --exact-match --tags "$commit" > /dev/null; then
+            echo "ERROR: $path is at $commit, which is not a release tag (vX.Y.Z); pin it to one." >&2
+            return 1
+        fi
+    done < <(git config -f .gitmodules --get-regexp '^submodule\..*\.path$' | awk '{print $2}')
+}
+
 install_deps() {
     if [ -f /etc/os-release ]; then
         . /etc/os-release
@@ -93,6 +126,7 @@ run_tidy() {
 }
 
 cmake_configure() {
+    ensure_submodules || exit 1
     local build_type="$1"
     local extra_flags="${2:-}"
     mkdir -p "$BUILD_DIR" "$BIN_DIR"
@@ -139,6 +173,7 @@ build_integration_runner() {
 case "$1" in
     deps)
         install_deps
+        ensure_submodules
         ;;
     build)
         build_release

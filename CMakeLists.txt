@@ -227,9 +227,42 @@ install(FILES claude/skills/tg-cli/SKILL.md
 add_test(NAME SkillMatchesManPages
          COMMAND ${CMAKE_SOURCE_DIR}/tests/skill/check_skill.sh ${CMAKE_SOURCE_DIR})
 
-# PTY test library (POSIX only)
+# The workspace's own libraries (policies/dependencies-model.md): a pinned git
+# submodule under deps/ built and linked statically ("bundled"), or the
+# installed -dev package ("system").  tg-cli is proprietary, so "auto" prefers
+# the installed package and falls back to the submodule.
+set(WORKSPACE_LIBS "auto" CACHE STRING
+    "How libptytest is obtained: bundled (deps/ submodule), system (-dev package) or auto")
+set_property(CACHE WORKSPACE_LIBS PROPERTY STRINGS auto system bundled)
+if(NOT WORKSPACE_LIBS MATCHES "^(auto|system|bundled)$")
+    message(FATAL_ERROR "WORKSPACE_LIBS must be bundled, system or auto, not '${WORKSPACE_LIBS}'")
+endif()
+
+# PTY test library (POSIX only); the tests link ptytest::ptytest_static.
 if(UNIX)
-    add_subdirectory(libs/libptytest)
+    set(_ptytest_how "")
+    if(NOT WORKSPACE_LIBS STREQUAL "bundled")
+        find_package(ptytest QUIET)
+        if(ptytest_FOUND)
+            set(_ptytest_how "system (installed libptytest-dev ${ptytest_VERSION})")
+        elseif(WORKSPACE_LIBS STREQUAL "system")
+            message(FATAL_ERROR "WORKSPACE_LIBS=system but libptytest-dev is not installed. "
+                "Install libptytest-dev, or use WORKSPACE_LIBS=bundled with the deps/libptytest submodule.")
+        endif()
+    endif()
+    if(NOT _ptytest_how)
+        if(EXISTS "${CMAKE_SOURCE_DIR}/deps/libptytest/CMakeLists.txt")
+            set(PTYTEST_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+            add_subdirectory(deps/libptytest EXCLUDE_FROM_ALL)
+            set(_ptytest_how "bundled (deps/libptytest submodule)")
+        else()
+            message(FATAL_ERROR "libptytest is needed for the PTY tests and neither "
+                "way is available: install libptytest-dev, or run "
+                "'git submodule update --init --recursive' for deps/libptytest "
+                "(./manage.sh deps does it).")
+        endif()
+    endif()
+    message(STATUS "libptytest: ${_ptytest_how}")
 endif()
 
 # Unit tests
