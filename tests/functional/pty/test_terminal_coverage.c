@@ -186,6 +186,41 @@ done_no_session:
     return;
 }
 
+/* ── Test: modified keys leave nothing behind (TG-3) ─────────────────── */
+
+/**
+ * @brief ESC[1;5A (Ctrl+Up) and friends must be consumed whole.
+ *
+ * Before the fix the modifier digit and the final byte were read as two
+ * typed characters ("5", "A").
+ */
+static void test_read_key_modified_keys_leave_no_text(void) {
+    PtySession *s = open_harness("read_key");
+    CHECK(s != NULL, "open_harness(read_key) should succeed", done_no_session);
+    CHECK_WAIT_FOR(s, "READY", 3000, done);
+
+    pty_send(s, "\033[1;5A", 6);   /* Ctrl+Up    */
+    pty_send(s, "\033[1;2D", 6);   /* Shift+Left */
+    pty_send(s, "\033[3;5~", 6);   /* Ctrl+Delete */
+    pty_send(s, "x", 1);
+    CHECK_WAIT_FOR(s, "KEY:CHAR:x", 3000, done);
+    CHECK(!pty_screen_contains(s, "KEY:CHAR:5"),
+          "modifier digit must not arrive as a typed character", done);
+    CHECK(!pty_screen_contains(s, "KEY:CHAR:A"),
+          "final byte A must not arrive as a typed character", done);
+    CHECK(!pty_screen_contains(s, "KEY:CHAR:D"),
+          "final byte D must not arrive as a typed character", done);
+    CHECK(!pty_screen_contains(s, "KEY:CHAR:;"),
+          "separator must not arrive as a typed character", done);
+
+    pty_send(s, "q", 1);
+    pty_wait_exit(s, 3000);
+done:
+    pty_close(s);
+done_no_session:
+    return;
+}
+
 /* ── Test: terminal_read_key — escape sequences ──────────────────────── */
 
 /**
@@ -507,6 +542,7 @@ int main(void) {
     RUN_TEST(test_raw_enter_exit);
     RUN_TEST(test_read_key_basic);
     RUN_TEST(test_read_key_escape_sequences);
+    RUN_TEST(test_read_key_modified_keys_leave_no_text);
     RUN_TEST(test_wait_key);
     RUN_TEST(test_install_cleanup_handlers);
     RUN_TEST(test_resize_notifications);
