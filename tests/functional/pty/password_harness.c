@@ -33,6 +33,10 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <signal.h>
+#include <sys/wait.h>
+#include <termios.h>
+#include <unistd.h>
 
 #define SMALL_BUF 128
 #define BIG_BUF   512
@@ -56,6 +60,27 @@ static int do_prompt_once(size_t cap) {
     return 0;
 }
 
+/* TG-6: a child runs the prompt and is killed by Ctrl-C; the parent then
+ * reports whether the terminal was left with echo on. */
+static int do_sigint_probe(void) {
+    pid_t pid = fork();
+    if (pid < 0) return 1;
+    if (pid == 0) {
+        char buf[SMALL_BUF];
+        int rc = terminal_read_password("Password", buf, sizeof(buf));
+        _exit(rc < 0 ? 1 : 0);
+    }
+    signal(SIGINT, SIG_IGN);
+    int status = 0;
+    waitpid(pid, &status, 0);
+    struct termios t;
+    int have = tcgetattr(STDIN_FILENO, &t) == 0;
+    printf("\nCHILD_SIGNAL:%d\n", WIFSIGNALED(status) ? WTERMSIG(status) : 0);
+    printf("ECHO_AFTER:%d\n", have ? ((t.c_lflag & ECHO) ? 1 : 0) : -1);
+    fflush(stdout);
+    return 0;
+}
+
 int main(int argc, char **argv) {
     if (argc < 2) {
         fprintf(stderr, "usage: password_harness <mode>\n");
@@ -64,6 +89,10 @@ int main(int argc, char **argv) {
 
     if (strcmp(argv[1], "prompt") == 0) {
         return do_prompt_once(SMALL_BUF);
+    }
+
+    if (strcmp(argv[1], "sigint_probe") == 0) {
+        return do_sigint_probe();
     }
 
     if (strcmp(argv[1], "prompt_big") == 0) {

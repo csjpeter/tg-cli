@@ -7,13 +7,18 @@
  * decide what the "terminal" answers.
  */
 
+#define _POSIX_C_SOURCE 200809L
+
 #include "platform/terminal.h"
 
 #include <errno.h>
 #include <poll.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <termios.h>
+#include <unistd.h>
 
 int g_tests_run = 0;
 int g_tests_failed = 0;
@@ -40,8 +45,25 @@ int tg_test_tcgetattr(int fd, struct termios *t) {
     return 0;
 }
 
+/* TG-6: how much of the prompt had reached stdout when echo was cleared. */
+static long g_out_at_echo_off = -1;
+static int  g_fake_tty;
+
+int tg_test_isatty(int fd) {
+    (void)fd;
+    return g_fake_tty;
+}
+
+static long stdout_size(void) {
+    struct stat st;
+    if (fstat(STDOUT_FILENO, &st) != 0) return -1;
+    return (long)st.st_size;
+}
+
 int tg_test_tcsetattr(int fd, int when, const struct termios *t) {
     (void)fd; (void)when;
+    if (!(t->c_lflag & ECHO) && g_out_at_echo_off < 0)
+        g_out_at_echo_off = stdout_size();
     g_set_calls++;
     if (g_fail_set) return -1;
     g_state = *t;
@@ -111,7 +133,39 @@ static void test_wait_key_interrupt_differs_from_error(void) {
     CHECK(terminal_wait_key(10) == 1, "pending input is 1");
 }
 
+static void test_password_echo_off_before_prompt(void) {
+    char path[] = "/tmp/tg-cli-pw-XXXXXX";
+    int tmp = mkstemp(path);
+    CHECK(tmp >= 0, "temporary file for the captured output");
+    int saved_out = dup(STDOUT_FILENO);
+    fflush(stdout);
+    dup2(tmp, STDOUT_FILENO);
+    FILE *in = freopen("/dev/null", "r", stdin);
+
+    reset();
+    g_fake_tty = 1;
+    g_out_at_echo_off = -1;
+    char buf[32];
+    int rc = terminal_read_password("Password", buf, sizeof(buf));
+
+    fflush(stdout);
+    long total = stdout_size();
+    dup2(saved_out, STDOUT_FILENO);
+    close(saved_out);
+    close(tmp);
+    unlink(path);
+    g_fake_tty = 0;
+
+    CHECK(in != NULL, "stdin can be redirected");
+    CHECK(rc == -1, "end of input is an error");
+    CHECK(g_out_at_echo_off == 0,
+          "echo is cleared before a single byte of the prompt is written");
+    CHECK(total > 0, "the prompt was written afterwards");
+    CHECK((g_state.c_lflag & ECHO) != 0, "echo is restored after the read");
+}
+
 int main(void) {
+    test_password_echo_off_before_prompt();
     test_wait_key_interrupt_differs_from_error();
     test_success_clears_flow_control();
     test_tcsetattr_failure_is_reported();

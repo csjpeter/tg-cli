@@ -318,6 +318,19 @@ int terminal_consume_resize(void) {
     return 0;
 }
 
+/* Terminal mode to put back when a signal ends the process during the
+ * password prompt.  Written before the handlers are installed. */
+static struct termios g_pw_saved;
+static int g_pw_fd = -1;
+
+/* Async-signal-safe: tcsetattr, signal, raise only. */
+static void password_signal_handler(int sig) {
+    if (g_pw_fd >= 0)
+        tcsetattr(g_pw_fd, TCSANOW, &g_pw_saved);
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+
 int terminal_read_password(const char *prompt, char *buf, size_t size) {
     if (!buf || size == 0) return -1;
 
@@ -325,20 +338,39 @@ int terminal_read_password(const char *prompt, char *buf, size_t size) {
     int is_tty = isatty(fd);
 
     if (is_tty) {
-        printf("%s: ", prompt);
-        fflush(stdout);
-
+        /* Echo goes off BEFORE the prompt is written: whatever is typed once
+         * the prompt is visible must already be silent (TG-6). */
         struct termios oldt, newt;
-        tcgetattr(fd, &oldt);
+        if (tcgetattr(fd, &oldt) != 0) return -1;
         newt = oldt;
         newt.c_lflag &= ~(unsigned)ECHO;
-        tcsetattr(fd, TCSANOW, &newt);
+        if (tcsetattr(fd, TCSANOW, &newt) != 0) return -1;
+
+        /* ISIG stays on, so Ctrl-C ends the process: the handlers put the
+         * terminal back first, otherwise the shell is left without echo. */
+        g_pw_saved = oldt;
+        g_pw_fd = fd;
+        struct sigaction sa, old_int, old_term, old_hup, old_quit;
+        memset(&sa, 0, sizeof(sa));
+        sa.sa_handler = password_signal_handler;
+        sigemptyset(&sa.sa_mask);
+        sigaction(SIGINT,  &sa, &old_int);
+        sigaction(SIGTERM, &sa, &old_term);
+        sigaction(SIGHUP,  &sa, &old_hup);
+        sigaction(SIGQUIT, &sa, &old_quit);
+
+        printf("%s: ", prompt);
+        fflush(stdout);
 
         char *line = NULL;
         size_t len = 0;
         ssize_t nread = getline(&line, &len, stdin);
 
         tcsetattr(fd, TCSANOW, &oldt);
+        sigaction(SIGINT,  &old_int,  NULL);
+        sigaction(SIGTERM, &old_term, NULL);
+        sigaction(SIGHUP,  &old_hup,  NULL);
+        sigaction(SIGQUIT, &old_quit, NULL);
         printf("\n");
 
         if (nread == -1 || !line) {
