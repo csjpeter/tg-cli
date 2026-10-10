@@ -167,7 +167,7 @@ target_include_directories(password_harness PRIVATE
     ${CMAKE_SOURCE_DIR}/src/platform
 )
 
-target_link_libraries(password_harness PRIVATE tg-proto)
+target_link_libraries(password_harness PRIVATE tg-app tg-proto)
 
 # Test runner that drives password_harness through the PTY.
 add_executable(pty-password-test-runner

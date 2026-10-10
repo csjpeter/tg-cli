@@ -156,6 +156,7 @@ add_library(tg-app STATIC
     src/app/dc_config.c
     src/app/auth_flow.c
     src/app/config_wizard.c
+    src/app/secret_prompt.c
     src/app/credentials.c
     src/app/session_store.c
     src/app/dc_session.c

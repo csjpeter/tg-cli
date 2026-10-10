@@ -23,6 +23,7 @@
 #include "infrastructure/auth_logout.h"
 #include "logger.h"
 
+#include "app/secret_prompt.h"
 #include <tuikit/lineedit.h>
 #include <tuikit/tty.h>
 #include <tuikit/term.h>
@@ -102,12 +103,14 @@ static int cb_get_phone(void *u, char *out, size_t cap) {
 static int cb_get_code(void *u, char *out, size_t cap) {
     PromptCtx *c = (PromptCtx *)u;
     if (c->code) { snprintf(out, cap, "%s", c->code); return 0; }
-    return tui_read_line("code", out, cap, c->hist);
+    /* the login code is a one-time secret: masked, never in the history */
+    return secret_prompt_read("code", out, cap);
 }
 static int cb_get_password(void *u, char *out, size_t cap) {
     PromptCtx *c = (PromptCtx *)u;
     if (c->password) { snprintf(out, cap, "%s", c->password); return 0; }
-    return tui_read_line("2FA password", out, cap, c->hist);
+    /* masked, and never added to the history the Up arrow browses */
+    return secret_prompt_read("2FA password", out, cap);
 }
 
 /* ---- Forward label helpers ---- */

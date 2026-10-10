@@ -61,6 +61,7 @@ void test_tui_dialog_pane_run(void);
 void test_tui_history_pane_run(void);
 void test_tui_status_row_run(void);
 void test_tui_app_run(void);
+void test_secret_prompt_run(void);
 void run_tg_tui_argv_tests(void);
 
 int main(int argc, char *argv[]) {
@@ -120,6 +121,7 @@ int main(int argc, char *argv[]) {
     RUN_TEST(test_tui_history_pane_run);
     RUN_TEST(test_tui_status_row_run);
     RUN_TEST(test_tui_app_run);
+    RUN_TEST(test_secret_prompt_run);
     RUN_TEST(run_tg_tui_argv_tests);
 
     printf("\n--- Test Results ---\n");

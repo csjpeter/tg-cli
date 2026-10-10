@@ -368,6 +368,30 @@ done_no_session:
     return;
 }
 
+/**
+ * @brief TG-22: the secret prompt used for the 2FA password and the login
+ * code (secret_prompt_read) does not echo what is typed, and returns the
+ * text without its line ending.
+ */
+static void test_secret_prompt_is_masked(void) {
+    PtySession *s = open_harness("secret");
+    CHECK(s != NULL, "open_harness(secret) should succeed", done_no_session);
+
+    pty_send_str(s, "cloud-pw-42");
+    pty_settle(s, 150);
+    CHECK(pty_screen_contains(s, "cloud-pw-42") == 0,
+          "the 2FA password must not be echoed while typed", done);
+
+    pty_send_key(s, PTY_KEY_ENTER);
+    CHECK_WAIT_FOR(s, "ACCEPTED:cloud-pw-42", 3000, done);
+    int exit_code = pty_wait_exit(s, 3000);
+    CHECK(exit_code == 0, "harness must exit 0", done);
+done:
+    pty_close(s);
+done_no_session:
+    return;
+}
+
 /* ── Entry point ──────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -381,6 +405,7 @@ int main(void) {
     RUN_TEST(test_backspace_edits_hidden_buffer);
     RUN_TEST(test_ctrl_d_on_empty_reports_error);
     RUN_TEST(test_long_input_fits_buffer);
+    RUN_TEST(test_secret_prompt_is_masked);
 
     printf("\n%d tests run, %d failed\n", g_tests_run, g_tests_failed);
     return g_tests_failed > 0 ? 1 : 0;

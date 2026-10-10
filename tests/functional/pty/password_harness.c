@@ -31,6 +31,7 @@
  *     test.  Prints "ACCEPTED:<value>" and "LEN:<n>\n", exits 0.
  */
 
+#include "app/secret_prompt.h"
 #include <tuikit/tty.h>
 
 #include <stdio.h>
@@ -92,6 +93,19 @@ int main(int argc, char **argv) {
 
     if (strcmp(argv[1], "prompt") == 0) {
         return do_prompt_once(SMALL_BUF);
+    }
+
+    /* TG-22: the prompt tg-tui uses for the 2FA password and the code. */
+    if (strcmp(argv[1], "secret") == 0) {
+        char pw[SMALL_BUF];
+        if (secret_prompt_read("Password", pw, sizeof(pw)) != 0) {
+            printf("ERROR\n");
+            fflush(stdout);
+            return 1;
+        }
+        printf("ACCEPTED:%s\n", pw);
+        fflush(stdout);
+        return 0;
     }
 
     if (strcmp(argv[1], "sigint_probe") == 0) {
