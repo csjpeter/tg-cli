@@ -53,15 +53,19 @@ typedef struct {
     int         fd;
     uint64_t    next_msg_id;
     uint32_t    seq_no;
+    uint64_t    session_id;   /* the client's, echoed in every reply */
 } ConnCtx;
 
 /* ── Helpers ─────────────────────────────────────────────────────────── */
 
+/* MTProto: auth_key_id = the low 64 bits of SHA1(auth_key), i.e. the bytes
+ * SHA1[12:20] read little-endian -- as mtproto_rpc.c and the mock server
+ * compute it. */
 static uint64_t derive_auth_key_id(const uint8_t *key) {
-    uint8_t hash[32];
-    crypto_sha256(key, AUTH_KEY_SIZE, hash);
+    uint8_t hash[20];
+    crypto_sha1(key, AUTH_KEY_SIZE, hash);
     uint64_t id = 0;
-    for (int i = 0; i < 8; ++i) id |= ((uint64_t)hash[24 + i]) << (i * 8);
+    for (int i = 0; i < 8; ++i) id |= ((uint64_t)hash[12 + i]) << (i * 8);
     return id;
 }
 
@@ -129,7 +133,7 @@ static int send_frame(ConnCtx *c, const uint8_t *body, size_t body_len) {
     TlWriter plain;
     tl_writer_init(&plain);
     tl_write_uint64(&plain, c->stub->server_salt);
-    tl_write_uint64(&plain, c->stub->session_id);
+    tl_write_uint64(&plain, c->session_id);
     tl_write_uint64(&plain, make_server_msg_id(c));
     c->seq_no += 2;
     tl_write_uint32(&plain, c->seq_no - 1);
@@ -329,6 +333,10 @@ static void handle_connection(ConnCtx *c) {
         if (plain_len < 32) { free(plain); continue; }
         uint64_t msg_id = 0;
         for (int i = 0; i < 8; ++i) msg_id |= ((uint64_t)plain[16 + i]) << (i * 8);
+        /* The client chooses its session_id per run; replies carry it back. */
+        uint64_t sid = 0;
+        for (int i = 0; i < 8; ++i) sid |= ((uint64_t)plain[8 + i]) << (i * 8);
+        c->session_id = sid;
         uint32_t body_len = 0;
         for (int i = 0; i < 4; ++i) body_len |= ((uint32_t)plain[28 + i]) << (i * 8);
         if (32 + body_len > plain_len) { free(plain); continue; }

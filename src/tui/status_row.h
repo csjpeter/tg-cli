@@ -11,9 +11,13 @@
  * @file tui/status_row.h
  * @brief Bottom status line for the TUI (US-11 v2).
  *
- * The status row shows a short context hint (currently-focused pane +
- * key reminders) on the left and an arbitrary message (e.g. "loading…",
- * last error) on the right. It is one row tall and always full-width.
+ * The status row is one row tall and full width. It shows the key hints of
+ * the focused pane, or, when there is a message, the message instead of the
+ * hints until the next keypress clears it (policies/tui-interface-model.md,
+ * "One status line"). A message that does not fit is cut; the hints are the
+ * ones that fit by construction. The row keeps the terminal's own
+ * background: hints are yellow, a progress message italic yellow, an error
+ * bold red, a confirmation bold green.
  */
 
 #include "tui/pane.h"
@@ -25,19 +29,35 @@ typedef enum {
     STATUS_MODE_HISTORY = 1,  /* arrows scroll history, Tab returns    */
 } StatusMode;
 
+/** What a message means; it picks the style it is drawn in. */
+typedef enum {
+    STATUS_MSG_PLAIN = 0,     /* the terminal's default style  */
+    STATUS_MSG_PROGRESS,      /* waiting for something         */
+    STATUS_MSG_OK,            /* a write that worked           */
+    STATUS_MSG_ERROR,         /* a refusal or a failure        */
+} StatusMsgKind;
+
 typedef struct {
-    StatusMode mode;
-    char       message[STATUS_ROW_MSG_MAX];  /* right-aligned, may be empty */
+    StatusMode    mode;
+    StatusMsgKind kind;
+    char          message[STATUS_ROW_MSG_MAX];  /* replaces the hints; may be empty */
 } StatusRow;
 
 /** Zero state (mode = dialogs, message empty). */
 void status_row_init(StatusRow *sr);
 
-/** Overwrite the message string; truncates to STATUS_ROW_MSG_MAX - 1. */
+/** Overwrite the message string (plain style); truncates to
+ *  STATUS_ROW_MSG_MAX - 1. NULL clears it. */
 void status_row_set_message(StatusRow *sr, const char *msg);
 
-/** Render the row onto @p screen within @p pane. Inverse-video across the
- *  whole row to make the status line visually distinct. */
+/** As status_row_set_message(), in the style of @p kind. */
+void status_row_set_message_kind(StatusRow *sr, const char *msg,
+                                 StatusMsgKind kind);
+
+/** The hint text of @p mode (the keys of that view). */
+const char *status_row_hint(StatusMode mode);
+
+/** Render the row onto @p screen within @p pane. */
 void status_row_render(const StatusRow *sr,
                         const tui_rect *pane, tui_screen *screen);
 

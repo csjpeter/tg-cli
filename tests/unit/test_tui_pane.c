@@ -24,10 +24,13 @@ static void test_layout_standard_80x24(void) {
     ASSERT(pane_is_valid(&L.dialogs), "dialogs pane valid");
     ASSERT(pane_is_valid(&L.history), "history pane valid");
     ASSERT(pane_is_valid(&L.status),  "status pane valid");
-    ASSERT(L.dialogs.row == 0 && L.dialogs.col == 0, "dialogs at (0,0)");
-    ASSERT(L.dialogs.rows == 23, "dialogs rows = screen_rows - 1");
+    ASSERT(pane_is_valid(&L.header),  "header pane valid");
+    ASSERT(L.header.row == 0 && L.header.col == 0, "header on the first row");
+    ASSERT(L.header.cols == 80 && L.header.rows == 1, "header is full width, 1 row");
+    ASSERT(L.dialogs.row == 1 && L.dialogs.col == 0, "dialogs under the header");
+    ASSERT(L.dialogs.rows == 22, "dialogs rows = screen_rows - 2");
     ASSERT(L.dialogs.cols == 30, "dialogs cols = hint");
-    ASSERT(L.history.row == 0 && L.history.col == 30, "history right of dialogs");
+    ASSERT(L.history.row == 1 && L.history.col == 30, "history right of dialogs");
     ASSERT(L.history.cols == 50, "history fills remainder");
     ASSERT(L.status.row == 23 && L.status.col == 0, "status on last row");
     ASSERT(L.status.cols == 80 && L.status.rows == 1, "status is full width, 1 row");

@@ -45,11 +45,25 @@ int history_pane_load(HistoryPane *hp,
     if (!hp || !cfg || !s || !t || !peer) return -1;
     HistoryEntry tmp[HISTORY_PANE_MAX] = {0};
     int count = 0;
+    int same = hp->peer_loaded && hp->peer.kind == peer->kind
+            && hp->peer.peer_id == peer->peer_id;
     if (domain_get_history(cfg, s, t, peer, 0,
                            HISTORY_PANE_MAX, tmp, &count) != 0) {
+        if (!same) {
+            history_pane_set_entries(hp, peer, NULL, 0);
+        }
+        hp->load_failed = 1;
         return -1;
     }
+    int sel = hp->lv.selected, top = hp->lv.scroll_top;
     history_pane_set_entries(hp, peer, tmp, count);
+    hp->load_failed = 0;
+    if (same && sel > 0 && hp->count > 0) {
+        int rows = hp->lv.rows_visible;
+        hp->lv.scroll_top = top < hp->count ? top : 0;
+        tui_listview_select(&hp->lv, sel < hp->count ? sel : hp->count - 1);
+        tui_listview_set_viewport(&hp->lv, rows);
+    }
     return 0;
 }
 
@@ -70,35 +84,51 @@ static int format_row(const HistoryEntry *e, char *out, size_t cap) {
     return snprintf(out, cap, "%c [%d] %s", arrow, e->id, clean);
 }
 
+typedef struct {
+    const HistoryPane *hp;
+    int                focused;
+} HistoryDraw;
+
 static void draw_history_row(void *ctx, tui_canvas row, int index,
                              int selected) {
-    const HistoryPane *hp = ctx;
+    const HistoryDraw *d = ctx;
+    const HistoryPane *hp = d->hp;
     const HistoryEntry *e = &hp->entries[index];
     char line[HISTORY_TEXT_MAX + 32];
     format_row(e, line, sizeof(line));
-    uint16_t attrs = e->complex ? TUI_ATTR_DIM : 0;
-    (void)selected;
-    tui_canvas_put(row, 0, 0, line, tui_style_attrs(attrs));
+    tui_style st = tui_style_attrs(e->complex ? TUI_ATTR_DIM : 0);
+    if (selected && d->focused) {
+        st = TUI_STYLE_SELECTION;
+        tui_canvas_fill(row, tui_canvas_rect(row), st);
+    } else if (selected) {
+        st.attrs |= TUI_ATTR_UNDERLINE;
+    }
+    tui_canvas_put(row, 0, 0, line, st);
 }
 
 void history_pane_render(HistoryPane *hp,
-                          const tui_rect *pane, tui_screen *screen) {
+                          const tui_rect *pane, tui_screen *screen,
+                          int focused) {
     if (!hp || !pane || !screen || !pane_is_valid(pane)) return;
     tui_canvas c = tui_canvas_sub(tui_canvas_of(screen), *pane);
     tui_canvas_clear(c, TUI_STYLE_DEFAULT);
 
     const char *placeholder = NULL;
     if (!hp->peer_loaded)  placeholder = "(select a dialog)";
-    else if (hp->count==0) placeholder = "(no messages)";
+    else if (hp->load_failed && hp->count == 0)
+        placeholder = "(could not read messages - r retries)";
+    else if (hp->count==0) placeholder = "(no messages - r reloads)";
 
     if (placeholder) {
         tui_listview_set_viewport(&hp->lv, pane->rows);
         int col = (pane->cols - (int)strlen(placeholder)) / 2;
         if (col < 0) col = 0;
         tui_canvas_put(c, pane->rows / 2, col, placeholder,
-                       tui_style_attrs(TUI_ATTR_DIM));
+                       hp->load_failed ? TUI_STYLE_ERROR
+                                       : tui_style_attrs(TUI_ATTR_DIM));
         return;
     }
 
-    tui_listview_render(&hp->lv, c, TUI_STYLE_DEFAULT, draw_history_row, hp);
+    HistoryDraw d = { hp, focused };
+    tui_listview_render(&hp->lv, c, TUI_STYLE_DEFAULT, draw_history_row, &d);
 }

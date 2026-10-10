@@ -76,6 +76,36 @@ target_link_libraries(pty-tui-resize-test-runner PRIVATE
 
 add_test(NAME PtyTuiResizeTests COMMAND pty-tui-resize-test-runner)
 
+# ── TG-7: TUI interface policy (header bar, palette, keys, help) ─────
+add_executable(pty-tui-interface-test-runner
+    test_tui_interface.c
+    pty_tel_stub.c
+    ../../../src/core/crypto.c
+)
+
+target_include_directories(pty-tui-interface-test-runner PRIVATE
+    ${CMAKE_SOURCE_DIR}/tests/functional/pty
+    ${CMAKE_SOURCE_DIR}/tests/common
+    ${CMAKE_SOURCE_DIR}/tests/mocks
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/core
+    ${CMAKE_SOURCE_DIR}/src/app
+)
+
+# The test's HOME lives under the build tree, never under /tmp.
+target_compile_definitions(pty-tui-interface-test-runner PRIVATE
+    TG_TUI_BINARY="${CMAKE_BINARY_DIR}/tg-tui"
+    TG_PTY_HOME_BASE="${CMAKE_BINARY_DIR}/pty-tui-interface"
+)
+
+target_link_libraries(pty-tui-interface-test-runner PRIVATE
+    ptytest::ptytest_static tg-app tg-proto
+    OpenSSL::SSL OpenSSL::Crypto
+    Threads::Threads
+)
+
+add_test(NAME PtyTuiInterfaceTests COMMAND pty-tui-interface-test-runner)
+
 # ── PTY-03: readline navigation tests ────────────────────────────────
 # rl_harness: tiny binary that calls rl_readline in a loop and prints
 # "ACCEPTED:<line>" for each accepted line.  No mock server needed.

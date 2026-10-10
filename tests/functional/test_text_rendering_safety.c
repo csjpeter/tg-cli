@@ -52,10 +52,13 @@ static void render_body(const char *body, TuiGrid *g, tui_buf *raw) {
     HistoryPeer peer;
     memset(&peer, 0, sizeof(peer));
     history_pane_set_entries(hp, &peer, &e, 1);
+    /* These tests are about the text, not the selection style: nothing is
+     * selected, so the row is drawn in its plain style. */
+    hp->lv.selected = -1;
 
     tui_screen *s = tui_screen_new(1, 64);
     tui_rect r = tui_rect_make(0, 0, 1, 64);
-    history_pane_render(hp, &r, s);
+    history_pane_render(hp, &r, s, 1);
     tui_grid_capture(g, s);
     tui_buf_init(raw);
     tui_screen_invalidate(s);

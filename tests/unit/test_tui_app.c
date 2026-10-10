@@ -13,6 +13,7 @@
 #include "tui/app.h"
 #include "tui_grid.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 /* ---- key events: what libtuikit's decoder yields for real terminal bytes ---- */
@@ -137,12 +138,50 @@ static void test_ctrl_c_quits(void) {
     tui_app_free(&app);
 }
 
-static void test_q_char_quits(void) {
+static void test_q_never_quits(void) {
     TuiApp app; tui_app_init(&app, 24, 80);
-    TuiEvent ev = type_char(&app, 'q');
-    ASSERT(ev == TUI_EVENT_QUIT, "'q' returns QUIT");
-    ev = type_char(&app, 'Q');
-    ASSERT(ev == TUI_EVENT_QUIT, "'Q' returns QUIT");
+    seed_dialogs(&app, 3);
+    ASSERT(type_char(&app, 'q') == TUI_EVENT_NONE, "'q' on the top level does nothing");
+    ASSERT(type_char(&app, 'Q') == TUI_EVENT_NONE, "'Q' is unbound");
+    press(&app, TUI_KEY_RIGHT);
+    ASSERT(app.focus == TUI_FOCUS_HISTORY, "in the history");
+    ASSERT(type_char(&app, 'q') == TUI_EVENT_REDRAW, "'q' goes back");
+    ASSERT(app.focus == TUI_FOCUS_DIALOGS, "back on the dialogs");
+    ASSERT(app.status.mode == STATUS_MODE_DIALOGS, "hints follow");
+    tui_app_free(&app);
+}
+
+static void test_backspace_goes_back_like_esc(void) {
+    TuiApp app; tui_app_init(&app, 24, 80);
+    seed_dialogs(&app, 3);
+    ASSERT(press(&app, TUI_KEY_BACKSPACE) == TUI_EVENT_NONE, "nothing on the top level");
+    press(&app, TUI_KEY_RIGHT);
+    ASSERT(press(&app, TUI_KEY_BACKSPACE) == TUI_EVENT_REDRAW, "back from the history");
+    ASSERT(app.focus == TUI_FOCUS_DIALOGS, "dialogs again");
+    tui_app_free(&app);
+}
+
+static void test_back_keeps_the_row_it_was_left_on(void) {
+    TuiApp app; tui_app_init(&app, 24, 80);
+    seed_dialogs(&app, 4);
+    type_char(&app, 'j'); type_char(&app, 'j');
+    press(&app, TUI_KEY_ENTER);
+    ASSERT(app.focus == TUI_FOCUS_HISTORY, "opened");
+    press(&app, TUI_KEY_ESC);
+    ASSERT(app.focus == TUI_FOCUS_DIALOGS, "Esc goes back");
+    ASSERT(app.dialogs.lv.selected == 2, "same row");
+    tui_app_free(&app);
+}
+
+static void test_function_keys_are_unbound(void) {
+    TuiApp app; tui_app_init(&app, 24, 80);
+    seed_dialogs(&app, 3);
+    for (int k = 1; k <= 12; k++) {
+        tui_event e = ev_key((tui_key)(TUI_KEY_F1 + k - 1), 0);
+        ASSERT(tui_app_handle_key(&app, &e) == TUI_EVENT_NONE, "F-key does nothing");
+    }
+    ASSERT(!app.help_open && app.focus == TUI_FOCUS_DIALOGS
+           && app.dialogs.lv.selected == 0, "state untouched");
     tui_app_free(&app);
 }
 
@@ -226,10 +265,94 @@ static void test_enter_with_no_dialog_is_noop(void) {
     tui_app_free(&app);
 }
 
-static void test_esc_also_quits(void) {
+static void test_esc_on_top_level_quits(void) {
     TuiApp app; tui_app_init(&app, 24, 80);
     TuiEvent ev = press(&app, TUI_KEY_ESC);
-    ASSERT(ev == TUI_EVENT_QUIT, "esc quits");
+    ASSERT(ev == TUI_EVENT_QUIT, "esc on the top level quits");
+    tui_app_free(&app);
+}
+
+static void test_esc_in_history_goes_back_not_quit(void) {
+    TuiApp app; tui_app_init(&app, 24, 80);
+    press(&app, TUI_KEY_RIGHT);
+    ASSERT(press(&app, TUI_KEY_ESC) == TUI_EVENT_REDRAW, "esc goes back");
+    ASSERT(app.focus == TUI_FOCUS_DIALOGS, "dialogs focused");
+    tui_app_free(&app);
+}
+
+static void test_r_requests_reload(void) {
+    TuiApp app; tui_app_init(&app, 24, 80);
+    seed_dialogs(&app, 3);
+    type_char(&app, 'j');
+    ASSERT(type_char(&app, 'r') == TUI_EVENT_RELOAD, "r reloads");
+    ASSERT(app.dialogs.lv.selected == 1, "the cursor stays");
+    tui_app_free(&app);
+}
+
+/* --- Help overlay --- */
+
+static void test_help_overlay_is_bordered_titled_and_keeps_the_view(void) {
+    TuiApp app; tui_app_init(&app, 24, 80);
+    seed_dialogs(&app, 3);
+    ASSERT(type_char(&app, '?') == TUI_EVENT_REDRAW, "? opens the help");
+    ASSERT(app.help_open, "help is open");
+    tui_app_paint(&app);
+    TuiGrid *g = malloc(sizeof(*g)); ASSERT(g != NULL, "alloc");
+    tui_grid_capture(g, app.screen);
+    ASSERT(tui_grid_contains(g, "Dialog list shortcuts"), "title names the view");
+    ASSERT(tui_grid_contains(g, "ctrl-f"), "lists ctrl-f");
+    ASSERT(tui_grid_contains(g, "reload"), "lists r");
+    ASSERT(tui_grid_contains(g, "\xe2\x94\x8c") || tui_grid_contains(g, "+")
+           || tui_grid_contains(g, "\xe2\x95\xad"), "has a border");
+    char line[256];
+    tui_grid_row_text(g, 0, line, sizeof(line));
+    ASSERT(strstr(line, "Dialogs") != NULL, "the header stays visible");
+    int cyan = 0;
+    for (int r = 0; r < g->rows; r++)
+        for (int c = 0; c < g->cols; c++)
+            if (g->fg[r][c] == TUI_CYAN && (g->attrs[r][c] & TUI_ATTR_BOLD)) cyan = 1;
+    ASSERT(cyan, "frame in the accent colour");
+    free(g);
+    tui_app_free(&app);
+}
+
+static void test_help_closes_with_esc_q_backspace_and_does_not_quit(void) {
+    const tui_key keys[] = { TUI_KEY_ESC, TUI_KEY_BACKSPACE, TUI_KEY_CHAR };
+    for (int i = 0; i < 3; i++) {
+        TuiApp app; tui_app_init(&app, 24, 80);
+        seed_dialogs(&app, 3);
+        type_char(&app, '?');
+        TuiEvent r = keys[i] == TUI_KEY_CHAR ? type_char(&app, 'q')
+                                             : press(&app, keys[i]);
+        ASSERT(r == TUI_EVENT_REDRAW, "closing redraws, never quits");
+        ASSERT(!app.help_open, "help closed");
+        ASSERT(app.focus == TUI_FOCUS_DIALOGS, "the view is where it was");
+        tui_app_free(&app);
+    }
+}
+
+static void test_help_other_keys_change_nothing_and_ctrl_c_quits(void) {
+    TuiApp app; tui_app_init(&app, 24, 80);
+    seed_dialogs(&app, 3);
+    type_char(&app, '?');
+    type_char(&app, 'x'); type_char(&app, 'r'); type_char(&app, 'l');
+    ASSERT(app.help_open, "still open");
+    ASSERT(app.focus == TUI_FOCUS_DIALOGS && app.dialogs.lv.selected == 0,
+           "nothing moved behind it");
+    tui_event cc = ev_char('c', TUI_MOD_CTRL);
+    ASSERT(tui_app_handle_key(&app, &cc) == TUI_EVENT_QUIT, "ctrl-c quits at once");
+    tui_app_free(&app);
+}
+
+static void test_history_help_names_its_view(void) {
+    TuiApp app; tui_app_init(&app, 24, 80);
+    press(&app, TUI_KEY_RIGHT);
+    type_char(&app, '?');
+    tui_app_paint(&app);
+    TuiGrid *g = malloc(sizeof(*g)); ASSERT(g != NULL, "alloc");
+    tui_grid_capture(g, app.screen);
+    ASSERT(tui_grid_contains(g, "Message history shortcuts"), "history title");
+    free(g);
     tui_app_free(&app);
 }
 
@@ -243,8 +366,8 @@ static void test_paint_renders_all_three_panes(void) {
     tui_grid_capture(&g, app.screen);
     char line[256];
 
-    /* Dialog pane: first row is "u     Alice". */
-    tui_grid_row_text(&g, 0, line, sizeof(line));
+    /* Dialog pane: first row under the header is "u     Alice". */
+    tui_grid_row_text(&g, 1, line, sizeof(line));
     ASSERT(strncmp(line, "u     Alice", 11) == 0, "dialog pane painted");
 
     /* History pane shows the placeholder on the middle row. */
@@ -252,35 +375,127 @@ static void test_paint_renders_all_three_panes(void) {
     tui_grid_row_text(&g, mid, line, sizeof(line));
     ASSERT(strstr(line, "(select a dialog)") != NULL, "history pane shows hint");
 
-    /* Status row is reverse-video full width and carries the hint. */
+    /* Status row carries the hints, in yellow, on the default background. */
     int status_row = app.layout.status.row;
-    int rev = 1;
-    for (int c = 0; c < 50 && rev; c++)
-        if (!(g.attrs[status_row][c] & TUI_ATTR_REVERSE)) rev = 0;
-    ASSERT(rev, "status row fully reversed");
+    ASSERT(status_row == 9, "status on the last row");
     tui_grid_row_text(&g, status_row, line, sizeof(line));
     ASSERT(strstr(line, "[dialogs]") != NULL, "status row shows dialogs hint");
+    ASSERT(g.fg[status_row][0] == TUI_YELLOW, "hints are yellow");
+    ASSERT(g.bg[status_row][0] == TUI_COLOR_DEFAULT, "default background");
     tui_app_free(&app);
 }
 
-static void test_selected_dialog_row_is_reversed_only_when_focused(void) {
+static void test_header_bar_text_and_colours(void) {
+    TuiApp app; tui_app_init(&app, 24, 80);
+    seed_dialogs(&app, 3);
+    tui_app_paint(&app);
+    TuiGrid *g = malloc(sizeof(*g)); ASSERT(g != NULL, "alloc");
+    tui_grid_capture(g, app.screen);
+    char line[256];
+    tui_grid_row_text(g, 0, line, sizeof(line));
+    ASSERT(strstr(line, "Dialogs") != NULL, "says where we are");
+    ASSERT(strstr(line, "1 of 3") != NULL, "counts the rows");
+    ASSERT(strstr(line, "tg-tui") != NULL, "names the program");
+    ASSERT(strstr(line, "tg-tui") > strstr(line, "Dialogs"), "name on the right");
+    for (int c = 0; c < 80; c++) {
+        ASSERT(g->fg[0][c] == TUI_WHITE && g->bg[0][c] == TUI_BLUE,
+               "white on blue across the row");
+        ASSERT(g->attrs[0][c] & TUI_ATTR_BOLD, "bold");
+    }
+    ASSERT(g->bg[1][40] == TUI_COLOR_DEFAULT, "terminal background below");
+
+    type_char(&app, 'j');
+    press(&app, TUI_KEY_RIGHT);
+    tui_app_paint(&app);
+    tui_grid_capture(g, app.screen);
+    tui_grid_row_text(g, 0, line, sizeof(line));
+    ASSERT(strstr(line, "Messages") != NULL, "history view named");
+    free(g);
+    tui_app_free(&app);
+}
+
+static void test_header_clips_left_before_the_name(void) {
+    TuiApp app; tui_app_init(&app, 10, 40);
+    seed_dialogs(&app, 3);
+    tui_app_paint(&app);
+    TuiGrid *g = malloc(sizeof(*g)); ASSERT(g != NULL, "alloc");
+    tui_grid_capture(g, app.screen);
+    char line[256];
+    tui_grid_row_text(g, 0, line, sizeof(line));
+    ASSERT(strstr(line, "tg-tui") != NULL, "name still there");
+    free(g);
+    tui_app_free(&app);
+}
+
+static void test_selected_dialog_row_is_filled_only_when_focused(void) {
     TuiApp app; tui_app_init(&app, 10, 50);
     seed_dialogs(&app, 3);
     tui_app_paint(&app);
-    TuiGrid g;
-    tui_grid_capture(&g, app.screen);
+    TuiGrid *g = malloc(sizeof(*g)); ASSERT(g != NULL, "alloc");
+    tui_grid_capture(g, app.screen);
     int w = app.layout.dialogs.cols;
-    int all = 1;
-    for (int c = 0; c < w; c++)
-        if (!(g.attrs[0][c] & TUI_ATTR_REVERSE)) all = 0;
-    ASSERT(all, "selected row highlighted across the whole pane width");
-    ASSERT(!(g.attrs[1][0] & TUI_ATTR_REVERSE), "other rows not highlighted");
+    for (int c = 0; c < w; c++) {
+        ASSERT(g->fg[1][c] == TUI_BLACK && g->bg[1][c] == TUI_CYAN
+               && (g->attrs[1][c] & TUI_ATTR_BOLD),
+               "selected row bold black on cyan across the pane width");
+    }
+    ASSERT(g->bg[2][0] == TUI_COLOR_DEFAULT, "other rows not highlighted");
 
     press(&app, TUI_KEY_RIGHT);          /* focus history */
     tui_app_paint(&app);
-    tui_grid_capture(&g, app.screen);
-    ASSERT(!(g.attrs[0][0] & TUI_ATTR_REVERSE),
-           "selection not highlighted when the pane lost focus");
+    tui_grid_capture(g, app.screen);
+    ASSERT(g->bg[1][0] == TUI_COLOR_DEFAULT, "no fill when the pane lost focus");
+    ASSERT(g->attrs[1][0] & TUI_ATTR_UNDERLINE, "still marked by an attribute");
+    free(g);
+    tui_app_free(&app);
+}
+
+static void test_status_message_is_cleared_by_the_next_key(void) {
+    TuiApp app; tui_app_init(&app, 10, 80);
+    seed_dialogs(&app, 3);
+    status_row_set_message_kind(&app.status, "history: load failed",
+                                STATUS_MSG_ERROR);
+    tui_app_paint(&app);
+    TuiGrid *g = malloc(sizeof(*g)); ASSERT(g != NULL, "alloc");
+    tui_grid_capture(g, app.screen);
+    char line[256];
+    tui_grid_row_text(g, 9, line, sizeof(line));
+    ASSERT(strncmp(line, "history: load failed", 20) == 0, "message shown");
+    ASSERT(g->fg[9][0] == TUI_RED && (g->attrs[9][0] & TUI_ATTR_BOLD),
+           "in the error style");
+    ASSERT(strstr(line, "[dialogs]") == NULL, "instead of the hints");
+
+    ASSERT(type_char(&app, 'x') == TUI_EVENT_REDRAW, "an unbound key clears it");
+    tui_app_paint(&app);
+    tui_grid_capture(g, app.screen);
+    tui_grid_row_text(g, 9, line, sizeof(line));
+    ASSERT(strstr(line, "[dialogs]") != NULL, "hints are back");
+    ASSERT(type_char(&app, 'x') == TUI_EVENT_NONE, "then it changes nothing");
+    free(g);
+    tui_app_free(&app);
+}
+
+static void test_too_small_terminal_shows_a_notice(void) {
+    TuiApp app; tui_app_init(&app, 24, 80);
+    ASSERT(tui_app_resize(&app, 2, 30) == 0, "resize");
+    tui_app_paint(&app);
+    TuiGrid *g = malloc(sizeof(*g)); ASSERT(g != NULL, "alloc");
+    tui_grid_capture(g, app.screen);
+    ASSERT(tui_grid_contains(g, "terminal too small"), "notice shown");
+    free(g);
+    tui_app_free(&app);
+}
+
+static void test_empty_dialog_list_names_the_key(void) {
+    TuiApp app; tui_app_init(&app, 10, 80);
+    tui_app_paint(&app);
+    TuiGrid *g = malloc(sizeof(*g)); ASSERT(g != NULL, "alloc");
+    tui_grid_capture(g, app.screen);
+    ASSERT(tui_grid_contains(g, "no dialogs - r reloads"), "says it is empty");
+    char line[256];
+    tui_grid_row_text(g, 0, line, sizeof(line));
+    ASSERT(strstr(line, "Dialogs \xc2\xb7 0") != NULL, "header counts zero");
+    free(g);
     tui_app_free(&app);
 }
 
@@ -293,9 +508,9 @@ static void test_unread_dialog_is_bold(void) {
     TuiGrid g;
     tui_grid_capture(&g, app.screen);
     char line[256];
-    tui_grid_row_text(&g, 0, line, sizeof(line));
+    tui_grid_row_text(&g, 1, line, sizeof(line));
     ASSERT(strncmp(line, "c [12] News", 11) == 0, "unread count shown");
-    ASSERT(g.attrs[0][0] & TUI_ATTR_BOLD, "unread row bold");
+    ASSERT(g.attrs[1][0] & TUI_ATTR_BOLD, "unread row bold");
     tui_app_free(&app);
 }
 
@@ -330,10 +545,10 @@ static void test_non_ascii_titles_in_c_locale(void) {
     TuiGrid g;
     tui_grid_capture(&g, app.screen);
     char line[256];
-    tui_grid_row_text(&g, 0, line, sizeof(line));
+    tui_grid_row_text(&g, 1, line, sizeof(line));
     ASSERT(strstr(line, "Árvíztűrő tükörfúrógép") != NULL,
            "accented title drawn whole");
-    tui_grid_row_text(&g, 1, line, sizeof(line));
+    tui_grid_row_text(&g, 2, line, sizeof(line));
     ASSERT(strstr(line, "日本語") != NULL, "wide title drawn");
     /* the status row starts at column 0 of the last row: wide cells did not
      * shift the layout */
@@ -398,7 +613,10 @@ void test_tui_app_run(void) {
     RUN_TEST(test_init_rejects_too_small);
     RUN_TEST(test_resize_recomputes_layout);
     RUN_TEST(test_ctrl_c_quits);
-    RUN_TEST(test_q_char_quits);
+    RUN_TEST(test_q_never_quits);
+    RUN_TEST(test_backspace_goes_back_like_esc);
+    RUN_TEST(test_back_keeps_the_row_it_was_left_on);
+    RUN_TEST(test_function_keys_are_unbound);
     RUN_TEST(test_left_right_switch_focus);
     RUN_TEST(test_vim_keys_switch_focus);
     RUN_TEST(test_arrow_keys_navigate_focused_pane);
@@ -406,9 +624,20 @@ void test_tui_app_run(void) {
     RUN_TEST(test_navigation_targets_focused_pane_only);
     RUN_TEST(test_enter_on_dialog_requests_load_and_shifts_focus);
     RUN_TEST(test_enter_with_no_dialog_is_noop);
-    RUN_TEST(test_esc_also_quits);
+    RUN_TEST(test_esc_on_top_level_quits);
+    RUN_TEST(test_esc_in_history_goes_back_not_quit);
+    RUN_TEST(test_r_requests_reload);
+    RUN_TEST(test_help_overlay_is_bordered_titled_and_keeps_the_view);
+    RUN_TEST(test_help_closes_with_esc_q_backspace_and_does_not_quit);
+    RUN_TEST(test_help_other_keys_change_nothing_and_ctrl_c_quits);
+    RUN_TEST(test_history_help_names_its_view);
+    RUN_TEST(test_header_bar_text_and_colours);
+    RUN_TEST(test_header_clips_left_before_the_name);
+    RUN_TEST(test_status_message_is_cleared_by_the_next_key);
+    RUN_TEST(test_too_small_terminal_shows_a_notice);
+    RUN_TEST(test_empty_dialog_list_names_the_key);
     RUN_TEST(test_paint_renders_all_three_panes);
-    RUN_TEST(test_selected_dialog_row_is_reversed_only_when_focused);
+    RUN_TEST(test_selected_dialog_row_is_filled_only_when_focused);
     RUN_TEST(test_unread_dialog_is_bold);
     RUN_TEST(test_paint_does_not_write_to_the_terminal);
     RUN_TEST(test_non_ascii_titles_in_c_locale);

@@ -36,6 +36,7 @@
 #include "ptytest.h"
 #include "pty_assert.h"
 #include "pty_tel_stub.h"
+#include "pty_test_config.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -103,6 +104,7 @@ static int setup_stub(PtyTelStub *stub) {
     FILE *f = fopen(ini_path, "w");
     if (!f) return 0;
     fprintf(f, "api_id=12345\napi_hash=deadbeefcafebabef00dbaadfeedc0de\n");
+    fputs(PTY_TEST_RSA_INI_LINE, f);
     fclose(f);
 
     setenv("HOME", tmp, 1);

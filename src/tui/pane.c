@@ -39,14 +39,20 @@ void layout_compute(Layout *out, int screen_rows, int screen_cols,
         if (left < TUI_MIN_LEFT_WIDTH) left = TUI_MIN_LEFT_WIDTH;
     }
 
-    int top_rows = screen_rows - 1; /* reserve last row for status line */
+    /* Row 0 is the header bar, the last row the status line. */
+    int top_rows = screen_rows - 2;
 
-    out->dialogs.row  = 0;
+    out->header.row   = 0;
+    out->header.col   = 0;
+    out->header.rows  = 1;
+    out->header.cols  = screen_cols;
+
+    out->dialogs.row  = 1;
     out->dialogs.col  = 0;
     out->dialogs.rows = top_rows;
     out->dialogs.cols = left;
 
-    out->history.row  = 0;
+    out->history.row  = 1;
     out->history.col  = left;
     out->history.rows = top_rows;
     out->history.cols = screen_cols - left;

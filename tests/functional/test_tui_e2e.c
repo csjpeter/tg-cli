@@ -337,11 +337,22 @@ static void test_tui_keypress_sequence_j_enter_q(void) {
     ASSERT(screen_shows(app.screen, "Hello TUI world"),
            "back buffer has message text");
 
-    /* 'q' — quit. */
+    /* 'q' goes back to the dialog list and never quits... */
     j_key.cp = 'q';
     j_key.utf8[0] = 'q';
     ev = tui_app_handle_key(&app, &j_key);
-    ASSERT(ev == TUI_EVENT_QUIT, "'q' returns QUIT");
+    ASSERT(ev == TUI_EVENT_REDRAW, "'q' goes back");
+    ASSERT(app.focus == TUI_FOCUS_DIALOGS, "back on the dialog list");
+    ev = tui_app_handle_key(&app, &j_key);
+    ASSERT(ev == TUI_EVENT_NONE, "'q' on the top level does not quit");
+
+    /* ...while Esc on the top level quits. */
+    tui_event esc;
+    memset(&esc, 0, sizeof(esc));
+    esc.type = TUI_EV_KEY;
+    esc.key  = TUI_KEY_ESC;
+    ev = tui_app_handle_key(&app, &esc);
+    ASSERT(ev == TUI_EVENT_QUIT, "Esc on the top level returns QUIT");
 
     tui_app_free(&app);
     transport_close(&t);

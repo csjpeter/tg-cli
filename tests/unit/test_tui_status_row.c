@@ -14,6 +14,7 @@
 
 #include "tui_grid.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 static void test_init_is_dialogs_mode(void) {
@@ -41,10 +42,18 @@ static void test_render_dialogs_mode_shows_hint(void) {
     char buf[128]; tgrid_row(s, 0, buf, sizeof(buf));
     ASSERT(strstr(buf, "[dialogs]") != NULL, "dialogs prefix");
     ASSERT(strstr(buf, "Enter") != NULL, "enter hint");
-    /* Every cell on the row must have TUI_ATTR_REVERSE set. */
+    ASSERT(strstr(buf, "? help") != NULL, "help key hinted");
+    ASSERT(strstr(buf, "r reload") != NULL, "reload key hinted");
+    /* The hints are yellow on the terminal's own background: no fill. */
+    TuiGrid *g = malloc(sizeof(*g)); ASSERT(g != NULL, "alloc");
+    tui_grid_capture(g, s);
+    ASSERT(g->fg[0][0] == TUI_YELLOW, "hint is yellow");
+    ASSERT(g->fg[0][12] == TUI_YELLOW, "hint stays yellow");
     for (int c = 0; c < 80; c++) {
-        ASSERT(tgrid_attrs(s, 0, c) & TUI_ATTR_REVERSE, "full-row reverse");
+        ASSERT(g->bg[0][c] == TUI_COLOR_DEFAULT, "terminal background kept");
+        ASSERT(!(g->attrs[0][c] & TUI_ATTR_REVERSE), "no reverse video");
     }
+    free(g);
     tui_screen_free(s);
 }
 
@@ -56,19 +65,63 @@ static void test_render_history_mode_shows_different_hint(void) {
     status_row_render(&sr, &p, s);
     char buf[128]; tgrid_row(s, 0, buf, sizeof(buf));
     ASSERT(strstr(buf, "[history]") != NULL, "history prefix");
-    ASSERT(strstr(buf, "Tab") != NULL, "tab hint");
+    ASSERT(strstr(buf, "Esc back") != NULL, "back hint");
     tui_screen_free(s);
 }
 
-static void test_render_message_right_aligned(void) {
-    tui_screen *s = tui_screen_new(1, 80); ASSERT(s != NULL, "init");
-    StatusRow sr; status_row_init(&sr);
-    status_row_set_message(&sr, "loading");
+static void render_with(StatusRow *sr, TuiGrid *g) {
+    tui_screen *s = tui_screen_new(1, 80);
     tui_rect p = tui_rect_make(0, 0, 1, 80);
+    status_row_render(sr, &p, s);
+    tui_grid_capture(g, s);
+    tui_screen_free(s);
+}
+
+static void test_message_replaces_hints_in_its_style(void) {
+    TuiGrid *g = malloc(sizeof(*g)); ASSERT(g != NULL, "alloc");
+    StatusRow sr; status_row_init(&sr);
+    char line[128];
+
+    status_row_set_message(&sr, "plain note");
+    render_with(&sr, g);
+    tui_grid_row_text(g, 0, line, sizeof(line));
+    ASSERT(strncmp(line, "plain note", 10) == 0, "message at the left");
+    ASSERT(strstr(line, "[dialogs]") == NULL, "message replaces the hints");
+    ASSERT(g->fg[0][0] == TUI_COLOR_DEFAULT && g->attrs[0][0] == 0,
+           "plain message in the default style");
+
+    status_row_set_message_kind(&sr, "loading", STATUS_MSG_PROGRESS);
+    render_with(&sr, g);
+    ASSERT(g->fg[0][0] == TUI_YELLOW, "progress is yellow");
+    ASSERT(g->attrs[0][0] & TUI_ATTR_ITALIC, "progress is italic");
+
+    status_row_set_message_kind(&sr, "saved", STATUS_MSG_OK);
+    render_with(&sr, g);
+    ASSERT(g->fg[0][0] == TUI_GREEN && (g->attrs[0][0] & TUI_ATTR_BOLD),
+           "ok is bold green");
+
+    status_row_set_message_kind(&sr, "failed", STATUS_MSG_ERROR);
+    render_with(&sr, g);
+    ASSERT(g->fg[0][0] == TUI_RED && (g->attrs[0][0] & TUI_ATTR_BOLD),
+           "error is bold red");
+
+    status_row_set_message(&sr, NULL);
+    render_with(&sr, g);
+    tui_grid_row_text(g, 0, line, sizeof(line));
+    ASSERT(strstr(line, "[dialogs]") != NULL, "hints come back");
+    ASSERT(sr.kind == STATUS_MSG_PLAIN, "kind reset");
+    free(g);
+}
+
+static void test_long_message_is_cut_at_the_row_end(void) {
+    tui_screen *s = tui_screen_new(1, 20); ASSERT(s != NULL, "init");
+    StatusRow sr; status_row_init(&sr);
+    status_row_set_message_kind(&sr, "an error message much longer than the row",
+                                STATUS_MSG_ERROR);
+    tui_rect p = tui_rect_make(0, 0, 1, 20);
     status_row_render(&sr, &p, s);
-    /* "loading" is 7 chars; col = 80 - 7 - 1 = 72 */
-    ASSERT(tgrid_ch(s, 0, 72) == 'l', "message starts at right-aligned col");
-    ASSERT(tgrid_ch(s, 0, 78) == 'g', "message ends near right edge");
+    /* "an error message much longer than the row": column 19 is 'c' */
+    ASSERT(tgrid_ch(s, 0, 19) == 'c', "cut at the last column, no wrap");
     tui_screen_free(s);
 }
 
@@ -88,6 +141,7 @@ void test_tui_status_row_run(void) {
     RUN_TEST(test_set_message_truncates);
     RUN_TEST(test_render_dialogs_mode_shows_hint);
     RUN_TEST(test_render_history_mode_shows_different_hint);
-    RUN_TEST(test_render_message_right_aligned);
+    RUN_TEST(test_message_replaces_hints_in_its_style);
+    RUN_TEST(test_long_message_is_cut_at_the_row_end);
     RUN_TEST(test_render_null_args_noop);
 }
