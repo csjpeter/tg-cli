@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-04-19 */
+/* Write-path functional tests through the mock server. */
+
 /**
  * @file test_write_path.c
  * @brief FT-05 — write-path functional tests through the mock server.

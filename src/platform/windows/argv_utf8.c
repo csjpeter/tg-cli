@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: LicenseRef-Proprietary */
 /* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
 /* Proprietary; the owner is the author. */
+/* Created: 2026-04-19 */
+/* Re-encode argv from system ANSI codepage to UTF-8 on Windows/MinGW. */
 
 /**
  * @file platform/windows/argv_utf8.c

@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-04-20 */
+/* TL forward-compatibility of tl_skip.c. */
+
 /**
  * @file test_tl_forward_compat.c
  * @brief TEST-75 — TL forward-compatibility of tl_skip.c.

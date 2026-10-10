@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: LicenseRef-Proprietary */
 /* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
 /* Proprietary; the owner is the author. */
+/* Created: 2026-04-17 */
+/* TUI state machine. */
 
 #ifndef TUI_APP_H
 #define TUI_APP_H

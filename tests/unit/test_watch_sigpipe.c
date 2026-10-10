@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-04-19 */
+/* Unit tests for SIGPIPE / EPIPE handling in the watch loop. */
+
 /**
  * @file test_watch_sigpipe.c
  * @brief Unit tests for FEAT-17: SIGPIPE / EPIPE handling in the watch loop.

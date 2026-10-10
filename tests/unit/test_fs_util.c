@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-03-28 */
+/* Tests for fs util. */
+
 #include "test_helpers.h"
 #include "fs_util.h"
 #include <sys/stat.h>

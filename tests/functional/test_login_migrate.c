@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: LicenseRef-Proprietary */
 /* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
 /* Proprietary; the owner is the author. */
+/* Created: 2026-04-20 */
+/* Functional coverage for PHONE_MIGRATE and USER_MIGRATE during the first-time login flow. */
 
 /**
  * @file test_login_migrate.c

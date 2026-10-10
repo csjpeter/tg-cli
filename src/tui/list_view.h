@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: LicenseRef-Proprietary */
 /* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
 /* Proprietary; the owner is the author. */
+/* Created: 2026-04-17 */
+/* Stateless scroll+selection helper for vertical list panes. */
 
 #ifndef TUI_LIST_VIEW_H
 #define TUI_LIST_VIEW_H

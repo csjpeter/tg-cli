@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: LicenseRef-Proprietary */
 /* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
 /* Proprietary; the owner is the author. */
+/* Created: 2026-03-31 */
+/* Winsock2 TCP socket implementation for Windows (MinGW-w64). */
 
 /**
  * @file socket.c

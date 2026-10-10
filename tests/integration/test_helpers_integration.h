@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-04-29 */
+/* Helpers for integration tests against the real Telegram test DC. */
+
 /**
  * @file test_helpers_integration.h
  * @brief Helpers for integration tests against the real Telegram test DC.

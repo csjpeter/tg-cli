@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: LicenseRef-Proprietary */
 /* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
 /* Proprietary; the owner is the author. */
+/* Created: 2026-04-20 */
+/* Harness binary that exercises terminal.c paths for coverage. */
 
 /**
  * @file terminal_coverage_harness.c

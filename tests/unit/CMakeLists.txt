@@ -1,3 +1,9 @@
+# SPDX-License-Identifier: LicenseRef-Proprietary
+# Copyright (c) 2026 Peter Csaszar (Császár Péter)
+# Proprietary; the owner is the author.
+# Created: 2026-03-28
+# CMake build rules for tests/unit.
+
 include_directories(
     ../common
     ../mocks
@@ -82,3 +88,8 @@ add_test(NAME TerminalRawFaults COMMAND test-terminal-raw-faults)
 # (policies/licensing-model.md).
 add_test(NAME LicenseDeclaration
          COMMAND ${CMAKE_SOURCE_DIR}/tests/unit/check_license.sh ${CMAKE_SOURCE_DIR})
+
+# Every source file and script starts with the workspace header
+# (policies/source-header-model.md).
+add_test(NAME SourceHeaders
+         COMMAND ${CMAKE_SOURCE_DIR}/tests/unit/check_headers.sh ${CMAKE_SOURCE_DIR})

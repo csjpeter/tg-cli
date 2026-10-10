@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-04-17 */
+/* End-to-end SRP verification under real OpenSSL. */
+
 /**
  * @file test_srp_roundtrip_functional.c
  * @brief End-to-end SRP verification under real OpenSSL.

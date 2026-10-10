@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: LicenseRef-Proprietary */
 /* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
 /* Proprietary; the owner is the author. */
+/* Created: 2026-03-28 */
+/* Telegram client configuration type shared across all layers. */
 
 #include "config.h"
 #include <stdlib.h>

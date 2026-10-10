@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-04-20 */
+/* Functional coverage for the MTProto 2.0 DH handshake (src/infrastructure/mtproto_auth.c). */
+
 /**
  * @file test_handshake_cold_boot.c
  * @brief TEST-71 / US-20 — functional coverage for the MTProto 2.0 DH

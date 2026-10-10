@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-03-31 */
+/* Unit tests for arg_parse.c. */
+
 /**
  * @file test_arg_parse.c
  * @brief Unit tests for arg_parse.c.

@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-04-19 */
+/* TUI end-to-end functional tests. */
+
 /**
  * @file test_tui_e2e.c
  * @brief TEST-11 — TUI end-to-end functional tests.

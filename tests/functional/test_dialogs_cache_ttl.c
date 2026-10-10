@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-04-19 */
+/* Dialogs cache TTL functional tests. */
+
 /**
  * @file test_dialogs_cache_ttl.c
  * @brief TEST-04 — dialogs cache TTL functional tests.

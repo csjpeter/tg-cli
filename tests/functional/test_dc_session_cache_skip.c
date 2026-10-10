@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-04-19 */
+/* Cached DC session skips DH handshake on second open. */
+
 /**
  * @file test_dc_session_cache_skip.c
  * @brief TEST-21 — cached DC session skips DH handshake on second open.

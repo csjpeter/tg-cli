@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: LicenseRef-Proprietary */
 /* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
 /* Proprietary; the owner is the author. */
+/* Created: 2026-04-20 */
+/* Runtime RSA public key store — no compiled-in default. */
 
 /**
  * @file telegram_server_key.c

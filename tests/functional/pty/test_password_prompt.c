@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: LicenseRef-Proprietary */
 /* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
 /* Proprietary; the owner is the author. */
+/* Created: 2026-04-20 */
+/* PTY tests for terminal_read_password() masking/echo. */
 
 /**
  * @file test_password_prompt.c

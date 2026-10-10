@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-04-20 */
+/* Functional coverage for messageService action variants. */
+
 /**
  * @file test_service_messages.c
  * @brief TEST-80 — functional coverage for messageService action variants.
