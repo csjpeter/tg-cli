@@ -65,6 +65,7 @@ Observed patterns and their guardrails for every future session:
 ./manage.sh valgrind   # Unit tests with Valgrind
 ./manage.sh coverage   # GCOV/LCOV coverage report (>90% goal for core/infra)
 ./manage.sh check-static-libs  # No libtuikit.so / libptytest.so dependency in the binaries
+./manage.sh package deb  # Debian package → build/packages/ (CPack, shlibdeps, XB-Git-Commit)
 ./manage.sh clean      # Remove build artifacts
 ./manage.sh deps       # Install system dependencies (Ubuntu 24.04 / Rocky 9)
 ```

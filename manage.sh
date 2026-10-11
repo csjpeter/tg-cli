@@ -13,6 +13,7 @@ set -e
 PROJECT_NAME="tg-cli"
 BUILD_DIR="./build"
 BIN_DIR="./bin"
+PKG_DIR="$BUILD_DIR/packages"
 # Binaries produced by this project (see docs/adr/0005-three-binary-architecture.md)
 BINARIES=(tg-cli-ro tg-cli tg-tui)
 
@@ -36,6 +37,7 @@ show_help() {
     echo "  tidy               Run clang-tidy static analysis on src/ (warn-only)"
     echo "  check-ro-isolation Verify tg-cli-ro contains no write-domain symbols (ADR-0005)"
     echo "  check-static-libs  Verify the binaries have no libtuikit.so / libptytest.so dependency"
+    echo "  package deb        Build the Debian package into build/packages/ (CPack)"
     echo "  clean-logs         Purge all application log files"
     echo "  fuzz               Build and run libFuzzer harness for TL parser (requires clang)"
     echo "  clean              Remove all build artifacts"
@@ -177,7 +179,46 @@ build_integration_runner() {
     cmake --build "$BUILD_DIR" --target tg-integration-test-runner
 }
 
+# Build the Debian package with CPack into build/packages/, which is emptied
+# first so it holds exactly the set this run made.  All packaging decisions
+# are in CMakeLists.txt (policies/packaging-and-release-model.md).
+do_package() {
+    local kind="${1:-}"
+    if [ "$kind" != "deb" ]; then
+        echo "package: expected 'deb', got '$kind'" >&2
+        return 1
+    fi
+
+    build_release
+
+    mkdir -p "$PKG_DIR"
+    # Absolute: cpack runs inside $BUILD_DIR, a relative prefix would nest.
+    local PKG_ABS
+    PKG_ABS="$(cd "$PKG_DIR" && pwd)"
+    ( cd "$PKG_DIR" && rm -rf _CPack_Packages )
+    find "$PKG_DIR" -mindepth 1 -maxdepth 1 -type f -delete
+
+    # umask 022 is set here, not left to the caller: CPack copies the umask of
+    # whoever runs it into the directory modes inside the package.
+    if ! ( umask 022; cd "$BUILD_DIR" && \
+           cpack -G DEB --config CPackConfig.cmake \
+               -D CPACK_OUTPUT_FILE_PREFIX="$PKG_ABS" ); then
+        ( cd "$PKG_DIR" && rm -rf _CPack_Packages )
+        find "$PKG_DIR" -mindepth 1 -maxdepth 1 -type f -delete
+        echo "package: deb failed; $PKG_DIR left empty" >&2
+        return 1
+    fi
+    ( cd "$PKG_DIR" && rm -rf _CPack_Packages )
+
+    echo
+    echo "Packages in $PKG_DIR:"
+    find "$PKG_DIR" -maxdepth 1 -name '*.deb' | sort
+}
+
 case "$1" in
+    package)
+        do_package "${2:-deb}"
+        ;;
     deps)
         install_deps
         ensure_submodules

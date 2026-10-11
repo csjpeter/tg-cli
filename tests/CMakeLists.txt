@@ -81,6 +81,10 @@ project_test(unit        check-static-libs SCRIPT ${CMAKE_SOURCE_DIR}/ci/check-s
              ARGS $<TARGET_FILE:tg-cli-ro> $<TARGET_FILE:tg-tui> $<TARGET_FILE:tg-cli> TIMEOUT 60)
 project_test(unit        check-static-libs-selftest SCRIPT ci/check_static_libs_test.sh
              ARGS ${CMAKE_SOURCE_DIR} ${CMAKE_BINARY_DIR}/tests/ci TIMEOUT 60)
+# The Debian package builds with CPack and carries version, XB- fields,
+# shlibdeps-derived dependencies and the binaries (packaging model).
+project_test(unit        check-package SCRIPT unit/check_package.sh
+             ARGS ${CMAKE_BINARY_DIR} ${CMAKE_BINARY_DIR}/tests/package TIMEOUT 120)
 # Every declared test is in bin/, and nothing else is.
 project_test(unit        check-tests   SCRIPT unit/check_tests.sh
              ARGS ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt ${TG_TEST_BIN_ROOT} TIMEOUT 60)

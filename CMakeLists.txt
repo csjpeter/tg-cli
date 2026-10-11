@@ -5,7 +5,41 @@
 # CMake build rules for the project.
 
 cmake_minimum_required(VERSION 3.16)
-project(tg-cli C)
+project(tg-cli VERSION 0.1.0 LANGUAGES C)
+
+# Package version: the project() version, refined with the commits since the
+# last v* tag; and the commit it was built from
+# (policies/packaging-and-release-model.md).
+set(TG_VERSION "${PROJECT_VERSION}")
+set(TG_GIT_COMMIT "unknown")
+find_package(Git QUIET)
+if(Git_FOUND)
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" rev-parse --short HEAD
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        OUTPUT_VARIABLE _tg_sha OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET RESULT_VARIABLE _tg_sha_rc)
+    if(_tg_sha_rc EQUAL 0 AND _tg_sha)
+        set(TG_GIT_COMMIT "${_tg_sha}")
+    endif()
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" describe --tags --abbrev=0 --match "v*"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        OUTPUT_VARIABLE _tg_tag OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET RESULT_VARIABLE _tg_tag_rc)
+    if(_tg_tag_rc EQUAL 0 AND _tg_tag)
+        execute_process(
+            COMMAND "${GIT_EXECUTABLE}" rev-list --count "${_tg_tag}..HEAD"
+            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+            OUTPUT_VARIABLE _tg_commits OUTPUT_STRIP_TRAILING_WHITESPACE
+            ERROR_QUIET RESULT_VARIABLE _tg_commits_rc)
+        if(_tg_commits_rc EQUAL 0 AND _tg_commits AND NOT _tg_commits STREQUAL "0")
+            set(TG_VERSION "${PROJECT_VERSION}.${_tg_commits}")
+        endif()
+    endif()
+endif()
+string(TIMESTAMP TG_BUILD_DATE "%Y-%m-%dT%H:%M:%SZ" UTC)
+message(STATUS "tg-cli version ${TG_VERSION} (commit ${TG_GIT_COMMIT})")
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -283,3 +317,93 @@ add_subdirectory(tests)
 if(ENABLE_FUZZ)
     add_subdirectory(tests/fuzz)
 endif()
+
+# ---- Installation and packaging (CPack) ----
+# install() is the list of what the package consists of; the metadata lives
+# here and nowhere else (policies/packaging-and-release-model.md).  The
+# binaries link libtuikit statically (ADR-0008), so the package depends on
+# nothing of the workspace's own.
+include(GNUInstallDirs)
+
+install(TARGETS tg-cli tg-cli-ro tg-tui
+        RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+
+# Manual pages, compressed (-n keeps the timestamp out: reproducible).
+set(TG_MAN_GZ "")
+foreach(_page tg-cli tg-cli-ro tg-tui)
+    add_custom_command(
+        OUTPUT  "${CMAKE_BINARY_DIR}/man/${_page}.1.gz"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_BINARY_DIR}/man"
+        COMMAND "${CMAKE_COMMAND}" -E copy
+                "${CMAKE_SOURCE_DIR}/man/${_page}.1"
+                "${CMAKE_BINARY_DIR}/man/${_page}.1"
+        COMMAND gzip -9nf "${CMAKE_BINARY_DIR}/man/${_page}.1"
+        DEPENDS "${CMAKE_SOURCE_DIR}/man/${_page}.1"
+        COMMENT "Compressing ${_page}.1")
+    list(APPEND TG_MAN_GZ "${CMAKE_BINARY_DIR}/man/${_page}.1.gz")
+endforeach()
+add_custom_target(tg_man ALL DEPENDS ${TG_MAN_GZ})
+install(FILES ${TG_MAN_GZ} DESTINATION "${CMAKE_INSTALL_MANDIR}/man1")
+
+# Debian documentation every binary package needs: copyright and changelog.
+set(TG_MAINTAINER "Péter Császár <csjpeter@gmail.com>")
+file(WRITE "${CMAKE_BINARY_DIR}/debian-doc/copyright"
+"Upstream-Name: tg-cli
+
+Files: *
+Copyright: 2026 Peter Csaszar (Császár Péter)
+License: LicenseRef-Proprietary
+ Proprietary. The owner is the author.
+ .
+ All rights reserved.
+")
+string(TIMESTAMP TG_CHANGELOG_DATE "%a, %d %b %Y %H:%M:%S +0000" UTC)
+file(WRITE "${CMAKE_BINARY_DIR}/debian-doc/changelog"
+"tg-cli (${TG_VERSION}) stable; urgency=medium
+
+  * Build from git commit ${TG_GIT_COMMIT}.
+  * The per-change history is the git history; this file exists because
+    Debian policy requires a changelog in every binary package.
+
+ -- ${TG_MAINTAINER}  ${TG_CHANGELOG_DATE}
+")
+add_custom_command(
+    OUTPUT  "${CMAKE_BINARY_DIR}/debian-doc/changelog.gz"
+    COMMAND gzip -9nfk "${CMAKE_BINARY_DIR}/debian-doc/changelog"
+    DEPENDS "${CMAKE_BINARY_DIR}/debian-doc/changelog"
+    COMMENT "Compressing changelog")
+add_custom_target(tg_changelog ALL DEPENDS "${CMAKE_BINARY_DIR}/debian-doc/changelog.gz")
+install(FILES "${CMAKE_BINARY_DIR}/debian-doc/changelog.gz"
+        DESTINATION "${CMAKE_INSTALL_DOCDIR}")
+install(FILES "${CMAKE_BINARY_DIR}/debian-doc/copyright"
+        DESTINATION "${CMAKE_INSTALL_DOCDIR}")
+
+set(CPACK_GENERATOR "DEB")
+set(CPACK_PACKAGE_NAME        "tg-cli")
+set(CPACK_PACKAGE_VERSION     "${TG_VERSION}")
+set(CPACK_PACKAGE_CONTACT     "${TG_MAINTAINER}")
+set(CPACK_PACKAGE_VENDOR      "csjpeter")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
+    "unofficial Telegram client speaking MTProto 2.0 (batch and terminal UI)")
+set(CPACK_PACKAGE_DESCRIPTION
+    "tg-cli-ro (read-only), tg-cli (read and write) and tg-tui (terminal UI)")
+set(CPACK_STRIP_FILES ON)
+set(CPACK_INSTALL_DEFAULT_DIRECTORY_PERMISSIONS
+    OWNER_READ OWNER_WRITE OWNER_EXECUTE
+    GROUP_READ GROUP_EXECUTE
+    WORLD_READ WORLD_EXECUTE)
+set(CPACK_DEBIAN_PACKAGE_MAINTAINER "${TG_MAINTAINER}")
+set(CPACK_DEBIAN_PACKAGE_SECTION    "net")
+set(CPACK_DEBIAN_PACKAGE_PRIORITY   "optional")
+set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS  ON)
+set(CPACK_DEBIAN_PACKAGE_CONTROL_STRICT_PERMISSION ON)
+string(TIMESTAMP _tg_stamp "%Y%m%d" UTC)
+set(CPACK_DEBIAN_FILE_NAME
+    "tg-cli_${TG_VERSION}_${_tg_stamp}_${TG_GIT_COMMIT}_amd64.deb")
+
+# Build date and commit as XB- control fields (not in Version).
+set(CPACK_POST_BUILD_SCRIPTS "${CMAKE_SOURCE_DIR}/cmake/add-build-metadata.cmake")
+set(CPACK_TG_GIT_COMMIT "${TG_GIT_COMMIT}")
+set(CPACK_TG_BUILD_DATE "${TG_BUILD_DATE}")
+
+include(CPack)
