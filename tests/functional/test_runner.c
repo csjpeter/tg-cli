@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-03-31 */
+/* Entry point for functional tests (linked against real crypto, not mocks). */
+
 /**
  * @file test_runner.c
  * @brief Entry point for functional tests (linked against real crypto, not mocks).

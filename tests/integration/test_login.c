@@ -1,5 +1,8 @@
-/* SPDX-License-Identifier: GPL-3.0-or-later */
-/* Copyright 2026 Peter Csaszar */
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-05-03 */
+/* One-shot interactive login helper for integration tests. */
 
 /**
  * @file test_login.c

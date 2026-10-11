@@ -1,0 +1,6 @@
+[submodule "deps/libptytest"]
+	path = deps/libptytest
+	url = https://github.com/csjpeter/libptytest.git
+[submodule "deps/libtuikit"]
+	path = deps/libtuikit
+	url = https://github.com/csjpeter/libtuikit.git

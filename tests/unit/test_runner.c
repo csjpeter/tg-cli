@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-03-28 */
+/* Tests for runner. */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include "test_helpers.h"
@@ -32,7 +38,6 @@ void run_auth_logout_tests(void);
 void run_arg_parse_tests(void);
 void run_watch_json_tests(void);
 void run_watch_sigpipe_tests(void);
-void run_readline_tests(void);
 void run_domain_self_tests(void);
 void run_domain_dialogs_tests(void);
 void run_domain_history_tests(void);
@@ -51,13 +56,12 @@ void run_dc_session_tests(void);
 void run_auth_transfer_tests(void);
 void run_updates_state_store_tests(void);
 void run_media_index_tests(void);
-void test_tui_screen_run(void);
 void test_tui_pane_run(void);
-void test_tui_list_view_run(void);
 void test_tui_dialog_pane_run(void);
 void test_tui_history_pane_run(void);
 void test_tui_status_row_run(void);
 void test_tui_app_run(void);
+void test_secret_prompt_run(void);
 void run_tg_tui_argv_tests(void);
 
 int main(int argc, char *argv[]) {
@@ -94,7 +98,6 @@ int main(int argc, char *argv[]) {
     RUN_TEST(run_arg_parse_tests);
     RUN_TEST(run_watch_json_tests);
     RUN_TEST(run_watch_sigpipe_tests);
-    RUN_TEST(run_readline_tests);
     RUN_TEST(run_domain_self_tests);
     RUN_TEST(run_domain_dialogs_tests);
     RUN_TEST(run_domain_history_tests);
@@ -113,13 +116,12 @@ int main(int argc, char *argv[]) {
     RUN_TEST(run_auth_transfer_tests);
     RUN_TEST(run_updates_state_store_tests);
     RUN_TEST(run_media_index_tests);
-    RUN_TEST(test_tui_screen_run);
     RUN_TEST(test_tui_pane_run);
-    RUN_TEST(test_tui_list_view_run);
     RUN_TEST(test_tui_dialog_pane_run);
     RUN_TEST(test_tui_history_pane_run);
     RUN_TEST(test_tui_status_row_run);
     RUN_TEST(test_tui_app_run);
+    RUN_TEST(test_secret_prompt_run);
     RUN_TEST(run_tg_tui_argv_tests);
 
     printf("\n--- Test Results ---\n");

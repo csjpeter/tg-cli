@@ -1,5 +1,8 @@
-/* SPDX-License-Identifier: GPL-3.0-or-later */
-/* Copyright 2026 Peter Csaszar */
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-04-16 */
+/* Tg-cli — batch read+write Telegram CLI entry point. */
 
 /**
  * @file main/tg_cli.c
@@ -968,7 +971,11 @@ int main(int argc, char **argv) {
     platform_normalize_argv(&argc, &argv);
     g_stdout_is_tty = isatty(STDOUT_FILENO);
     AppContext ctx;
-    if (app_bootstrap(&ctx, "tg-cli") != 0) {
+    /* `login` writes the config the server key is read from, and talks to no
+     * server: it must run without a configured RSA key.  app_bootstrap()
+     * reports that one failure only after its context is fully set up. */
+    int is_login = argc > 1 && strcmp(argv[1], "login") == 0;
+    if (app_bootstrap(&ctx, "tg-cli") != 0 && !is_login) {
         fprintf(stderr, "tg-cli: bootstrap failed\n");
         return 1;
     }

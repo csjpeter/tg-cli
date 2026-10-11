@@ -1,3 +1,9 @@
+# SPDX-License-Identifier: LicenseRef-Proprietary
+# Copyright (c) 2026 Peter Csaszar (Császár Péter)
+# Proprietary; the owner is the author.
+# Created: 2026-04-19
+# CMake build rules for tests/pty.
+
 if(NOT UNIX)
     return()
 endif()
@@ -7,7 +13,7 @@ add_executable(pty-test-runner
     test_pty_smoke.c
 )
 
-target_link_libraries(pty-test-runner PRIVATE ptytest)
+target_link_libraries(pty-test-runner PRIVATE ptytest::ptytest_static)
 
 
 # ── PTY TUI startup tests (PTY-02) ───────────────────────────────────
@@ -27,7 +33,6 @@ target_include_directories(pty-tui-test-runner PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/src/core
     ${CMAKE_SOURCE_DIR}/src/app
-    ${CMAKE_SOURCE_DIR}/libs/libptytest
 )
 
 target_compile_definitions(pty-tui-test-runner PRIVATE
@@ -35,7 +40,7 @@ target_compile_definitions(pty-tui-test-runner PRIVATE
 )
 
 target_link_libraries(pty-tui-test-runner PRIVATE
-    ptytest tg-app tg-proto
+    ptytest::ptytest_static tg-app tg-proto
     OpenSSL::SSL OpenSSL::Crypto
     Threads::Threads
 )
@@ -55,7 +60,6 @@ target_include_directories(pty-tui-resize-test-runner PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/src/core
     ${CMAKE_SOURCE_DIR}/src/app
-    ${CMAKE_SOURCE_DIR}/libs/libptytest
 )
 
 target_compile_definitions(pty-tui-resize-test-runner PRIVATE
@@ -63,7 +67,65 @@ target_compile_definitions(pty-tui-resize-test-runner PRIVATE
 )
 
 target_link_libraries(pty-tui-resize-test-runner PRIVATE
-    ptytest tg-app tg-proto
+    ptytest::ptytest_static tg-app tg-proto
+    OpenSSL::SSL OpenSSL::Crypto
+    Threads::Threads
+)
+
+
+# ── TG-7: TUI interface policy (header bar, palette, keys, help) ─────
+add_executable(pty-tui-interface-test-runner
+    test_tui_interface.c
+    pty_tel_stub.c
+    ${CMAKE_SOURCE_DIR}/src/core/crypto.c
+)
+
+target_include_directories(pty-tui-interface-test-runner PRIVATE
+    ${CMAKE_SOURCE_DIR}/tests/pty
+    ${CMAKE_SOURCE_DIR}/tests/common
+    ${CMAKE_SOURCE_DIR}/tests/mocks
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/core
+    ${CMAKE_SOURCE_DIR}/src/app
+)
+
+# The test's HOME lives under the build tree, never under /tmp.
+target_compile_definitions(pty-tui-interface-test-runner PRIVATE
+    TG_TUI_BINARY="${CMAKE_BINARY_DIR}/tg-tui"
+    TG_PTY_HOME_BASE="${CMAKE_BINARY_DIR}/pty-tui-interface"
+)
+
+target_link_libraries(pty-tui-interface-test-runner PRIVATE
+    ptytest::ptytest_static tg-app tg-proto
+    OpenSSL::SSL OpenSSL::Crypto
+    Threads::Threads
+)
+
+
+# ── TG-16: every element of tg-tui, every state, cell by cell ────────
+add_executable(pty-tui-elements-test-runner
+    test_tui_elements.c
+    pty_tel_stub.c
+    ${CMAKE_SOURCE_DIR}/src/core/crypto.c
+)
+
+target_include_directories(pty-tui-elements-test-runner PRIVATE
+    ${CMAKE_SOURCE_DIR}/tests/pty
+    ${CMAKE_SOURCE_DIR}/tests/common
+    ${CMAKE_SOURCE_DIR}/tests/mocks
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/core
+    ${CMAKE_SOURCE_DIR}/src/app
+)
+
+# The test's HOME lives under the build tree, never under /tmp.
+target_compile_definitions(pty-tui-elements-test-runner PRIVATE
+    TG_TUI_BINARY="${CMAKE_BINARY_DIR}/tg-tui"
+    TG_PTY_HOME_BASE="${CMAKE_BINARY_DIR}/pty-tui-elements"
+)
+
+target_link_libraries(pty-tui-elements-test-runner PRIVATE
+    ptytest::ptytest_static tg-app tg-proto
     OpenSSL::SSL OpenSSL::Crypto
     Threads::Threads
 )
@@ -91,14 +153,13 @@ add_executable(pty-readline-test-runner
 target_include_directories(pty-readline-test-runner PRIVATE
     ${CMAKE_SOURCE_DIR}/tests/pty
     ${CMAKE_SOURCE_DIR}/tests/common
-    ${CMAKE_SOURCE_DIR}/libs/libptytest
 )
 
 target_compile_definitions(pty-readline-test-runner PRIVATE
     RL_HARNESS_BINARY="$<TARGET_FILE:rl-harness>"
 )
 
-target_link_libraries(pty-readline-test-runner PRIVATE ptytest)
+target_link_libraries(pty-readline-test-runner PRIVATE ptytest::ptytest_static)
 
 
 # ── PTY-05: Ctrl-C exit + terminal-restore tests ─────────────────────
@@ -115,7 +176,6 @@ target_include_directories(pty-ctrl-c-test-runner PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/src/core
     ${CMAKE_SOURCE_DIR}/src/app
-    ${CMAKE_SOURCE_DIR}/libs/libptytest
 )
 
 target_compile_definitions(pty-ctrl-c-test-runner PRIVATE
@@ -123,7 +183,7 @@ target_compile_definitions(pty-ctrl-c-test-runner PRIVATE
 )
 
 target_link_libraries(pty-ctrl-c-test-runner PRIVATE
-    ptytest tg-app tg-proto
+    ptytest::ptytest_static tg-app tg-proto
     OpenSSL::SSL OpenSSL::Crypto
     Threads::Threads
 )
@@ -137,18 +197,17 @@ add_executable(pty-wizard-test-runner
 target_include_directories(pty-wizard-test-runner PRIVATE
     ${CMAKE_SOURCE_DIR}/tests/pty
     ${CMAKE_SOURCE_DIR}/tests/common
-    ${CMAKE_SOURCE_DIR}/libs/libptytest
 )
 
 target_compile_definitions(pty-wizard-test-runner PRIVATE
     TG_CLI_BINARY="${CMAKE_BINARY_DIR}/tg-cli"
 )
 
-target_link_libraries(pty-wizard-test-runner PRIVATE ptytest)
+target_link_libraries(pty-wizard-test-runner PRIVATE ptytest::ptytest_static)
 
 
-# ── TEST-87: terminal_read_password masking tests ────────────────────
-# password_harness: tiny binary that calls terminal_read_password() and
+# ── TEST-87: tui_tty_read_password masking tests ────────────────────
+# password_harness: tiny binary that calls tui_tty_read_password() and
 # prints the result.  Isolates the masked-input behaviour from the full
 # tg-tui login path (no mock server needed).
 add_executable(password_harness
@@ -160,7 +219,7 @@ target_include_directories(password_harness PRIVATE
     ${CMAKE_SOURCE_DIR}/src/platform
 )
 
-target_link_libraries(password_harness PRIVATE tg-proto)
+target_link_libraries(password_harness PRIVATE tg-app tg-proto)
 
 # Test runner that drives password_harness through the PTY.
 add_executable(pty-password-test-runner
@@ -170,45 +229,12 @@ add_executable(pty-password-test-runner
 target_include_directories(pty-password-test-runner PRIVATE
     ${CMAKE_SOURCE_DIR}/tests/pty
     ${CMAKE_SOURCE_DIR}/tests/common
-    ${CMAKE_SOURCE_DIR}/libs/libptytest
 )
 
 target_compile_definitions(pty-password-test-runner PRIVATE
     PASSWORD_HARNESS_BINARY="$<TARGET_FILE:password_harness>"
 )
 
-target_link_libraries(pty-password-test-runner PRIVATE ptytest)
+target_link_libraries(pty-password-test-runner PRIVATE ptytest::ptytest_static)
 
-
-# ── TEST-88: terminal.c coverage harness ─────────────────────────────
-# terminal_coverage_harness: minimal binary that exercises terminal functions
-# directly (cols/rows, raw mode, read_key, wait_key, resize, signal handlers,
-# non-TTY password path) to boost line coverage of terminal.c to ≥85%.
-add_executable(terminal_coverage_harness
-    terminal_coverage_harness.c
-)
-
-target_include_directories(terminal_coverage_harness PRIVATE
-    ${CMAKE_SOURCE_DIR}/src
-    ${CMAKE_SOURCE_DIR}/src/platform
-)
-
-target_link_libraries(terminal_coverage_harness PRIVATE tg-proto)
-
-# Test runner that drives terminal_coverage_harness through the PTY.
-add_executable(pty-terminal-coverage-test-runner
-    test_terminal_coverage.c
-)
-
-target_include_directories(pty-terminal-coverage-test-runner PRIVATE
-    ${CMAKE_SOURCE_DIR}/tests/pty
-    ${CMAKE_SOURCE_DIR}/tests/common
-    ${CMAKE_SOURCE_DIR}/libs/libptytest
-)
-
-target_compile_definitions(pty-terminal-coverage-test-runner PRIVATE
-    TERMINAL_COVERAGE_HARNESS="$<TARGET_FILE:terminal_coverage_harness>"
-)
-
-target_link_libraries(pty-terminal-coverage-test-runner PRIVATE ptytest)
 

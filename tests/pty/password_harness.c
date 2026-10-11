@@ -1,23 +1,26 @@
-/* SPDX-License-Identifier: GPL-3.0-or-later */
-/* Copyright 2026 Peter Csaszar */
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-04-20 */
+/* Minimal driver for tui_tty_read_password used by the PTY tests. */
 
 /**
  * @file password_harness.c
- * @brief Minimal driver for terminal_read_password used by TEST-87 PTY tests.
+ * @brief Minimal driver for tui_tty_read_password used by TEST-87 PTY tests.
  *
- * Exercises src/platform/posix/terminal.c::terminal_read_password directly
+ * Exercises libtuikit's tui_tty_read_password as tg-cli uses it
  * without requiring the full tg-tui login path or a mock Telegram server.
  *
  * Usage (chosen via argv[1]):
  *
  *   password_harness prompt
- *     Prompt once with terminal_read_password and print either
+ *     Prompt once with tui_tty_read_password and print either
  *       "ACCEPTED:<value>\n"   on success (rc >= 0)
  *       "ERROR\n"              when the function returns -1
  *     Exits 0 on success, 1 on error.
  *
  *   password_harness prompt_then_echo
- *     Prompt once with terminal_read_password, print "ACCEPTED:<value>\n",
+ *     Prompt once with tui_tty_read_password, print "ACCEPTED:<value>\n",
  *     then read a second line with fgets() and print "ECHO:<value>\n".
  *     Used to verify echo is restored on return: if the echo was still
  *     suppressed, the second read would not be visible on the PTY.
@@ -28,7 +31,8 @@
  *     test.  Prints "ACCEPTED:<value>" and "LEN:<n>\n", exits 0.
  */
 
-#include "platform/terminal.h"
+#include "app/secret_prompt.h"
+#include <tuikit/tty.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -45,7 +49,7 @@ static int do_prompt_once(size_t cap) {
     char buf[BIG_BUF];
     if (cap > sizeof(buf)) cap = sizeof(buf);
     memset(buf, 0, cap);
-    int rc = terminal_read_password("Password", buf, cap);
+    int rc = tui_tty_read_password(STDIN_FILENO, STDOUT_FILENO, "Password", buf, cap);
     if (rc < 0) {
         printf("ERROR\n");
         fflush(stdout);
@@ -67,7 +71,7 @@ static int do_sigint_probe(void) {
     if (pid < 0) return 1;
     if (pid == 0) {
         char buf[SMALL_BUF];
-        int rc = terminal_read_password("Password", buf, sizeof(buf));
+        int rc = tui_tty_read_password(STDIN_FILENO, STDOUT_FILENO, "Password", buf, sizeof(buf));
         _exit(rc < 0 ? 1 : 0);
     }
     signal(SIGINT, SIG_IGN);
@@ -91,6 +95,19 @@ int main(int argc, char **argv) {
         return do_prompt_once(SMALL_BUF);
     }
 
+    /* TG-22: the prompt tg-tui uses for the 2FA password and the code. */
+    if (strcmp(argv[1], "secret") == 0) {
+        char pw[SMALL_BUF];
+        if (secret_prompt_read("Password", pw, sizeof(pw)) != 0) {
+            printf("ERROR\n");
+            fflush(stdout);
+            return 1;
+        }
+        printf("ACCEPTED:%s\n", pw);
+        fflush(stdout);
+        return 0;
+    }
+
     if (strcmp(argv[1], "sigint_probe") == 0) {
         return do_sigint_probe();
     }
@@ -102,7 +119,7 @@ int main(int argc, char **argv) {
     if (strcmp(argv[1], "prompt_then_echo") == 0) {
         char pw[SMALL_BUF];
         memset(pw, 0, sizeof(pw));
-        int rc = terminal_read_password("Password", pw, sizeof(pw));
+        int rc = tui_tty_read_password(STDIN_FILENO, STDOUT_FILENO, "Password", pw, sizeof(pw));
         if (rc < 0) {
             printf("ERROR\n");
             fflush(stdout);

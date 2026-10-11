@@ -1,5 +1,8 @@
-/* SPDX-License-Identifier: GPL-3.0-or-later */
-/* Copyright 2026 Peter Csaszar */
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-04-19 */
+/* Ctrl-C exits tg-tui cleanly without leaving raw-mode artefacts. */
 
 /**
  * @file test_ctrl_c_exit.c
@@ -33,6 +36,7 @@
 #include "ptytest.h"
 #include "pty_assert.h"
 #include "pty_tel_stub.h"
+#include "pty_test_config.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -100,6 +104,7 @@ static int setup_stub(PtyTelStub *stub) {
     FILE *f = fopen(ini_path, "w");
     if (!f) return 0;
     fprintf(f, "api_id=12345\napi_hash=deadbeefcafebabef00dbaadfeedc0de\n");
+    fputs(PTY_TEST_RSA_INI_LINE, f);
     fclose(f);
 
     setenv("HOME", tmp, 1);

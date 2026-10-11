@@ -38,7 +38,12 @@ function(project_test _cat _name)
         set(_cmd "${_bin}/${_name}")
         set(_workdir "${_wd}")
     elseif(T_SCRIPT)
-        set(_line "'${CMAKE_CURRENT_SOURCE_DIR}/${T_SCRIPT}'")
+        if(IS_ABSOLUTE "${T_SCRIPT}")
+            set(_script "${T_SCRIPT}")
+        else()
+            set(_script "${CMAKE_CURRENT_SOURCE_DIR}/${T_SCRIPT}")
+        endif()
+        set(_line "'${_script}'")
         foreach(_a IN LISTS T_ARGS)
             string(APPEND _line " '${_a}'")
         endforeach()
@@ -66,8 +71,16 @@ endif()
 
 # --- unit ------------------------------------------------------------------
 project_test(unit        test-runner                  TARGET test-runner)
-project_test(unit        test-terminal-raw-faults     TARGET test-terminal-raw-faults)
 project_test(unit        check-skill   SCRIPT unit/check_skill.sh ARGS ${CMAKE_SOURCE_DIR} TIMEOUT 60)
+project_test(unit        check-license SCRIPT unit/check_license.sh ARGS ${CMAKE_SOURCE_DIR} TIMEOUT 60)
+project_test(unit        check-headers SCRIPT unit/check_headers.sh ARGS ${CMAKE_SOURCE_DIR} TIMEOUT 60)
+project_test(unit        check-private-names SCRIPT unit/check_private_names.sh ARGS ${CMAKE_SOURCE_DIR} TIMEOUT 60)
+# The workspace libraries are linked statically: no libtuikit.so or
+# libptytest.so among the dependencies of a binary.
+project_test(unit        check-static-libs SCRIPT ${CMAKE_SOURCE_DIR}/ci/check-static-libs.sh
+             ARGS $<TARGET_FILE:tg-cli-ro> $<TARGET_FILE:tg-tui> $<TARGET_FILE:tg-cli> TIMEOUT 60)
+project_test(unit        check-static-libs-selftest SCRIPT ci/check_static_libs_test.sh
+             ARGS ${CMAKE_SOURCE_DIR} ${CMAKE_BINARY_DIR}/tests/ci TIMEOUT 60)
 # Every declared test is in bin/, and nothing else is.
 project_test(unit        check-tests   SCRIPT unit/check_tests.sh
              ARGS ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt ${TG_TEST_BIN_ROOT} TIMEOUT 60)
@@ -80,11 +93,12 @@ if(UNIX)
 project_test(pty         pty-test-runner                    TARGET pty-test-runner)
 project_test(pty         pty-tui-test-runner                TARGET pty-tui-test-runner)
 project_test(pty         pty-tui-resize-test-runner         TARGET pty-tui-resize-test-runner)
+project_test(pty         pty-tui-interface-test-runner      TARGET pty-tui-interface-test-runner)
+project_test(pty         pty-tui-elements-test-runner       TARGET pty-tui-elements-test-runner)
 project_test(pty         pty-readline-test-runner           TARGET pty-readline-test-runner)
 project_test(pty         pty-ctrl-c-test-runner             TARGET pty-ctrl-c-test-runner)
 project_test(pty         pty-wizard-test-runner             TARGET pty-wizard-test-runner)
 project_test(pty         pty-password-test-runner           TARGET pty-password-test-runner)
-project_test(pty         pty-terminal-coverage-test-runner  TARGET pty-terminal-coverage-test-runner)
 endif()
 
 # --- integration: a real Telegram test DC (./manage.sh integration) --------

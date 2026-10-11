@@ -2,6 +2,34 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Workspace policies
+
+This project follows the workspace policies in `../policies/` (GitHub
+`csjpeter/policies`, private). They stand above this project. **Before changing
+anything, read the ones that touch your task**; start from
+`../policies/README.md`, which lists them all. When this file and a policy
+disagree, stop and tell the owner; do not choose silently.
+
+The ones that bind every task:
+
+- `change-flow-model.md` and `issue-tracking-model.md`: every change has a
+  ticket in the issue manager and a branch named exactly after its key; commit
+  messages carry the key; a finished ticket goes to `READY`, and the owner closes.
+- `project-boundaries-model.md`: this project writes only inside its own
+  directory. **It never writes into `policies/`**; a finding about a policy or
+  another project is filed as a ticket under the key that owns it.
+- `testing-model.md`: every behaviour has a test that fails without the change;
+  tests keep every path under `build/` and never use `/tmp`.
+- `manage-sh-model.md`, `packaging-and-release-model.md`,
+  `dependencies-model.md`: build, package and link the way they say.
+- `source-header-model.md`, `licensing-model.md`: every source and script
+  carries the header; the licence is the project's own.
+- `platform-scope-model.md`, `private-names-model.md`: Linux only for now; the
+  owner's private domain appears in no file.
+
+Working through the approved tickets of this project by itself is the
+`ticket-queue` skill; the supervisor may ask for one ticket by key.
+
 ## Cost / token discipline (from usage review 2026-04-17)
 
 Observed patterns and their guardrails for every future session:
@@ -36,6 +64,7 @@ Observed patterns and their guardrails for every future session:
 ./manage.sh test       # Unit tests with ASAN
 ./manage.sh valgrind   # Unit tests with Valgrind
 ./manage.sh coverage   # GCOV/LCOV coverage report (>90% goal for core/infra)
+./manage.sh check-static-libs  # No libtuikit.so / libptytest.so dependency in the binaries
 ./manage.sh clean      # Remove build artifacts
 ./manage.sh deps       # Install system dependencies (Ubuntu 24.04 / Rocky 9)
 ```
@@ -50,8 +79,9 @@ The project follows a strict layered CLEAN architecture with zero circular depen
 Entry points   →  src/main/{tg_cli,tg_cli_ro,tg_tui}.c   (three binaries, ADR-0005)
 App            →  src/app/           (bootstrap, auth flow, credentials, DC config,
                                       DC session, session store)
-TUI            →  src/tui/           (screen, pane, list_view, dialog_pane,
-                                      history_pane, status_row, app state machine)
+TUI            →  src/tui/           (pane layout, dialog_pane, history_pane,
+                                      status_row, text_safe, app state machine;
+                                      drawn and driven by libtuikit)
 Domain         →  src/domain/read/   (self, dialogs, history, search, user_info,
                                       contacts, updates, media)
                   src/domain/write/  (send, edit, delete, forward, read_history,
@@ -60,10 +90,10 @@ Infrastructure →  src/infrastructure/ (config_store, cache_store, transport,
                                       mtproto_auth, mtproto_rpc, api_call,
                                       auth_session, auth_2fa, auth_transfer)
 Core           →  src/core/          (logger, fs_util, raii.h, arg_parse,
-                                      readline, tl_serial, tl_skip, tl_registry,
+                                      tl_serial, tl_skip, tl_registry,
                                       ige_aes, mtproto_crypto, mtproto_session,
                                       crypto wrappers, config)
-Platform       →  src/platform/{terminal,path,socket}.h
+Platform       →  src/platform/{path,socket}.h (terminal.h: Windows preparation only)
                     src/platform/posix/    (Linux)
                     src/platform/windows/  (untested preparation, not supported)
 Vendor         →  src/vendor/tinf    (bundled tiny gzip decoder)
@@ -107,6 +137,15 @@ C11 (`-std=c11`). Linked against libssl (OpenSSL). All public functions should h
 ## Dependency Policy
 
 **Keep external dependencies minimal.**  The project intentionally uses only the C standard library, POSIX, and libssl (OpenSSL).  Before reaching for a new library, exhaust stdlib/POSIX options first.  New runtime dependencies require explicit justification and user approval.
+
+The owner's own libraries (`libtuikit`, `libptytest`) come as a
+git submodule under `deps/` pinned to a release tag, linked statically
+(`WORKSPACE_LIBS=bundled`), or as the installed `-dev` package
+(`WORKSPACE_LIBS=system`); `auto` (the default) prefers the installed package.
+Both are built and tested. **Never copy their sources into the tree**, never
+edit a submodule in place; a change a library needs is a ticket in the library's
+project and a bump of the pin to the new release tag
+(`policies/dependencies-model.md`; ADR-0008). `ci/check-static-libs.sh` guards that no binary needs their `.so`.
 
 ## Portability
 
@@ -155,8 +194,8 @@ time — **no `#ifdef` guards in shared code**.
 
 ```
 src/platform/
-  terminal.h          ← canonical interface (get_cols, set_raw, restore, …)
-  posix/terminal.c    ← termios + ioctl  (Linux)
+  terminal.h          ← interface of the untested Windows console backend; on
+                        Linux the terminal is libtuikit (tui_term, tui_tty)
   windows/terminal.c  ← untested preparation, not a supported platform
 
   path.h              ← home_dir(), cache_dir(), config_dir()

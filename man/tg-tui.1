@@ -37,20 +37,58 @@ All commands accept an optional leading \fB/\fR (IRC-style). Press
 .SS --tui mode (curses-style)
 With \fB--tui\fR,
 .B tg-tui
-switches to a three-pane layout:
+switches to a header bar, two panes and one status line:
 .IP \[bu] 2
+top \(em header bar (bold white on blue): where you are and how many rows
+(\fBDialogs \[u00B7] 3 of 50\fR) on the left, the program's name on the right,
+.IP \[bu]
 left \(em dialog list (scrollable, with unread badges),
 .IP \[bu]
 right \(em history pane for the selected dialog,
 .IP \[bu]
-bottom \(em status row (mode-sensitive hints + last error / "loading\[u2026]").
+bottom \(em one status line: the key hints (yellow), replaced by a message
+(\fBloading\[u2026]\fR, an error in red) until the next keypress.
 .PP
 Uses the in-project TUI engine (double-buffered screen, SIGWINCH-aware
 resize, 5\ s timeout poll for live updates via
 .BR updates.getDifference (3MTP)).
-Bindings: \fBj\fR / \fBk\fR move selection, \fBg\fR / \fBG\fR jump to
-top/bottom, \fBh\fR / \fBl\fR switch pane focus, \fBEnter\fR opens the
-selected dialog, \fBq\fR / \fBQ\fR quits.
+The keys follow the workspace TUI interface policy.
+.SH KEYS
+.TP
+.BR j ", " Down " / " k ", " Up
+Move down / up one row.
+.TP
+.BR ctrl-f ", " PageDown " / " ctrl-b ", " PageUp
+Page down / up.
+.TP
+.BR g ", " Home " / " G ", " End
+First / last row.
+.TP
+.BR Enter ", " l ", " Right
+Open the selected dialog (move focus to its history).
+.TP
+.BR h ", " Left
+Move focus back to the dialog list.
+.TP
+.B r
+Reload the dialogs and the open history; the cursor and the window stay.
+.TP
+.B ?
+Help for the current view: a bordered overlay listing every key of the view.
+\fBEsc\fR, \fBq\fR and \fBBackspace\fR close it, the movement keys scroll it,
+any other key changes nothing.
+.TP
+.BR Esc ", " q ", " Backspace
+Go back one level (history to dialogs). \fBq\fR and \fBBackspace\fR never
+quit the program.
+.TP
+.B Esc
+On the top level (the dialog list): quit.
+.TP
+.B ctrl-c
+Quit at once, from any view, also with the help open.
+.PP
+The function keys \fBF1\fR\(emF12 are unbound.
 
 .SH GLOBAL FLAGS
 .TP
@@ -322,7 +360,7 @@ SGR handling; wide-glyph layout depends on a working
 Report issues at \fIhttps://github.com/csjpeter/tg-cli/issues\fR.
 
 .SH LICENSE
-GPL-3.0-or-later.
+Proprietary; the owner is the author.
 
 .SH AUTHOR
-Peter Csaszar <peter@csaszar.email>.
+Peter Csaszar <csjpeter@gmail.com>.

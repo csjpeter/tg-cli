@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-04-16 */
+/* Unit tests for the static DC endpoint table. */
+
 /**
  * @file test_dc_config.c
  * @brief Unit tests for the static DC endpoint table.

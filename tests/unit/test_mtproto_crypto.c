@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-03-29 */
+/* Unit tests for MTProto 2.0 crypto layer. */
+
 /**
  * @file test_mtproto_crypto.c
  * @brief Unit tests for MTProto 2.0 crypto layer.

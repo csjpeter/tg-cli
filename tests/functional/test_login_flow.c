@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-04-19 */
+/* Login flow functional tests through the in-process Telegram server emulator. */
+
 /**
  * @file test_login_flow.c
  * @brief FT-03 — login flow functional tests through the in-process

@@ -1,5 +1,8 @@
-/* SPDX-License-Identifier: GPL-3.0-or-later */
-/* Copyright 2026 Peter Csaszar */
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-04-20 */
+/* Functional coverage of session.bin schema migration (legacy v1 → current v2) and future-version rejection. */
 
 /**
  * @file test_session_migration.c

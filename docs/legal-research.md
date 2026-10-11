@@ -184,7 +184,7 @@ private key, which never leaves Telegram's servers).
 | Telegram Desktop | GPL v3 + OpenSSL exception | Only if we copy code from it |
 | Bot API server | BSL-1.0 | No — permissive |
 | MTProto specification | Open / unrestricted | No — protocol cannot be GPL'd |
-| **Our implementation** | **GPL v3** (this project) | **Our own choice** |
+| **Our implementation** | **Proprietary** (this project; the owner is the author) | **Our own choice** |
 
 **Key insight:** Writing an independent implementation of the MTProto protocol from
 scratch does NOT trigger any GPL obligations. The GPL only applies if we copy/modify

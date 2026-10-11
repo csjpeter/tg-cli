@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-04-29 */
+/* Placeholder smoke test — verifies the integration runner itself works. */
+
 /**
  * @file test_integration_smoke.c
  * @brief Placeholder smoke test — verifies the integration runner itself works.

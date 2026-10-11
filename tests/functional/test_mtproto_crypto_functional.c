@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-03-31 */
+/* Functional tests for MTProto 2.0 encryption layer (real OpenSSL). */
+
 /**
  * @file test_mtproto_crypto_functional.c
  * @brief Functional tests for MTProto 2.0 encryption layer (real OpenSSL).

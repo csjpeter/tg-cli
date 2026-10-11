@@ -1,5 +1,8 @@
-/* SPDX-License-Identifier: GPL-3.0-or-later */
-/* Copyright 2026 Peter Csaszar */
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-04-17 */
+/* Pane geometry and layout implementation. */
 
 /**
  * @file tui/pane.c
@@ -10,8 +13,8 @@
 
 #include <string.h>
 
-int pane_is_valid(const Pane *p) {
-    return p && p->rows > 0 && p->cols > 0;
+int pane_is_valid(const tui_rect *r) {
+    return r && !tui_rect_is_empty(*r);
 }
 
 static void zero_layout(Layout *out) { memset(out, 0, sizeof(*out)); }
@@ -36,14 +39,20 @@ void layout_compute(Layout *out, int screen_rows, int screen_cols,
         if (left < TUI_MIN_LEFT_WIDTH) left = TUI_MIN_LEFT_WIDTH;
     }
 
-    int top_rows = screen_rows - 1; /* reserve last row for status line */
+    /* Row 0 is the header bar, the last row the status line. */
+    int top_rows = screen_rows - 2;
 
-    out->dialogs.row  = 0;
+    out->header.row   = 0;
+    out->header.col   = 0;
+    out->header.rows  = 1;
+    out->header.cols  = screen_cols;
+
+    out->dialogs.row  = 1;
     out->dialogs.col  = 0;
     out->dialogs.rows = top_rows;
     out->dialogs.cols = left;
 
-    out->history.row  = 0;
+    out->history.row  = 1;
     out->history.col  = left;
     out->history.rows = top_rows;
     out->history.cols = screen_cols - left;
@@ -52,28 +61,4 @@ void layout_compute(Layout *out, int screen_rows, int screen_cols,
     out->status.col   = 0;
     out->status.rows  = 1;
     out->status.cols  = screen_cols;
-}
-
-int pane_put_str(const Pane *p, Screen *s,
-                  int row, int col, const char *utf8, uint8_t attrs) {
-    if (!pane_is_valid(p) || !s || !utf8) return 0;
-    if (row < 0 || row >= p->rows || col < 0 || col >= p->cols) return 0;
-    int remaining = p->cols - col;
-    return screen_put_str_n(s, p->row + row, p->col + col, remaining,
-                            utf8, attrs);
-}
-
-void pane_fill(const Pane *p, Screen *s,
-               int row, int col, int n, uint8_t attrs) {
-    if (!pane_is_valid(p) || !s || n <= 0) return;
-    if (row < 0 || row >= p->rows || col < 0 || col >= p->cols) return;
-    if (col + n > p->cols) n = p->cols - col;
-    screen_fill(s, p->row + row, p->col + col, n, attrs);
-}
-
-void pane_clear(const Pane *p, Screen *s) {
-    if (!pane_is_valid(p) || !s) return;
-    for (int r = 0; r < p->rows; r++) {
-        screen_fill(s, p->row + r, p->col, p->cols, 0);
-    }
 }

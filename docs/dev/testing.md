@@ -10,8 +10,14 @@
 ```
 
 There is no mechanism to run a single test in isolation. All unit tests
-run together via `build/tests/unit/test-runner`; all functional tests run
-via `build/tests/functional/functional-test-runner`.
+run together via `build/tests/unit/bin/test-runner`; all functional tests run
+via `build/tests/functional/bin/functional-test-runner`.
+
+Every test is declared by one `project_test(<category> <name> ...)` line in
+`tests/CMakeLists.txt` and is built into `build/tests/<category>/bin/<name>`
+(binary or script). `ctest` runs them all; `tests/unit/check_tests.sh` (the
+`check-tests` test) fails on a declared test with no file in `bin/` and on an
+executable in `bin/` that is not declared.
 
 Current status (as of 2026-04-19):
 
@@ -87,7 +93,6 @@ inventory (grouped by layer):
 | core | `fs_util.c` | `test_fs_util.c` |
 | core | `logger.c` | `test_logger.c` |
 | core | `arg_parse.c` | `test_arg_parse.c` |
-| core | `readline.c` | `test_readline.c` |
 | core | `tl_serial.c` | `test_tl_serial.c` |
 | core | `tl_skip.c` | `test_tl_skip.c` |
 | core | `tl_registry.c` | `test_registry.c` |
@@ -119,8 +124,8 @@ inventory (grouped by layer):
 | domain/write | `edit.c`, `delete.c`, `forward.c` | `test_domain_edit_delete_forward.c` |
 | domain/write | `read_history.c` | `test_domain_read_history.c` |
 | domain/write | `upload.c` | `test_domain_upload.c` |
-| tui | `screen.c`, `pane.c`, `list_view.c` | `test_tui_app.c`, `test_tui_dialog_pane.c`, `test_tui_history_pane.c` |
-| platform | `posix/path.c`, `posix/terminal.c` | `test_platform.c` |
+| tui | `pane.c`, `dialog_pane.c`, `history_pane.c`, `status_row.c`, `text_safe.c`, `app.c` | `test_tui_app.c`, `test_tui_pane.c`, `test_tui_dialog_pane.c`, `test_tui_history_pane.c`, `test_tui_status_row.c`, `test_text_rendering_safety.c` (screens are read back with `tests/common/tui_grid.h`) |
+| platform | `posix/path.c` | `test_platform.c` |
 
 ### Writing a New Unit Test
 
@@ -175,14 +180,15 @@ the `with_tmp_home()` helper.
 
 ---
 
-## PTY-Backed Tests (`tests/functional/pty/`)
+## PTY-Backed Tests (`tests/pty/`)
 
-`libs/libptytest/` is a vendored copy of the PTY test library originally
-developed in the sibling `email-cli` project. It opens a pseudo-terminal via
-`forkpty(3)`, executes the program under test as a child process, feeds
-keystrokes through the master file descriptor, and maintains a virtual
-VT100 screen buffer. Test code inspects the buffer with `pty_screen_contains()`,
-`pty_row_contains()`, and `pty_wait_for()`. The `tests/functional/pty/`
+The tests use `libptytest`, the owner's PTY test library: either the installed
+`libptytest-dev` package or the pinned `deps/libptytest` submodule, linked
+statically (`-DWORKSPACE_LIBS=bundled|system|auto`, see the README). It opens a
+pseudo-terminal via `forkpty(3)`, executes the program under test as a child
+process, feeds keystrokes through the master file descriptor, and maintains a
+virtual terminal screen. Test code inspects the buffer with `pty_screen_contains()`,
+`pty_row_contains()`, and `pty_wait_for()`. The `tests/pty/`
 subdirectory holds PTY-backed smoke tests that verify the harness itself (no
 tg-cli binary required) and will host future TUI acceptance tests (US-11,
 US-02). The PTY target is only built on POSIX (`UNIX` CMake guard) and is
@@ -202,3 +208,11 @@ skipped gracefully on Windows cross-compile targets.
 
 Full coverage workflow is documented in
 [`docs/dev/coverage.md`](coverage.md).
+
+## Static workspace libraries
+
+`./manage.sh check-static-libs` runs `ci/check-static-libs.sh` on the three
+binaries (ldd must not list `libtuikit.so` or `libptytest.so`). The same check
+is the ctest `StaticWorkspaceLibs`; `StaticWorkspaceLibsCheckSelfTest` feeds the
+script a fake `ldd` (`LDD=` override) to prove it accepts a clean binary and
+rejects a dependency on either library or a missing binary.

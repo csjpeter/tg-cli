@@ -1,9 +1,10 @@
 #!/bin/sh
 # SPDX-License-Identifier: LicenseRef-Proprietary
 # Copyright (c) 2026 Peter Csaszar (Császár Péter)
+# Proprietary; the owner is the author.
 # Created: 2026-10-10
-# Checks that claude/skills/tg-cli/SKILL.md has its front matter and names only
-# commands that the man pages document, and every read command of tg-cli-ro.
+# Checks that the tg-cli skill has its front matter and names only commands that the man pages document.
+
 set -eu
 src="$1"
 skill="$src/claude/skills/tg-cli/SKILL.md"

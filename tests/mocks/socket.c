@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-03-29 */
+/* Mock socket implementation for unit/integration testing. */
+
 /**
  * @file socket.c
  * @brief Mock socket implementation for unit/integration testing.

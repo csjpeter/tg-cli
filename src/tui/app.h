@@ -1,5 +1,8 @@
-/* SPDX-License-Identifier: GPL-3.0-or-later */
-/* Copyright 2026 Peter Csaszar */
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-04-17 */
+/* TUI state machine. */
 
 #ifndef TUI_APP_H
 #define TUI_APP_H
@@ -21,13 +24,14 @@
  * testable in isolation.
  */
 
-#include "tui/screen.h"
 #include "tui/pane.h"
 #include "tui/dialog_pane.h"
 #include "tui/history_pane.h"
 #include "tui/status_row.h"
 
-#include "platform/terminal.h"
+#include <tuikit/dialog.h>
+#include <tuikit/event.h>
+#include <tuikit/screen.h>
 
 typedef enum {
     TUI_FOCUS_DIALOGS = 0,
@@ -38,16 +42,19 @@ typedef enum {
     TUI_EVENT_NONE = 0,     /* nothing to do                              */
     TUI_EVENT_REDRAW,       /* state changed; caller should repaint+flip  */
     TUI_EVENT_OPEN_DIALOG,  /* user picked a dialog — load its history    */
+    TUI_EVENT_RELOAD,       /* r: reload dialogs (and the open history)   */
     TUI_EVENT_QUIT,         /* user asked to exit                         */
 } TuiEvent;
 
 typedef struct {
-    Screen      screen;
+    tui_screen *screen;
     Layout      layout;
     DialogPane  dialogs;
     HistoryPane history;
     StatusRow   status;
     TuiFocus    focus;
+    tui_dialog  help;       /* the ? overlay; valid while help_open        */
+    int         help_open;
     int         rows;
     int         cols;
 } TuiApp;
@@ -63,13 +70,17 @@ void tui_app_free(TuiApp *app);
  *  size and recomputes the layout. Returns 0 on success, -1 on failure. */
 int  tui_app_resize(TuiApp *app, int rows, int cols);
 
-/** Handle a TermKey. Returns a TuiEvent describing the high-level effect.
- *  Navigation and focus switching always return TUI_EVENT_REDRAW; Enter on
- *  the dialogs pane returns TUI_EVENT_OPEN_DIALOG; Ctrl-C returns QUIT. */
-TuiEvent tui_app_handle_key(TuiApp *app, TermKey key);
-
-/** Handle a printable character (for `q`, `j/k/h/l`, etc). */
-TuiEvent tui_app_handle_char(TuiApp *app, int ch);
+/** Feed one decoded key event (TUI_EV_KEY), per
+ *  policies/tui-interface-model.md. Ctrl-C quits at once. Esc, q and
+ *  Backspace go back (history -> dialogs); Esc on the top level (the dialog
+ *  list) quits, q and Backspace there change nothing. ? opens the help
+ *  overlay (a bordered, titled box; Esc, q, Backspace close it, the movement
+ *  keys scroll it, any other key changes nothing). r reloads. Left/Right and
+ *  h/l move focus between the panes; Up/Down, PgUp/PgDn, Home/End, j/k, g/G,
+ *  Ctrl-F/Ctrl-B move in the focused list; Enter opens the selected dialog.
+ *  F1..F12 are unbound. A keypress clears the status message. Other events
+ *  (and NULL) yield TUI_EVENT_NONE. */
+TuiEvent tui_app_handle_key(TuiApp *app, const tui_event *ev);
 
 /** Stage the current UI state into `app->screen.back`. Does not flip. */
 void tui_app_paint(TuiApp *app);

@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-04-19 */
+/* Unit tests for media_index_put / media_index_get. */
+
 /**
  * @file test_media_index.c
  * @brief Unit tests for media_index_put / media_index_get (FEAT-07).

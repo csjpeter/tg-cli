@@ -32,9 +32,9 @@ them back-to-back with a single `.gcda` accumulation hides the individual
 contributions. The workflow:
 
 1. Wipe all `.gcda` files.
-2. Run `build/tests/unit/test-runner`. Capture → `coverage-unit.info`.
+2. Run `build/tests/unit/bin/test-runner`. Capture → `coverage-unit.info`.
 3. Wipe all `.gcda` files again.
-4. Run `build/tests/functional/functional-test-runner`. Capture →
+4. Run `build/tests/functional/bin/functional-test-runner`. Capture →
    `coverage-functional.info`.
 5. `lcov --add-tracefile unit --add-tracefile functional` →
    `coverage.info` (union: a line is covered if *either* suite touched it).

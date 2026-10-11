@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-04-16 */
+/* Unit tests for 2FA login (account.getPassword + auth.checkPassword SRP proof). */
+
 /**
  * @file test_auth_2fa.c
  * @brief Unit tests for P3-03 2FA login (account.getPassword +

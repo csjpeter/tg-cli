@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-04-19 */
+/* Functional test: mock server injects wrong session_id; client rejects the frame. */
+
 /**
  * @file test_wrong_session_id.c
  * @brief TEST-29 — functional test: mock server injects wrong session_id;

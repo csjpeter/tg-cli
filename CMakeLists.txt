@@ -1,3 +1,9 @@
+# SPDX-License-Identifier: LicenseRef-Proprietary
+# Copyright (c) 2026 Peter Csaszar (Császár Péter)
+# Proprietary; the owner is the author.
+# Created: 2026-03-29
+# CMake build rules for the project.
+
 cmake_minimum_required(VERSION 3.16)
 project(tg-cli C)
 
@@ -73,7 +79,6 @@ if(WIN32)
     )
 else()
     set(PLATFORM_SOURCES
-        src/platform/posix/terminal.c
         src/platform/posix/path.c
         src/platform/posix/socket.c
         src/platform/posix/argv_utf8.c
@@ -92,7 +97,6 @@ set(VENDOR_TINF_SOURCES
 # Protocol static library (core + infrastructure + platform + vendor)
 add_library(tg-proto STATIC
     src/core/arg_parse.c
-    src/core/readline.c
     src/core/wcwidth.c
     src/core/json_util.c
     src/core/config.c
@@ -134,6 +138,9 @@ target_include_directories(tg-proto PUBLIC
 
 target_compile_definitions(tg-proto PUBLIC TG_CLI_GIT_COMMIT="${TG_CLI_GIT_COMMIT}")
 target_link_libraries(tg-proto PUBLIC OpenSSL::SSL OpenSSL::Crypto)
+if(UNIX)
+    target_link_libraries(tg-proto PUBLIC tuikit::tuikit_static)
+endif()
 
 # Real OpenSSL crypto implementation. Production binaries link this;
 # unit tests link tests/mocks/crypto.c instead. Kept separate so tg-proto
@@ -149,6 +156,7 @@ add_library(tg-app STATIC
     src/app/dc_config.c
     src/app/auth_flow.c
     src/app/config_wizard.c
+    src/app/secret_prompt.c
     src/app/credentials.c
     src/app/session_store.c
     src/app/dc_session.c
@@ -160,12 +168,11 @@ target_link_libraries(tg-app PUBLIC tg-proto tg-crypto)
 # Only linked by tg-tui. Other binaries are batch and do not need it.
 
 add_library(tg-tui-lib STATIC
-    src/tui/screen.c
     src/tui/pane.c
-    src/tui/list_view.c
     src/tui/dialog_pane.c
     src/tui/history_pane.c
     src/tui/status_row.c
+    src/tui/text_safe.c
     src/tui/app.c
 )
 target_include_directories(tg-tui-lib PUBLIC src src/tui)
@@ -217,9 +224,52 @@ target_link_libraries(tg-cli PRIVATE tg-domain-read tg-domain-write)
 install(FILES claude/skills/tg-cli/SKILL.md
         DESTINATION share/claude-skills/tg-cli)
 
-# PTY test library (POSIX only)
+# The workspace's own libraries (policies/dependencies-model.md): a pinned git
+# submodule under deps/ built and linked statically ("bundled"), or the
+# installed -dev package ("system").  tg-cli is proprietary, so "auto" prefers
+# the installed package and falls back to the submodule.
+set(WORKSPACE_LIBS "auto" CACHE STRING
+    "How libtuikit and libptytest are obtained: bundled (deps/ submodule), system (-dev package) or auto")
+set_property(CACHE WORKSPACE_LIBS PROPERTY STRINGS auto system bundled)
+if(NOT WORKSPACE_LIBS MATCHES "^(auto|system|bundled)$")
+    message(FATAL_ERROR "WORKSPACE_LIBS must be bundled, system or auto, not '${WORKSPACE_LIBS}'")
+endif()
+
+# workspace_lib(<name> <package> <purpose> [<cache-option> <value>]...)
+# Provides the CMake package <package>'s <package>::<package>_static target
+# either from the installed -dev package or from deps/<name>.
+function(workspace_lib name package purpose)
+    set(how "")
+    if(NOT WORKSPACE_LIBS STREQUAL "bundled")
+        find_package(${package} QUIET)
+        if(${package}_FOUND)
+            set(how "system (installed ${name}-dev ${${package}_VERSION})")
+        elseif(WORKSPACE_LIBS STREQUAL "system")
+            message(FATAL_ERROR "WORKSPACE_LIBS=system but ${name}-dev is not installed. "
+                "Install ${name}-dev, or use WORKSPACE_LIBS=bundled with the deps/${name} submodule.")
+        endif()
+    endif()
+    if(NOT how)
+        if(EXISTS "${CMAKE_SOURCE_DIR}/deps/${name}/CMakeLists.txt")
+            string(TOUPPER ${package} up)
+            set(${up}_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+            add_subdirectory(deps/${name} EXCLUDE_FROM_ALL)
+            set(how "bundled (deps/${name} submodule)")
+        else()
+            message(FATAL_ERROR "${name} is needed for ${purpose} and neither "
+                "way is available: install ${name}-dev, or run "
+                "'git submodule update --init --recursive' for deps/${name} "
+                "(./manage.sh deps does it).")
+        endif()
+    endif()
+    message(STATUS "${name}: ${how}")
+endfunction()
+
+# The terminal toolkit: the TUI, the line editor and the password prompt are
+# built on it, linked statically as tuikit::tuikit_static.
 if(UNIX)
-    add_subdirectory(libs/libptytest)
+    workspace_lib(libtuikit tuikit "the TUI and the terminal input")
+    workspace_lib(libptytest ptytest "the PTY tests")
 endif()
 
 # Tests: every one is declared in tests/CMakeLists.txt with project_test() and

@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-04-20 */
+/* Functional coverage for the @username resolver cache. */
+
 /**
  * @file test_resolver_cache.c
  * @brief TEST-85 — functional coverage for the @username resolver cache.

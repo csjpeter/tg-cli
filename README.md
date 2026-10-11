@@ -2,7 +2,6 @@
 [![Valgrind](https://github.com/csjpeter/tg-cli/actions/workflows/valgrind.yml/badge.svg)](https://github.com/csjpeter/tg-cli/actions/workflows/valgrind.yml)
 [![Coverage](https://csjpeter.github.io/tg-cli/coverage-badge.svg)](https://csjpeter.github.io/tg-cli/)
 [![Functional coverage](https://csjpeter.github.io/tg-cli/coverage-functional-badge.svg)](https://csjpeter.github.io/tg-cli/functional/)
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 # tg-cli
 
@@ -76,12 +75,12 @@ The project follows a strict layered CLEAN architecture:
 ```
 Entry points   →  src/main/{tg_cli,tg_cli_ro,tg_tui}.c   (three binaries — ADR-0005)
 App            →  src/app/             (bootstrap, auth flow, DC session, session store)
-TUI            →  src/tui/             (screen, panes, list view, status row, app)
+TUI            →  src/tui/             (panes, list views, status row, app; on libtuikit)
 Domain         →  src/domain/read/ + src/domain/write/   (Telegram service logic)
 Infrastructure →  src/infrastructure/  (config, cache, transport, RPC, api_call, auth)
 Core           →  src/core/            (logger, fs_util, TL serial/skip/registry,
                                         AES-IGE, MTProto crypto, crypto wrappers)
-Platform       →  src/platform/        (terminal + path + socket; Linux is the only supported platform)
+Platform       →  src/platform/        (path + socket; the terminal is libtuikit; Linux is the only supported platform)
 ```
 
 `tg-cli-ro` is compile-time read-only: the `tg-domain-write` library is
@@ -143,6 +142,8 @@ an arg-parse bug were exploited.
 | C11 compiler (GCC/Clang) | Build |
 | POSIX sockets | TCP transport (built into the OS) |
 | libssl (OpenSSL) | AES, SHA-256, RSA, DH crypto primitives |
+| libtuikit | Terminal layer, TUI, line editor, password prompt (static; see [Workspace libraries](#workspace-libraries)) |
+| libptytest | PTY-driven tests only (static; test dependency) |
 | CMake | Build system |
 
 **No third-party Telegram libraries.** No TDLib, no Bot API wrappers, no JSON libraries.
@@ -153,7 +154,7 @@ Everything is implemented from scratch.
 ## Building
 
 ```bash
-./manage.sh deps     # Install system dependencies (Ubuntu 24.04 / Rocky 9)
+./manage.sh deps     # Install system dependencies, libtuikit-dev and libptytest-dev included (Ubuntu 24.04 / Rocky 9)
 ./manage.sh build    # Release build — produces bin/tg-cli-ro, bin/tg-tui, bin/tg-cli
 ./manage.sh test     # Unit tests under AddressSanitizer
 ./manage.sh valgrind # Unit tests under Valgrind
@@ -197,7 +198,7 @@ the interactive wizard.
 bin/tg-tui
 ```
 
-After login you land in a readline-backed prompt. Try `help` for the
+After login you land in a prompt with line editing and history (libtuikit). Try `help` for the
 full command list. Highlights:
 
 ```
@@ -299,7 +300,8 @@ docs/
 │   ├── 0002-raii-memory-safety.md
 │   ├── 0003-custom-test-framework.md
 │   ├── 0004-dependency-inversion.md
-│   └── 0005-three-binary-architecture.md
+│   ├── 0005-three-binary-architecture.md
+│   └── 0008-terminal-layer-is-libtuikit.md
 ```
 
 ---
@@ -313,10 +315,30 @@ for the full legal research including:
 - Server RSA public key provenance (from TDLib, BSL-1.0)
 - api_id registration requirements
 - AI/ML clause analysis
-- GPL/BSL licensing implications
+- Licensing implications of third-party code (BSL-1.0 server key, Zlib)
 
 ---
 
+## Workspace libraries
+
+The terminal layer, the TUI and the line editor use `libtuikit`, and the PTY
+tests use `libptytest`, two of the owner's own libraries, each in one of two
+ways, chosen at configure time with `-DWORKSPACE_LIBS=bundled|system|auto`:
+
+- **system** (the default of `auto`, tg-cli being proprietary): the installed
+  `libtuikit-dev` / `libptytest-dev` packages, linked statically from
+  `libtuikit.a` / `libptytest.a`.
+- **bundled**: the `deps/libtuikit` and `deps/libptytest` git submodules, each
+  pinned to a release tag and built with the project. `./manage.sh deps` and `./manage.sh build` initialise
+  it; no `git submodule` command has to be typed.
+
+Both ways are built and tested. No copy of the library's sources is in the tree.
+`./manage.sh check-static-libs` (and the `StaticWorkspaceLibs` ctest) verifies that
+no binary depends on `libtuikit.so` or `libptytest.so`.
+
 ## License
 
-[GPL v3](LICENSE)
+Proprietary; the owner is the author. See [LICENSE](LICENSE).
+
+`libtuikit` and `libptytest` (dual-licensed GPL-3.0-only OR proprietary) are
+used here under the owner's proprietary licence.

@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-04-17 */
+/* Unit tests for app/dc_session. */
+
 /**
  * @file test_dc_session.c
  * @brief Unit tests for app/dc_session.

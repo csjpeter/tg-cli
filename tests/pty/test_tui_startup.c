@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-04-19 */
+/* Tg-tui --tui startup, dialog list display, and quit. */
+
 /**
  * @file test_tui_startup.c
  * @brief PTY-02 — tg-tui --tui startup, dialog list display, and quit.
@@ -6,7 +12,7 @@
  *   a) Enters raw mode and paints the three-pane TUI layout.
  *   b) Shows "[dialogs]" in the status row after the dialog pane is
  *      initialised (even with an empty list).
- *   c) Exits cleanly (exit code 0) when 'q' is pressed.
+ *   c) Exits cleanly (exit code 0) when Esc is pressed on the top level.
  *   d) Restores the terminal to cooked mode on exit.
  *
  * Approach:
@@ -24,6 +30,7 @@
 #include "ptytest.h"
 #include "pty_assert.h"
 #include "pty_tel_stub.h"
+#include "pty_test_config.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -72,6 +79,7 @@ static int setup_stub(PtyTelStub *stub) {
     FILE *f = fopen(ini_path, "w");
     if (!f) return 0;
     fprintf(f, "api_id=12345\napi_hash=deadbeefcafebabef00dbaadfeedc0de\n");
+    fputs(PTY_TEST_RSA_INI_LINE, f);
     fclose(f);
 
     /* Point $HOME at the tmp dir so session_store and config use it. */
@@ -97,7 +105,7 @@ static int setup_stub(PtyTelStub *stub) {
 
 /**
  * @brief PTY-02-a: tg-tui --tui paints the status hint "[dialogs]" and
- *        exits with code 0 when 'q' is pressed.
+ *        exits with code 0 when Esc is pressed on the top level.
  */
 static void test_tui_startup_dialogs_hint(void) {
     PtyTelStub stub;
@@ -130,8 +138,8 @@ static void test_tui_startup_dialogs_hint(void) {
     /* Wait for the TUI to paint the dialog-pane hint in the status row. */
     ASSERT_WAIT_FOR(s, "[dialogs]", 5000);
 
-    /* Send 'q' to quit. */
-    pty_send_str(s, "q");
+    /* Esc on the top level quits. */
+    pty_send_key(s, PTY_KEY_ESC);
 
     /* Wait for the child to exit cleanly. */
     int exit_code = pty_wait_exit(s, 5000);
@@ -178,9 +186,9 @@ static void test_tui_terminal_restored(void) {
         return;
     }
 
-    /* Wait for the TUI to be ready, then send 'q'. */
+    /* Wait for the TUI to be ready, then send Esc. */
     ASSERT_WAIT_FOR(s, "[dialogs]", 5000);
-    pty_send_str(s, "q");
+    pty_send_key(s, PTY_KEY_ESC);
 
     /* Wait for child exit. */
     int exit_code = pty_wait_exit(s, 5000);

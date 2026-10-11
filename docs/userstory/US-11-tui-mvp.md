@@ -3,7 +3,7 @@
 Applies to: `tg-tui`.
 
 **Status:** done — three-pane curses layout (dialogs / history / status),
-j/k/h/l/g/G/Enter/q navigation, SIGWINCH resize, 5 s idle poll via
+j/k/h/l/g/G/Enter/Esc navigation, SIGWINCH resize, 5 s idle poll via
 `updates.getDifference`, webPage cached_page iteration (TUI-01..11).
 
 ## Story
@@ -14,7 +14,10 @@ they arrive.
 ## Scope
 - Layout: left pane = dialog list; right pane = message history of selected
   dialog; bottom line = status / command buffer.
-- Navigation: arrow keys, `j/k`, `PgUp/PgDn`, `Enter` to open, `q` to quit.
+- Navigation: arrow keys, `j/k`, `PgUp/PgDn`, `ctrl-f/ctrl-b`, `Enter` to open,
+  `Esc`/`q` back (`Esc` on the top level quits), `?` help, `r` reload; see
+  `policies/tui-interface-model.md` and the KEYS section of `man tg-tui`.
+- Header bar, palette and modals follow the same policy (TG-7).
 - Uses the same domain functions as `tg-cli-ro` (US-04, US-06, US-07).
 - Input handled via existing `readline.c` machinery (extended as needed).
 

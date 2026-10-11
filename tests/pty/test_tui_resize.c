@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-04-19 */
+/* Tg-tui SIGWINCH resize repaints screen. */
+
 /**
  * @file test_tui_resize.c
  * @brief PTY-04 — tg-tui SIGWINCH resize repaints screen.
@@ -7,7 +13,7 @@
  *   b) After PTY resize to 60×20 + SIGWINCH, repaints and still shows
  *      "[dialogs]".
  *   c) After resize back to 80×24, repaints again.
- *   d) Exits cleanly (exit code 0) when 'q' is pressed.
+ *   d) Exits cleanly (exit code 0) when Esc is pressed on the top level.
  *
  * Approach:
  *   - Same stub-server setup as PTY-02 (pty_tel_stub seeds session.bin).
@@ -18,6 +24,7 @@
 #include "ptytest.h"
 #include "pty_assert.h"
 #include "pty_tel_stub.h"
+#include "pty_test_config.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -60,6 +67,7 @@ static int setup_stub(PtyTelStub *stub) {
     FILE *f = fopen(ini_path, "w");
     if (!f) return 0;
     fprintf(f, "api_id=12345\napi_hash=deadbeefcafebabef00dbaadfeedc0de\n");
+    fputs(PTY_TEST_RSA_INI_LINE, f);
     fclose(f);
 
     setenv("HOME", tmp, 1);
@@ -123,7 +131,7 @@ static void test_tui_resize_sigwinch(void) {
         printf("  [FAIL] %s:%d: pty_resize(60,20) failed\n",
                __FILE__, __LINE__);
         g_tests_failed++;
-        pty_send_str(s, "q");
+        pty_send_key(s, PTY_KEY_ESC);
         pty_wait_exit(s, 3000);
         pty_close(s);
         pty_tel_stub_stop(&stub);
@@ -154,7 +162,7 @@ static void test_tui_resize_sigwinch(void) {
         printf("  [FAIL] %s:%d: pty_resize(80,24) failed\n",
                __FILE__, __LINE__);
         g_tests_failed++;
-        pty_send_str(s, "q");
+        pty_send_key(s, PTY_KEY_ESC);
         pty_wait_exit(s, 3000);
         pty_close(s);
         pty_tel_stub_stop(&stub);
@@ -177,7 +185,7 @@ static void test_tui_resize_sigwinch(void) {
     ASSERT_WAIT_FOR(s, "[dialogs]", 3000);
 
     /* ── Clean exit ───────────────────────────────────────────────────── */
-    pty_send_str(s, "q");
+    pty_send_key(s, PTY_KEY_ESC);
 
     int exit_code = pty_wait_exit(s, 5000);
     g_tests_run++;

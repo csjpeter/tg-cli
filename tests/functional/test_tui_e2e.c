@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-04-19 */
+/* TUI end-to-end functional tests. */
+
 /**
  * @file test_tui_e2e.c
  * @brief TEST-11 — TUI end-to-end functional tests.
@@ -14,8 +20,8 @@
  *
  * is exercised with real MTProto framing and TL parsing.
  *
- * No PTY is required: the Screen writes to a FILE* that is swapped to
- * /dev/null (we only inspect the back buffer, not the ANSI byte stream).
+ * No PTY is required: the screen is a libtuikit tui_screen that is read back
+ * through tests/common/tui_grid.h (the bytes tui_screen_render would emit).
  */
 
 #include "test_helpers.h"
@@ -34,6 +40,7 @@
 #include "domain/read/history.h"
 
 #include "tui/app.h"
+#include "tui_grid.h"
 #include "tui/dialog_pane.h"
 #include "tui/history_pane.h"
 
@@ -163,25 +170,12 @@ static void on_history_one_text(MtRpcContext *ctx) {
     tl_writer_free(&w);
 }
 
-/* ---- Utility: scan the back buffer for a substring ---- */
+/* ---- Utility: is a string shown on the screen? ---- */
 
-/**
- * Return 1 if the string @p needle appears as consecutive codepoints in any
- * row of the Screen back buffer, 0 otherwise.
- */
-static int screen_back_contains(const Screen *sc, const char *needle) {
-    int nlen = (int)strlen(needle);
-    if (nlen == 0) return 1;
-    int total = sc->rows * sc->cols;
-    for (int start = 0; start <= total - nlen; start++) {
-        int match = 1;
-        for (int k = 0; k < nlen && match; k++) {
-            if (sc->back[start + k].cp != (uint32_t)(unsigned char)needle[k])
-                match = 0;
-        }
-        if (match) return 1;
-    }
-    return 0;
+static int screen_shows(tui_screen *sc, const char *needle) {
+    TuiGrid g;
+    tui_grid_capture(&g, sc);
+    return tui_grid_contains(&g, needle);
 }
 
 /* ================================================================ */
@@ -205,7 +199,6 @@ static void test_tui_dialog_refresh_paints_title(void) {
 
     TuiApp app;
     ASSERT(tui_app_init(&app, 24, 80) == 0, "app init");
-    app.screen.out = fopen("/dev/null", "w");   /* silence ANSI bytes */
 
     ASSERT(dialog_pane_refresh(&app.dialogs, &cfg, &s, &t) == 0,
            "dialog_pane_refresh ok");
@@ -219,10 +212,9 @@ static void test_tui_dialog_refresh_paints_title(void) {
 
     tui_app_paint(&app);
 
-    ASSERT(screen_back_contains(&app.screen, "Alice"),
+    ASSERT(screen_shows(app.screen, "Alice"),
            "back buffer contains 'Alice' after paint");
 
-    if (app.screen.out != stdout) fclose(app.screen.out);
     tui_app_free(&app);
     transport_close(&t);
     mt_server_reset();
@@ -248,7 +240,6 @@ static void test_tui_history_load_paints_message(void) {
 
     TuiApp app;
     ASSERT(tui_app_init(&app, 24, 80) == 0, "app init");
-    app.screen.out = fopen("/dev/null", "w");
 
     /* Phase 1: refresh dialogs. */
     ASSERT(dialog_pane_refresh(&app.dialogs, &cfg, &s, &t) == 0,
@@ -275,10 +266,9 @@ static void test_tui_history_load_paints_message(void) {
 
     tui_app_paint(&app);
 
-    ASSERT(screen_back_contains(&app.screen, "Hello TUI world"),
+    ASSERT(screen_shows(app.screen, "Hello TUI world"),
            "back buffer contains message text after paint");
 
-    if (app.screen.out != stdout) fclose(app.screen.out);
     tui_app_free(&app);
     transport_close(&t);
     mt_server_reset();
@@ -304,7 +294,6 @@ static void test_tui_keypress_sequence_j_enter_q(void) {
 
     TuiApp app;
     ASSERT(tui_app_init(&app, 24, 80) == 0, "app init");
-    app.screen.out = fopen("/dev/null", "w");
 
     /* Refresh dialogs (simulates TUI startup). */
     ASSERT(dialog_pane_refresh(&app.dialogs, &cfg, &s, &t) == 0,
@@ -312,12 +301,22 @@ static void test_tui_keypress_sequence_j_enter_q(void) {
     app.dialogs.lv.rows_visible = app.layout.dialogs.rows;
 
     /* 'j' — move selection down (from 0 to 1, clamped to 0 since only one). */
-    TuiEvent ev = tui_app_handle_char(&app, 'j');
+    tui_event j_key;
+    memset(&j_key, 0, sizeof(j_key));
+    j_key.type = TUI_EV_KEY;
+    j_key.key = TUI_KEY_CHAR;
+    j_key.cp = 'j';
+    j_key.utf8[0] = 'j';
+    TuiEvent ev = tui_app_handle_key(&app, &j_key);
     ASSERT(ev == TUI_EVENT_REDRAW || ev == TUI_EVENT_NONE,
            "'j' returns REDRAW or NONE");
 
     /* Enter — open the selected dialog. */
-    ev = tui_app_handle_key(&app, TERM_KEY_ENTER);
+    tui_event enter_key;
+    memset(&enter_key, 0, sizeof(enter_key));
+    enter_key.type = TUI_EV_KEY;
+    enter_key.key = TUI_KEY_ENTER;
+    ev = tui_app_handle_key(&app, &enter_key);
     ASSERT(ev == TUI_EVENT_OPEN_DIALOG, "Enter returns OPEN_DIALOG");
     ASSERT(app.focus == TUI_FOCUS_HISTORY, "focus shifted to history");
 
@@ -333,16 +332,28 @@ static void test_tui_keypress_sequence_j_enter_q(void) {
 
     /* Final paint — both panes should now carry real data. */
     tui_app_paint(&app);
-    ASSERT(screen_back_contains(&app.screen, "Alice"),
+    ASSERT(screen_shows(app.screen, "Alice"),
            "back buffer has dialog title");
-    ASSERT(screen_back_contains(&app.screen, "Hello TUI world"),
+    ASSERT(screen_shows(app.screen, "Hello TUI world"),
            "back buffer has message text");
 
-    /* 'q' — quit. */
-    ev = tui_app_handle_char(&app, 'q');
-    ASSERT(ev == TUI_EVENT_QUIT, "'q' returns QUIT");
+    /* 'q' goes back to the dialog list and never quits... */
+    j_key.cp = 'q';
+    j_key.utf8[0] = 'q';
+    ev = tui_app_handle_key(&app, &j_key);
+    ASSERT(ev == TUI_EVENT_REDRAW, "'q' goes back");
+    ASSERT(app.focus == TUI_FOCUS_DIALOGS, "back on the dialog list");
+    ev = tui_app_handle_key(&app, &j_key);
+    ASSERT(ev == TUI_EVENT_NONE, "'q' on the top level does not quit");
 
-    if (app.screen.out != stdout) fclose(app.screen.out);
+    /* ...while Esc on the top level quits. */
+    tui_event esc;
+    memset(&esc, 0, sizeof(esc));
+    esc.type = TUI_EV_KEY;
+    esc.key  = TUI_KEY_ESC;
+    ev = tui_app_handle_key(&app, &esc);
+    ASSERT(ev == TUI_EVENT_QUIT, "Esc on the top level returns QUIT");
+
     tui_app_free(&app);
     transport_close(&t);
     mt_server_reset();

@@ -1,3 +1,9 @@
+# SPDX-License-Identifier: LicenseRef-Proprietary
+# Copyright (c) 2026 Peter Csaszar (Császár Péter)
+# Proprietary; the owner is the author.
+# Created: 2026-03-31
+# CMake build rules for tests/functional.
+
 include_directories(
     ../common
     ../mocks
@@ -64,5 +70,3 @@ add_executable(functional-test-runner ${FUNCTIONAL_SOURCES})
 target_link_libraries(functional-test-runner PRIVATE
     tg-domain-write tg-domain-read tg-app tg-proto tg-tui-lib
     OpenSSL::SSL OpenSSL::Crypto)
-
-

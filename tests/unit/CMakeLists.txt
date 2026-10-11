@@ -1,3 +1,9 @@
+# SPDX-License-Identifier: LicenseRef-Proprietary
+# Copyright (c) 2026 Peter Csaszar (Császár Péter)
+# Proprietary; the owner is the author.
+# Created: 2026-03-28
+# CMake build rules for tests/unit.
+
 include_directories(
     ../common
     ../mocks
@@ -6,6 +12,7 @@ include_directories(
 set(TEST_SOURCES
     test_runner.c
     test_platform.c
+    test_secret_prompt.c
     test_fs_util.c
     test_config.c
     test_logger.c
@@ -28,7 +35,6 @@ set(TEST_SOURCES
     test_arg_parse.c
     test_watch_json.c
     test_watch_sigpipe.c
-    test_readline.c
     test_domain_self.c
     test_domain_dialogs.c
     test_domain_history.c
@@ -47,9 +53,7 @@ set(TEST_SOURCES
     test_auth_transfer.c
     test_updates_state_store.c
     test_media_index.c
-    test_tui_screen.c
     test_tui_pane.c
-    test_tui_list_view.c
     test_tui_dialog_pane.c
     test_tui_history_pane.c
     test_tui_status_row.c
@@ -62,16 +66,3 @@ set(TEST_SOURCES
 
 add_executable(test-runner ${TEST_SOURCES})
 target_link_libraries(test-runner PRIVATE tg-domain-write tg-domain-read tg-app tg-tui-lib tg-proto OpenSSL::SSL OpenSSL::Crypto)
-
-
-# terminal_raw_enter() failure paths (TG-4): terminal.c is compiled again with
-# tcgetattr/tcsetattr renamed to the fakes in the test.  No other test links
-# this copy.
-add_executable(test-terminal-raw-faults
-    test_terminal_raw_faults.c
-    ${CMAKE_SOURCE_DIR}/src/platform/posix/terminal.c
-    ${CMAKE_SOURCE_DIR}/src/core/wcwidth.c)
-set_source_files_properties(${CMAKE_SOURCE_DIR}/src/platform/posix/terminal.c
-    TARGET_DIRECTORY test-terminal-raw-faults
-    PROPERTIES COMPILE_DEFINITIONS "tcgetattr=tg_test_tcgetattr;tcsetattr=tg_test_tcsetattr;poll=tg_test_poll;isatty=tg_test_isatty")
-target_include_directories(test-terminal-raw-faults PRIVATE ${CMAKE_SOURCE_DIR}/src)

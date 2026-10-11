@@ -1,3 +1,9 @@
+/* SPDX-License-Identifier: LicenseRef-Proprietary */
+/* Copyright (c) 2026 Peter Csaszar (Császár Péter) */
+/* Proprietary; the owner is the author. */
+/* Created: 2026-04-18 */
+/* End-to-end proof that the mock Telegram server round-trips real AES-IGE + SHA-256 against the production client code. */
+
 /**
  * @file test_mt_server_smoke.c
  * @brief End-to-end proof that the mock Telegram server round-trips

@@ -1,4 +1,9 @@
 #!/bin/bash
+# SPDX-License-Identifier: LicenseRef-Proprietary
+# Copyright (c) 2026 Peter Csaszar (Császár Péter)
+# Proprietary; the owner is the author.
+# Created: 2026-03-28
+# Tg-cli management script.
 
 # tg-cli management script
 # A user-friendly interface for building, testing, and running the project
@@ -30,10 +35,45 @@ show_help() {
     echo "  coverage           Run tests and generate coverage report"
     echo "  tidy               Run clang-tidy static analysis on src/ (warn-only)"
     echo "  check-ro-isolation Verify tg-cli-ro contains no write-domain symbols (ADR-0005)"
+    echo "  check-static-libs  Verify the binaries have no libtuikit.so / libptytest.so dependency"
     echo "  clean-logs         Purge all application log files"
     echo "  fuzz               Build and run libFuzzer harness for TL parser (requires clang)"
     echo "  clean              Remove all build artifacts"
     echo "  help               Show this help message"
+}
+
+# The workspace's own libraries come as git submodules under deps/ (bundled) or
+# as -dev packages (system); WORKSPACE_LIBS=bundled|system|auto chooses
+# (policies/dependencies-model.md).  A stranger never types a git submodule
+# command: deps and build initialise the submodules and check the pins.
+ensure_submodules() {
+    local mode="${WORKSPACE_LIBS:-auto}"
+    [ -f .gitmodules ] || return 0
+    [ "$mode" = system ] && return 0
+
+    # In auto mode an installed package is enough: a failure here is a warning.
+    local have_pkg=0
+    pkg-config --exists libptytest && pkg-config --exists libtuikit && have_pkg=1
+
+    # Not --recursive: a library's own test-only submodules are not needed.
+    if ! git submodule update --init; then
+        if [ "$mode" = auto ] && [ "$have_pkg" = 1 ]; then
+            echo "WARNING: could not initialise the submodules; using the installed libtuikit-dev and libptytest-dev." >&2
+            return 0
+        fi
+        echo "ERROR: could not initialise the git submodules (no network, or no access to the repository?)." >&2
+        echo "       Install libtuikit-dev and libptytest-dev and use WORKSPACE_LIBS=system, or fix the access." >&2
+        return 1
+    fi
+
+    local path commit
+    while read -r path; do
+        commit=$(git -C "$path" rev-parse HEAD)
+        if ! git -C "$path" describe --exact-match --tags "$commit" > /dev/null; then
+            echo "ERROR: $path is at $commit, which is not a release tag (vX.Y.Z); pin it to one." >&2
+            return 1
+        fi
+    done < <(git config -f .gitmodules --get-regexp '^submodule\..*\.path$' | awk '{print $2}')
 }
 
 install_deps() {
@@ -45,6 +85,11 @@ install_deps() {
                     echo "Detected Ubuntu 24.04. Installing dependencies..."
                     sudo apt-get update
                     sudo apt-get install -y build-essential cmake libssl-dev lcov valgrind clang-tidy
+                    # The workspace libraries come from the workspace apt
+                    # repository, unless the submodules in deps/ are used.
+                    if [ "${WORKSPACE_LIBS:-auto}" != bundled ]; then
+                        sudo apt-get install -y libtuikit-dev libptytest-dev
+                    fi
                 else
                     echo "Unsupported Ubuntu version: $VERSION_ID. Only 24.04 is explicitly supported."
                     exit 1
@@ -88,6 +133,7 @@ run_tidy() {
 }
 
 cmake_configure() {
+    ensure_submodules || exit 1
     local build_type="$1"
     local extra_flags="${2:-}"
     mkdir -p "$BUILD_DIR" "$BIN_DIR"
@@ -134,6 +180,7 @@ build_integration_runner() {
 case "$1" in
     deps)
         install_deps
+        ensure_submodules
         ;;
     build)
         build_release
@@ -222,18 +269,22 @@ case "$1" in
         if [ "$(uname)" != "Windows_NT" ]; then
             echo "Running PTY test suites for coverage..."
             PTY_RUNNERS=(
-                "$BUILD_DIR/tests/pty/bin/pty-terminal-coverage-test-runner"
+                "$BUILD_DIR/tests/pty/bin/pty-test-runner"
                 "$BUILD_DIR/tests/pty/bin/pty-password-test-runner"
                 "$BUILD_DIR/tests/pty/bin/pty-readline-test-runner"
                 "$BUILD_DIR/tests/pty/bin/pty-tui-test-runner"
                 "$BUILD_DIR/tests/pty/bin/pty-tui-resize-test-runner"
+                "$BUILD_DIR/tests/pty/bin/pty-tui-interface-test-runner"
+                "$BUILD_DIR/tests/pty/bin/pty-tui-elements-test-runner"
                 "$BUILD_DIR/tests/pty/bin/pty-ctrl-c-test-runner"
                 "$BUILD_DIR/tests/pty/bin/pty-wizard-test-runner"
             )
             for runner in "${PTY_RUNNERS[@]}"; do
-                if [ -x "$runner" ]; then
-                    "$runner" || true   # non-zero is a test failure, not a build error
+                if [ ! -x "$runner" ]; then
+                    echo "ERROR: PTY runner not built: $runner" >&2
+                    exit 1
                 fi
+                "$runner" || { echo "ERROR: PTY runner failed: $runner" >&2; exit 1; }
             done
             echo "Capturing PTY coverage..."
             lcov --capture --directory . \
@@ -286,6 +337,9 @@ case "$1" in
         ;;
     check-ro-isolation)
         bash ci/check-ro-isolation.sh "${2:-$BIN_DIR/tg-cli-ro}"
+        ;;
+    check-static-libs)
+        bash ci/check-static-libs.sh "$BIN_DIR/tg-cli-ro" "$BIN_DIR/tg-tui" "$BIN_DIR/tg-cli"
         ;;
     clean-logs)
         rm -rf ~/.cache/tg-cli/logs/*
