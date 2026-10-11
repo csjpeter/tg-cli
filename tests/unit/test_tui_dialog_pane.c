@@ -144,15 +144,16 @@ static void test_render_highlights_selection_when_focused(void) {
 
     TuiGrid *g = malloc(sizeof(*g)); ASSERT(g != NULL, "alloc");
     tui_grid_capture(g, s);
-    /* The selected row is bold black on cyan across the full pane width. */
+    /* The selected row is bold reverse video across the full pane width. */
     for (int c = 0; c < p.cols; c++) {
-        ASSERT(g->fg[1][c] == TUI_BLACK && g->bg[1][c] == TUI_CYAN,
-               "row 1 black on cyan");
+        ASSERT(g->fg[1][c] == TUI_COLOR_DEFAULT && g->bg[1][c] == TUI_COLOR_DEFAULT,
+               "row 1 on the default colours");
+        ASSERT(g->attrs[1][c] & TUI_ATTR_REVERSE, "row 1 reverse");
         ASSERT(g->attrs[1][c] & TUI_ATTR_BOLD, "row 1 bold");
     }
     /* The other rows keep the terminal's own colours. */
-    ASSERT(g->bg[0][0] == TUI_COLOR_DEFAULT && g->bg[2][0] == TUI_COLOR_DEFAULT,
-           "other rows not filled");
+    ASSERT(!(g->attrs[0][0] & TUI_ATTR_REVERSE) && !(g->attrs[2][0] & TUI_ATTR_REVERSE),
+           "other rows not reversed");
     free(g);
     tui_screen_free(s);
 }

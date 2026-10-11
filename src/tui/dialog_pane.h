@@ -52,7 +52,7 @@ int  dialog_pane_refresh(DialogPane *dp,
                           MtProtoSession *s, Transport *t);
 
 /** Render the pane onto @p screen within @p pane. The selected row is
- *  filled in the selection style (bold black on cyan) when @p focused is
+ *  filled in the selection style (bold reverse video) when @p focused is
  *  non-zero, and underlined when the other pane has the focus, so the
  *  selection never depends on colour alone. An empty list says so and names
  *  the key that fills it; a list that could not be read says that. */

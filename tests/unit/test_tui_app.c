@@ -435,11 +435,12 @@ static void test_selected_dialog_row_is_filled_only_when_focused(void) {
     tui_grid_capture(g, app.screen);
     int w = app.layout.dialogs.cols;
     for (int c = 0; c < w; c++) {
-        ASSERT(g->fg[1][c] == TUI_BLACK && g->bg[1][c] == TUI_CYAN
-               && (g->attrs[1][c] & TUI_ATTR_BOLD),
-               "selected row bold black on cyan across the pane width");
+        ASSERT(g->fg[1][c] == TUI_COLOR_DEFAULT && g->bg[1][c] == TUI_COLOR_DEFAULT
+               && (g->attrs[1][c] & TUI_ATTR_BOLD)
+               && (g->attrs[1][c] & TUI_ATTR_REVERSE),
+               "selected row bold reverse across the pane width");
     }
-    ASSERT(g->bg[2][0] == TUI_COLOR_DEFAULT, "other rows not highlighted");
+    ASSERT(!(g->attrs[2][0] & TUI_ATTR_REVERSE), "other rows not highlighted");
 
     press(&app, TUI_KEY_RIGHT);          /* focus history */
     tui_app_paint(&app);
