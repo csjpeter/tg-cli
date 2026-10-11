@@ -269,7 +269,7 @@ case "$1" in
         if [ "$(uname)" != "Windows_NT" ]; then
             echo "Running PTY test suites for coverage..."
             PTY_RUNNERS=(
-                "$BUILD_DIR/tests/functional/pty/pty-terminal-coverage-test-runner"
+                "$BUILD_DIR/tests/functional/pty/pty-test-runner"
                 "$BUILD_DIR/tests/functional/pty/pty-password-test-runner"
                 "$BUILD_DIR/tests/functional/pty/pty-readline-test-runner"
                 "$BUILD_DIR/tests/functional/pty/pty-tui-test-runner"
@@ -280,9 +280,11 @@ case "$1" in
                 "$BUILD_DIR/tests/functional/pty/pty-wizard-test-runner"
             )
             for runner in "${PTY_RUNNERS[@]}"; do
-                if [ -x "$runner" ]; then
-                    "$runner" || true   # non-zero is a test failure, not a build error
+                if [ ! -x "$runner" ]; then
+                    echo "ERROR: PTY runner not built: $runner" >&2
+                    exit 1
                 fi
+                "$runner" || { echo "ERROR: PTY runner failed: $runner" >&2; exit 1; }
             done
             echo "Capturing PTY coverage..."
             lcov --capture --directory . \
