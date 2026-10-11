@@ -274,6 +274,8 @@ case "$1" in
                 "$BUILD_DIR/tests/functional/pty/pty-readline-test-runner"
                 "$BUILD_DIR/tests/functional/pty/pty-tui-test-runner"
                 "$BUILD_DIR/tests/functional/pty/pty-tui-resize-test-runner"
+                "$BUILD_DIR/tests/functional/pty/pty-tui-interface-test-runner"
+                "$BUILD_DIR/tests/functional/pty/pty-tui-elements-test-runner"
                 "$BUILD_DIR/tests/functional/pty/pty-ctrl-c-test-runner"
                 "$BUILD_DIR/tests/functional/pty/pty-wizard-test-runner"
             )

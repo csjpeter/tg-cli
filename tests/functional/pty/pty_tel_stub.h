@@ -44,7 +44,29 @@ typedef struct {
     uint64_t    auth_key_id;
     uint64_t    server_salt;
     uint64_t    session_id;
+
+    unsigned    fixture;      /**< PTY_STUB_* bits the server answers with */
 } PtyTelStub;
+
+/** @name Fixtures
+ *  What the stub answers with; the default (0) is an empty dialog list.
+ *  @{ */
+/** messages.getDialogs returns PTY_STUB_DIALOG_COUNT users (see below). */
+#define PTY_STUB_DIALOGS        (1u << 0)
+/** messages.getDialogs answers with an rpc_error. */
+#define PTY_STUB_DIALOGS_FAIL   (1u << 1)
+/** messages.getHistory returns PTY_STUB_HISTORY_COUNT messages. */
+#define PTY_STUB_HISTORY        (1u << 2)
+/** messages.getHistory answers with an rpc_error. */
+#define PTY_STUB_HISTORY_FAIL   (1u << 3)
+/** @} */
+
+/** Number of dialogs of PTY_STUB_DIALOGS. Dialog 0 is "Alice Anderson"
+ *  (7 unread), dialog 1 "Bob Brown" (read), the rest "Person NN" (read). */
+#define PTY_STUB_DIALOG_COUNT   30
+/** Number of messages of PTY_STUB_HISTORY: ids 40 down to 1, newest first;
+ *  even ids are outgoing; the text is "message NN". */
+#define PTY_STUB_HISTORY_COUNT  40
 
 /**
  * @brief Initialises the stub: binds a listen socket, seeds session.bin,
@@ -52,6 +74,12 @@ typedef struct {
  * @return 0 on success, -1 on error.
  */
 int pty_tel_stub_start(PtyTelStub *s);
+
+/**
+ * @brief pty_tel_stub_start() with the answers of @p fixture
+ *        (PTY_STUB_* bits).
+ */
+int pty_tel_stub_start_fixture(PtyTelStub *s, unsigned fixture);
 
 /**
  * @brief Signals the server thread to stop and joins it.

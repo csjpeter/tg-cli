@@ -38,6 +38,13 @@
 #define CRC_rpc_result            0xf35c6d01U
 #define CRC_rpc_error             0x2144ca19U
 #define CRC_messages_getDialogs   0xa0f4cb4fU
+#define CRC_messages_getHistory   0x4423e6c5U
+#define CRC_dialog                0xd58a08c6U
+#define CRC_peerNotifySettings    0xa83b0426U
+#define TL_messages_messages      0x8c718e87U
+#define TL_peerUser               0x59511722U
+#define TL_user                   0x3ff6ecb0U
+#define TL_message                0x94345242U
 #define CRC_updates_getState      0xedd4882aU
 #define CRC_updates_getDifference 0x19c2f763U
 #define TL_messages_dialogs       0x15ba6c40U
@@ -227,6 +234,76 @@ static void reply_empty_dialogs(ConnCtx *c, uint64_t req_msg_id) {
     tl_writer_free(&w);
 }
 
+/* messages.dialogs with PTY_STUB_DIALOG_COUNT user dialogs. */
+static void reply_dialogs(ConnCtx *c, uint64_t req_msg_id) {
+    char name[64];
+    TlWriter w;
+    tl_writer_init(&w);
+    tl_write_uint32(&w, TL_messages_dialogs);
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, PTY_STUB_DIALOG_COUNT);
+    for (int i = 0; i < PTY_STUB_DIALOG_COUNT; ++i) {
+        tl_write_uint32(&w, CRC_dialog);
+        tl_write_uint32(&w, 0);                       /* flags */
+        tl_write_uint32(&w, TL_peerUser);
+        tl_write_int64 (&w, 1000 + i);
+        tl_write_int32 (&w, 100 + i);                 /* top_message */
+        tl_write_int32 (&w, 0);                       /* read_inbox_max_id */
+        tl_write_int32 (&w, 0);                       /* read_outbox_max_id */
+        tl_write_int32 (&w, i == 0 ? 7 : 0);          /* unread_count */
+        tl_write_int32 (&w, 0);                       /* unread_mentions */
+        tl_write_int32 (&w, 0);                       /* unread_reactions */
+        tl_write_uint32(&w, CRC_peerNotifySettings);
+        tl_write_uint32(&w, 0);
+    }
+    tl_write_uint32(&w, TL_vector);                   /* messages */
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, TL_vector);                   /* chats */
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, TL_vector);                   /* users */
+    tl_write_uint32(&w, PTY_STUB_DIALOG_COUNT);
+    for (int i = 0; i < PTY_STUB_DIALOG_COUNT; ++i) {
+        if (i == 0)      snprintf(name, sizeof(name), "Alice Anderson");
+        else if (i == 1) snprintf(name, sizeof(name), "Bob Brown");
+        else             snprintf(name, sizeof(name), "Person %02d", i);
+        tl_write_uint32(&w, TL_user);
+        tl_write_uint32(&w, (1u << 0) | (1u << 1));   /* hash, first_name */
+        tl_write_uint32(&w, 0);                       /* flags2 */
+        tl_write_int64 (&w, 1000 + i);
+        tl_write_int64 (&w, 0x5151000000000000LL + i);
+        tl_write_string(&w, name);
+    }
+    reply_rpc_result(c, req_msg_id, w.data, w.len);
+    tl_writer_free(&w);
+}
+
+/* messages.messages: ids PTY_STUB_HISTORY_COUNT..1, even ids outgoing. */
+static void reply_history(ConnCtx *c, uint64_t req_msg_id) {
+    char text[32];
+    TlWriter w;
+    tl_writer_init(&w);
+    tl_write_uint32(&w, TL_messages_messages);
+    tl_write_uint32(&w, TL_vector);
+    tl_write_uint32(&w, PTY_STUB_HISTORY_COUNT);
+    for (int id = PTY_STUB_HISTORY_COUNT; id >= 1; --id) {
+        snprintf(text, sizeof(text), "message %02d", id);
+        tl_write_uint32(&w, TL_message);
+        tl_write_uint32(&w, (id % 2 == 0) ? (1u << 1) : 0u);  /* out */
+        tl_write_uint32(&w, 0);                               /* flags2 */
+        tl_write_int32 (&w, id);
+        tl_write_uint32(&w, TL_peerUser);
+        tl_write_int64 (&w, 1000);
+        tl_write_int32 (&w, 1700000000 + id);
+        tl_write_string(&w, text);
+    }
+    tl_write_uint32(&w, TL_vector);                   /* chats */
+    tl_write_uint32(&w, 0);
+    tl_write_uint32(&w, TL_vector);                   /* users */
+    tl_write_uint32(&w, 0);
+    reply_rpc_result(c, req_msg_id, w.data, w.len);
+    tl_writer_free(&w);
+}
+
 /* ── Frame dispatcher ────────────────────────────────────────────────── */
 
 static void dispatch(ConnCtx *c, uint64_t req_msg_id,
@@ -281,8 +358,20 @@ static void dispatch(ConnCtx *c, uint64_t req_msg_id,
     uint32_t inner_crc = (uint32_t)cur[0] | ((uint32_t)cur[1] << 8)
                        | ((uint32_t)cur[2] << 16) | ((uint32_t)cur[3] << 24);
 
+    unsigned fx = c->stub->fixture;
     if (inner_crc == CRC_messages_getDialogs) {
-        reply_empty_dialogs(c, req_msg_id);
+        if (fx & PTY_STUB_DIALOGS_FAIL)
+            reply_error(c, req_msg_id, 500, "STUB_DIALOGS_FAIL");
+        else if (fx & PTY_STUB_DIALOGS)
+            reply_dialogs(c, req_msg_id);
+        else
+            reply_empty_dialogs(c, req_msg_id);
+    } else if (inner_crc == CRC_messages_getHistory
+               && (fx & (PTY_STUB_HISTORY | PTY_STUB_HISTORY_FAIL))) {
+        if (fx & PTY_STUB_HISTORY_FAIL)
+            reply_error(c, req_msg_id, 500, "STUB_HISTORY_FAIL");
+        else
+            reply_history(c, req_msg_id);
     } else if (inner_crc == CRC_updates_getState) {
         reply_error(c, req_msg_id, 400, "STUB_NOT_SUPPORTED");
     } else if (inner_crc == CRC_updates_getDifference) {
@@ -373,8 +462,13 @@ static void *server_thread(void *arg) {
 /* ── Public API ──────────────────────────────────────────────────────── */
 
 int pty_tel_stub_start(PtyTelStub *s) {
+    return pty_tel_stub_start_fixture(s, 0);
+}
+
+int pty_tel_stub_start_fixture(PtyTelStub *s, unsigned fixture) {
     if (!s) return -1;
     memset(s, 0, sizeof(*s));
+    s->fixture = fixture;
     s->listen_fd = -1;
 
     /* Deterministic auth_key — identical to mt_server_seed_session(). */
