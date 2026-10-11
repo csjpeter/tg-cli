@@ -199,13 +199,13 @@ static void test_render_selection_style_follows_focus(void) {
 
     history_pane_render(&hp, &p, s, 1);
     tui_grid_capture(g, s);
-    ASSERT(g->fg[0][0] == TUI_BLACK && g->bg[0][19] == TUI_CYAN
-           && (g->attrs[0][0] & TUI_ATTR_BOLD), "selected row bold black on cyan");
-    ASSERT(g->bg[1][0] == TUI_COLOR_DEFAULT, "other row not filled");
+    ASSERT((g->attrs[0][0] & TUI_ATTR_REVERSE) && (g->attrs[0][19] & TUI_ATTR_REVERSE)
+           && (g->attrs[0][0] & TUI_ATTR_BOLD), "selected row bold reverse");
+    ASSERT(!(g->attrs[1][0] & TUI_ATTR_REVERSE), "other row not reversed");
 
     history_pane_render(&hp, &p, s, 0);
     tui_grid_capture(g, s);
-    ASSERT(g->bg[0][0] == TUI_COLOR_DEFAULT, "no fill when unfocused");
+    ASSERT(!(g->attrs[0][0] & TUI_ATTR_REVERSE), "no reverse when unfocused");
     ASSERT(g->attrs[0][0] & TUI_ATTR_UNDERLINE, "underlined when unfocused");
     free(g);
     tui_screen_free(s);
