@@ -187,6 +187,8 @@ static void test_render_unreadable_list_is_not_shown_as_empty(void) {
     char buf[64]; tgrid_row(s, 2, buf, sizeof(buf));
     ASSERT(strstr(buf, "could not read dialogs") != NULL, "says it could not read");
     ASSERT(strstr(buf, "no dialogs") == NULL, "not shown as empty");
+    char hint[64]; tgrid_row(s, 3, hint, sizeof(hint));
+    ASSERT(strstr(hint, "r retries") != NULL, "retry hint on the next row");
     TuiGrid *g = malloc(sizeof(*g)); ASSERT(g != NULL, "alloc");
     tui_grid_capture(g, s);
     int col = (int)(strstr(buf, "could") - buf);

@@ -125,14 +125,21 @@ void dialog_pane_render(DialogPane *dp,
 
     if (dp->count == 0) {
         tui_listview_set_viewport(&dp->lv, pane->rows);
-        const char *msg = dp->load_failed
-            ? "(could not read dialogs - r retries)"
-            : "(no dialogs - r reloads)";
+        /* The failure notice is wider than the narrow pane: it goes on
+         * two lines so that the retry hint is not clipped. */
+        const char *msg  = dp->load_failed ? "(could not read dialogs)"
+                                           : "(no dialogs - r reloads)";
+        const char *hint = dp->load_failed ? "r retries" : NULL;
+        tui_style st = dp->load_failed ? TUI_STYLE_ERROR
+                                       : tui_style_attrs(TUI_ATTR_DIM);
         int col = (pane->cols - (int)strlen(msg)) / 2;
         if (col < 0) col = 0;
-        tui_canvas_put(c, pane->rows / 2, col, msg,
-                       dp->load_failed ? TUI_STYLE_ERROR
-                                       : tui_style_attrs(TUI_ATTR_DIM));
+        tui_canvas_put(c, pane->rows / 2, col, msg, st);
+        if (hint) {
+            int hcol = (pane->cols - (int)strlen(hint)) / 2;
+            if (hcol < 0) hcol = 0;
+            tui_canvas_put(c, pane->rows / 2 + 1, hcol, hint, st);
+        }
         return;
     }
 
