@@ -83,6 +83,8 @@ project_test(unit        check-static-libs-selftest SCRIPT ci/check_static_libs_
              ARGS ${CMAKE_SOURCE_DIR} ${CMAKE_BINARY_DIR}/tests/ci TIMEOUT 60)
 # The Debian package builds with CPack and carries version, XB- fields,
 # shlibdeps-derived dependencies and the binaries (packaging model).
+project_test(unit        timing-selftest SCRIPT ci/timing_test.sh
+             ARGS ${CMAKE_SOURCE_DIR} ${CMAKE_BINARY_DIR}/tests/ci TIMEOUT 60)
 project_test(unit        check-package SCRIPT unit/check_package.sh
              ARGS ${CMAKE_BINARY_DIR} ${CMAKE_BINARY_DIR}/tests/package TIMEOUT 120)
 # Every declared test is in bin/, and nothing else is.
