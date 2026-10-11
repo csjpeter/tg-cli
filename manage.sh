@@ -197,31 +197,31 @@ case "$1" in
         echo "Running unit tests with ASAN..."
         build_debug
         build_test_runner
-        "$BUILD_DIR/tests/unit/test-runner" ${2:+"$2"}
+        "$BUILD_DIR/tests/unit/bin/test-runner" ${2:+"$2"}
         echo "Running functional tests with ASAN..."
         build_functional_runner
-        "$BUILD_DIR/tests/functional/functional-test-runner"
+        "$BUILD_DIR/tests/functional/bin/functional-test-runner"
         ;;
     valgrind)
         echo "Running unit tests with Valgrind..."
         build_release
         build_test_runner
-        valgrind --leak-check=full --error-exitcode=1 "$BUILD_DIR/tests/unit/test-runner" ${2:+"$2"}
+        valgrind --leak-check=full --error-exitcode=1 "$BUILD_DIR/tests/unit/bin/test-runner" ${2:+"$2"}
         echo "Running functional tests with Valgrind (crypto-heavy; may be slow)..."
         build_functional_runner
-        valgrind --leak-check=full --error-exitcode=1 "$BUILD_DIR/tests/functional/functional-test-runner"
+        valgrind --leak-check=full --error-exitcode=1 "$BUILD_DIR/tests/functional/bin/functional-test-runner"
         ;;
     valgrind-unit)
         echo "Running unit tests with Valgrind..."
         build_release
         build_test_runner
-        valgrind --leak-check=full --error-exitcode=1 "$BUILD_DIR/tests/unit/test-runner" ${2:+"$2"}
+        valgrind --leak-check=full --error-exitcode=1 "$BUILD_DIR/tests/unit/bin/test-runner" ${2:+"$2"}
         ;;
     valgrind-functional)
         echo "Running functional tests with Valgrind (crypto-heavy; may be slow)..."
         build_release
         build_functional_runner
-        valgrind --leak-check=full --error-exitcode=1 "$BUILD_DIR/tests/functional/functional-test-runner"
+        valgrind --leak-check=full --error-exitcode=1 "$BUILD_DIR/tests/functional/bin/functional-test-runner"
         ;;
     test-login)
         build_debug
@@ -238,7 +238,7 @@ case "$1" in
         echo "Running integration tests with ASAN (Telegram test DC)..."
         build_debug
         build_integration_runner
-        "$BUILD_DIR/tests/integration/tg-integration-test-runner" ${2:+"$2"}
+        "$BUILD_DIR/tests/integration/bin/tg-integration-test-runner" ${2:+"$2"}
         ;;
     coverage)
         cmake_configure Debug "-DENABLE_COVERAGE=ON"
@@ -249,7 +249,7 @@ case "$1" in
         # Pass 1 — unit suite. Wipe .gcda first so the capture only
         # reflects what the unit runner exercised.
         find "$BUILD_DIR" -name "*.gcda" -delete
-        "$BUILD_DIR/tests/unit/test-runner"
+        "$BUILD_DIR/tests/unit/bin/test-runner"
         echo "Capturing unit coverage..."
         lcov --capture --directory . \
              --output-file "$BUILD_DIR/coverage-unit.info"
@@ -258,7 +258,7 @@ case "$1" in
         # functional-only; we'll merge with unit below for the combined
         # report.
         find "$BUILD_DIR" -name "*.gcda" -delete
-        "$BUILD_DIR/tests/functional/functional-test-runner"
+        "$BUILD_DIR/tests/functional/bin/functional-test-runner"
         echo "Capturing functional coverage..."
         lcov --capture --directory . \
              --output-file "$BUILD_DIR/coverage-functional.info"
@@ -269,15 +269,15 @@ case "$1" in
         if [ "$(uname)" != "Windows_NT" ]; then
             echo "Running PTY test suites for coverage..."
             PTY_RUNNERS=(
-                "$BUILD_DIR/tests/functional/pty/pty-test-runner"
-                "$BUILD_DIR/tests/functional/pty/pty-password-test-runner"
-                "$BUILD_DIR/tests/functional/pty/pty-readline-test-runner"
-                "$BUILD_DIR/tests/functional/pty/pty-tui-test-runner"
-                "$BUILD_DIR/tests/functional/pty/pty-tui-resize-test-runner"
-                "$BUILD_DIR/tests/functional/pty/pty-tui-interface-test-runner"
-                "$BUILD_DIR/tests/functional/pty/pty-tui-elements-test-runner"
-                "$BUILD_DIR/tests/functional/pty/pty-ctrl-c-test-runner"
-                "$BUILD_DIR/tests/functional/pty/pty-wizard-test-runner"
+                "$BUILD_DIR/tests/pty/bin/pty-test-runner"
+                "$BUILD_DIR/tests/pty/bin/pty-password-test-runner"
+                "$BUILD_DIR/tests/pty/bin/pty-readline-test-runner"
+                "$BUILD_DIR/tests/pty/bin/pty-tui-test-runner"
+                "$BUILD_DIR/tests/pty/bin/pty-tui-resize-test-runner"
+                "$BUILD_DIR/tests/pty/bin/pty-tui-interface-test-runner"
+                "$BUILD_DIR/tests/pty/bin/pty-tui-elements-test-runner"
+                "$BUILD_DIR/tests/pty/bin/pty-ctrl-c-test-runner"
+                "$BUILD_DIR/tests/pty/bin/pty-wizard-test-runner"
             )
             for runner in "${PTY_RUNNERS[@]}"; do
                 if [ ! -x "$runner" ]; then

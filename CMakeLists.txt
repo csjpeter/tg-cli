@@ -224,19 +224,6 @@ target_link_libraries(tg-cli PRIVATE tg-domain-read tg-domain-write)
 install(FILES claude/skills/tg-cli/SKILL.md
         DESTINATION share/claude-skills/tg-cli)
 
-# The workspace libraries are linked statically: no libtuikit.so or
-# libptytest.so may show up among the dependencies of a binary.
-add_test(NAME StaticWorkspaceLibs
-         COMMAND ${CMAKE_SOURCE_DIR}/ci/check-static-libs.sh
-                 $<TARGET_FILE:tg-cli-ro> $<TARGET_FILE:tg-tui> $<TARGET_FILE:tg-cli>)
-add_test(NAME StaticWorkspaceLibsCheckSelfTest
-         COMMAND ${CMAKE_SOURCE_DIR}/tests/ci/check_static_libs_test.sh
-                 ${CMAKE_SOURCE_DIR} ${CMAKE_BINARY_DIR}/tests/ci)
-
-# The skill must agree with the man pages.
-add_test(NAME SkillMatchesManPages
-         COMMAND ${CMAKE_SOURCE_DIR}/tests/skill/check_skill.sh ${CMAKE_SOURCE_DIR})
-
 # The workspace's own libraries (policies/dependencies-model.md): a pinned git
 # submodule under deps/ built and linked statically ("bundled"), or the
 # installed -dev package ("system").  tg-cli is proprietary, so "auto" prefers
@@ -285,17 +272,10 @@ if(UNIX)
     workspace_lib(libptytest ptytest "the PTY tests")
 endif()
 
-# Unit tests
+# Tests: every one is declared in tests/CMakeLists.txt with project_test() and
+# built into build/tests/<category>/bin/<name> (policies/testing-model.md).
 enable_testing()
-add_subdirectory(tests/unit)
-
-# Functional tests (real crypto, no mocks)
-add_subdirectory(tests/functional)
-
-# Integration tests — target tg-integration-test-runner, EXCLUDED_FROM_ALL.
-# Build explicitly with: cmake --build <dir> --target tg-integration-test-runner
-# or via: ./manage.sh integration
-add_subdirectory(tests/integration)
+add_subdirectory(tests)
 
 # libFuzzer harness — only built when -DENABLE_FUZZ=ON is passed.
 # The option is declared earlier (near ENABLE_COVERAGE) so the

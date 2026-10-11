@@ -10,8 +10,14 @@
 ```
 
 There is no mechanism to run a single test in isolation. All unit tests
-run together via `build/tests/unit/test-runner`; all functional tests run
-via `build/tests/functional/functional-test-runner`.
+run together via `build/tests/unit/bin/test-runner`; all functional tests run
+via `build/tests/functional/bin/functional-test-runner`.
+
+Every test is declared by one `project_test(<category> <name> ...)` line in
+`tests/CMakeLists.txt` and is built into `build/tests/<category>/bin/<name>`
+(binary or script). `ctest` runs them all; `tests/unit/check_tests.sh` (the
+`check-tests` test) fails on a declared test with no file in `bin/` and on an
+executable in `bin/` that is not declared.
 
 Current status (as of 2026-04-19):
 
@@ -174,7 +180,7 @@ the `with_tmp_home()` helper.
 
 ---
 
-## PTY-Backed Tests (`tests/functional/pty/`)
+## PTY-Backed Tests (`tests/pty/`)
 
 The tests use `libptytest`, the owner's PTY test library: either the installed
 `libptytest-dev` package or the pinned `deps/libptytest` submodule, linked
@@ -182,7 +188,7 @@ statically (`-DWORKSPACE_LIBS=bundled|system|auto`, see the README). It opens a
 pseudo-terminal via `forkpty(3)`, executes the program under test as a child
 process, feeds keystrokes through the master file descriptor, and maintains a
 virtual terminal screen. Test code inspects the buffer with `pty_screen_contains()`,
-`pty_row_contains()`, and `pty_wait_for()`. The `tests/functional/pty/`
+`pty_row_contains()`, and `pty_wait_for()`. The `tests/pty/`
 subdirectory holds PTY-backed smoke tests that verify the harness itself (no
 tg-cli binary required) and will host future TUI acceptance tests (US-11,
 US-02). The PTY target is only built on POSIX (`UNIX` CMake guard) and is

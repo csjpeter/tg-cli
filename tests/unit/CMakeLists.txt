@@ -66,20 +66,3 @@ set(TEST_SOURCES
 
 add_executable(test-runner ${TEST_SOURCES})
 target_link_libraries(test-runner PRIVATE tg-domain-write tg-domain-read tg-app tg-tui-lib tg-proto OpenSSL::SSL OpenSSL::Crypto)
-
-add_test(NAME UnitTests COMMAND test-runner)
-
-# LICENSE, README, man pages and every file's SPDX tag declare one licence
-# (policies/licensing-model.md).
-add_test(NAME LicenseDeclaration
-         COMMAND ${CMAKE_SOURCE_DIR}/tests/unit/check_license.sh ${CMAKE_SOURCE_DIR})
-
-# Every source file and script starts with the workspace header
-# (policies/source-header-model.md).
-add_test(NAME SourceHeaders
-         COMMAND ${CMAKE_SOURCE_DIR}/tests/unit/check_headers.sh ${CMAKE_SOURCE_DIR})
-
-# The owner's private domain appears in no tracked file
-# (policies/private-names-model.md).
-add_test(NAME PrivateNames
-         COMMAND ${CMAKE_SOURCE_DIR}/tests/unit/check_private_names.sh ${CMAKE_SOURCE_DIR})

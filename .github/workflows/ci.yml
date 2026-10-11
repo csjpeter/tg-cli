@@ -91,8 +91,8 @@ jobs:
       - name: Unit + functional tests
         run: |
           cd build
-          ./tests/unit/test-runner
-          ./tests/functional/functional-test-runner
+          ./tests/unit/bin/test-runner
+          ./tests/functional/bin/functional-test-runner
 
   build-windows-mingw:
     runs-on: windows-latest

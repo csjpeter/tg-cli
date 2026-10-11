@@ -70,10 +70,3 @@ add_executable(functional-test-runner ${FUNCTIONAL_SOURCES})
 target_link_libraries(functional-test-runner PRIVATE
     tg-domain-write tg-domain-read tg-app tg-proto tg-tui-lib
     OpenSSL::SSL OpenSSL::Crypto)
-
-add_test(NAME FunctionalTests COMMAND functional-test-runner)
-
-# PTY-backed functional tests (POSIX only)
-if(UNIX)
-    add_subdirectory(pty)
-endif()
