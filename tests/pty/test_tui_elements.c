@@ -15,7 +15,7 @@
  *   - the header bar: the place and the position (`N of M`) on the left, the
  *     program name at the right edge, bold white on blue over the width;
  *   - the dialog list: rows, the unread marker and its bold, the selected row
- *     (black on cyan, bold, the whole pane width), the unfocused selection
+ *     (bold reverse, the whole pane width), the unfocused selection
  *     (underlined), scrolling, every movement key;
  *   - the history view: placeholder, rows with the direction arrow, the
  *     selection, every movement key, focus changes;
@@ -187,13 +187,11 @@ static int row_style(PtySession *s, int r, int c0, int c1, int fg, int bg,
     return 1;
 }
 
-#define SEL_FG PTY_FG_BLACK
-#define SEL_BG PTY_BG_CYAN
-
-/* The screen has a list row `r` selected (focused): black on cyan, bold,
- * across [c0, c1). */
+/* The screen has a list row `r` selected (focused): bold reverse in the
+ * terminal's own colours (libtuikit v0.4.2), across [c0, c1). */
 static int selected_row(PtySession *s, int r, int c0, int c1) {
-    return row_style(s, r, c0, c1, SEL_FG, SEL_BG, PTY_ATTR_BOLD, 0);
+    return row_style(s, r, c0, c1, PTY_FG_DEFAULT, PTY_BG_DEFAULT,
+                     PTY_ATTR_BOLD | PTY_ATTR_REVERSE, 0);
 }
 
 static void key(PtySession *s, int k) {
@@ -300,7 +298,7 @@ static void test_dialog_selection_and_unread_bold(void) {
     PtyTelStub stub;
     PtySession *s = start_tui(&stub, PTY_STUB_DIALOGS, "Alice Anderson");
     if (!s) return;
-    /* The first row is selected: black on cyan, bold, the whole pane. */
+    /* The first row is selected: bold reverse, the whole pane. */
     if (selected_row(s, 1, 0, LEFT)
         /* The selection stops at the pane's edge. */
         && row_style(s, 1, LEFT, COLS, PTY_FG_DEFAULT, PTY_BG_DEFAULT, 0,
@@ -368,10 +366,11 @@ static void test_dialog_list_failed_state(void) {
     /* The status row says so too, in bold red, until a key clears it. */
     row_style(s, STATUS_ROW, 0, 20, PTY_FG_RED, PTY_BG_DEFAULT,
               PTY_ATTR_BOLD, 0);
-    /* The notice is wider than the 28-column pane and is clipped at its
-     * edge, so only its start is on the screen. */
-    if (row_has(s, 12, "(could not read dialogs")) {
-        int col = 0;
+    /* The notice would be clipped in one line in the 28-column pane, so the
+     * retry hint is on the next row, whole, in the same style. */
+    if (row_has(s, 12, "(could not read dialogs)")
+        && row_has(s, 13, "r retries")) {
+        int col = (28 - (int)strlen("(could not read dialogs)")) / 2;
         g_tests_run++;
         if (pty_cell_fg(s, 12, col) != PTY_FG_RED
             || !(pty_cell_attr(s, 12, col) & PTY_ATTR_BOLD)) {
@@ -392,7 +391,7 @@ static void test_history_rows_and_selection(void) {
         /* Even ids are outgoing (">"), odd ones incoming ("<"). */
         && row_has(s, 1, "> [40] message 40")
         && row_has(s, 2, "< [39] message 39")
-        /* The first message is selected, focused: black on cyan, bold, the
+        /* The first message is selected, focused: bold reverse, the
          * history pane's whole width. */
         && selected_row(s, 1, LEFT, COLS)
         && row_style(s, 2, LEFT, COLS, PTY_FG_DEFAULT, PTY_BG_DEFAULT, 0,
