@@ -897,8 +897,11 @@ static int run_tui_loop(const ApiConfig *cfg,
         if (ev.type == TUI_EV_HANGUP) break;     /* the terminal is gone */
 
         if (ev.type == TUI_EV_RESIZE) {
-            int nr = ev.rows; if (nr < 3)  nr = app.rows;
-            int nc = ev.cols; if (nc < 40) nc = app.cols;
+            /* A size below the layout minimum is passed on: tui_app_paint
+             * then shows the "terminal too small" notice.  Only a size the
+             * screen cannot hold at all is ignored. */
+            int nr = ev.rows; if (nr < 1) nr = app.rows;
+            int nc = ev.cols; if (nc < 1) nc = app.cols;
             if (tui_app_resize(&app, nr, nc) == 0) {
                 tui_screen_invalidate(app.screen);
                 tui_flip(term, &app, &out);

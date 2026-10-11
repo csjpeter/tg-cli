@@ -156,6 +156,20 @@ static void test_tui_resize_sigwinch(void) {
     /* Screen must still contain "[dialogs]" after repaint. */
     ASSERT_WAIT_FOR(s, "[dialogs]", 3000);
 
+    /* ── Resize below the minimum (30×10): the notice, not the old frame ── */
+    g_tests_run++;
+    if (pty_resize(s, 30, 10) != 0) {
+        printf("  [FAIL] %s:%d: pty_resize(30,10) failed\n",
+               __FILE__, __LINE__);
+        g_tests_failed++;
+        pty_send_key(s, PTY_KEY_ESC);
+        pty_wait_exit(s, 3000);
+        pty_close(s);
+        pty_tel_stub_stop(&stub);
+        return;
+    }
+    ASSERT_WAIT_FOR(s, "terminal too small", 3000);
+
     /* ── Resize back to 80×24 ─────────────────────────────────────────── */
     g_tests_run++;
     if (pty_resize(s, 80, 24) != 0) {
