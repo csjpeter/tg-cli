@@ -37,6 +37,8 @@ show_help() {
     echo "  tidy               Run clang-tidy static analysis on src/ (warn-only)"
     echo "  check-ro-isolation Verify tg-cli-ro contains no write-domain symbols (ADR-0005)"
     echo "  check-static-libs  Verify the binaries have no libtuikit.so / libptytest.so dependency"
+    echo "  check              Debug build, unit + functional tests, ro-isolation and static-libs checks"
+    echo "  timing [KEY-N]     Print the Gate line from build/timing.log; comment it on KEY-N"
     echo "  package deb        Build the Debian package into build/packages/ (CPack)"
     echo "  clean-logs         Purge all application log files"
     echo "  fuzz               Build and run libFuzzer harness for TL parser (requires clang)"
@@ -215,7 +217,40 @@ do_package() {
     find "$PKG_DIR" -maxdepth 1 -name '*.deb' | sort
 }
 
+# Verbs that do work time themselves (policies/manage-sh-model.md): the verb
+# runs in a child of this script, so a failure under `set -e` is still seen
+# and recorded; the record is build/timing.log (ci/timing.sh).
+TIMING_LOG="$BUILD_DIR/timing.log"
+case "${1:-}" in
+    build|debug|test|valgrind|valgrind-unit|valgrind-functional|integration|coverage|check|package)
+        if [ -z "${TG_MANAGE_TIMED:-}" ]; then
+            t_start=$(date +%s)
+            t_rc=0
+            TG_MANAGE_TIMED=1 bash "$0" "$@" || t_rc=$?
+            t_end=$(date +%s)
+            sh ci/timing.sh record "$TIMING_LOG" "$1" "$t_start" "$t_end" "$t_rc"
+            exit "$t_rc"
+        fi
+        ;;
+esac
+
 case "$1" in
+    timing)
+        line=$(sh ci/timing.sh gate "$TIMING_LOG") || { echo "$line"; exit 1; }
+        echo "$line"
+        if [ -n "${2:-}" ]; then
+            issue-cli issue comment "$2" "$line"
+        fi
+        ;;
+    check)
+        build_debug
+        build_test_runner
+        "$BUILD_DIR/tests/unit/bin/test-runner"
+        build_functional_runner
+        "$BUILD_DIR/tests/functional/bin/functional-test-runner"
+        bash ci/check-ro-isolation.sh "$BIN_DIR/tg-cli-ro"
+        bash ci/check-static-libs.sh "$BIN_DIR/tg-cli-ro" "$BIN_DIR/tg-tui" "$BIN_DIR/tg-cli"
+        ;;
     package)
         do_package "${2:-deb}"
         ;;
